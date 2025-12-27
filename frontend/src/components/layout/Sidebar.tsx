@@ -10,7 +10,8 @@ import {
   Users,
   BookOpen,
   Search,
-  Bell
+  Bell,
+  CheckCircle
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
@@ -98,6 +99,13 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 label="Multilingual Translation" 
                 active={activeModule === 'translation'}
                 onClick={() => onModuleChange('translation')}
+                highlight
+              />
+              <NavItem 
+                icon={CheckCircle} 
+                label="Clause Detection" 
+                active={activeModule === 'clause'}
+                onClick={() => onModuleChange('clause')}
                 highlight
               />
               <NavItem 

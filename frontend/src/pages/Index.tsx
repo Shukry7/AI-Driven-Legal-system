@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Sidebar } from '@/components/layout/Sidebar';
 import { TranslationModule } from '@/components/translation/TranslationModule';
+import { ClauseModule } from '@/components/clause/ClauseModule';
 import { Toaster } from '@/components/ui/sonner';
 
 export default function Index() {
@@ -13,8 +14,9 @@ export default function Index() {
       <main className="ml-64 min-h-screen">
         <div className="p-8">
           {activeModule === 'translation' && <TranslationModule />}
+          {activeModule === 'clause' && <ClauseModule />}
           
-          {activeModule !== 'translation' && (
+          {activeModule !== 'translation' && activeModule !== 'clause' && (
             <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
               <div className="text-center">
                 <h2 className="font-heading text-xl font-bold text-foreground mb-2">
