@@ -9,6 +9,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { supremeCourtMissingClauses } from './mock-clauses-data';
 
 interface ClauseWorkspaceProps {
   file: File;
@@ -68,47 +69,138 @@ interface ProcessStep {
 }
 
 export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceProps) {
-  const documentText = `
-    EMPLOYMENT AGREEMENT
+  const documentText = `IN THE SUPREME COURT OF THE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA
 
-    This Employment Agreement ("Agreement") is entered into as of [MISSING: Effective Date - Enter date], by and between TechCorp Inc. ("Employer") and John Doe ("Employee").
+In the matter of an application for Leave to Appeal under and in terms of Section 5C (1) of the High Court of the Provinces (Special Provisions) Act No.19 of 1990 as amended by Act, No. 54 of 2006
 
-    1. POSITION AND DUTIES
-    Employee agrees to serve as Senior Software Engineer and shall perform duties as assigned by the Employer.
+Believers Church
+No. 54, Jayasooriya Mawatha,
+Kandana.
 
-    2. COMPENSATION
-    Employee shall receive an annual salary of [CORRUPTED: $###,###] payable in accordance with standard payroll practices.
-    [MISSING: Bonus Amount - Enter annual bonus if applicable]
+S.C. Case No: [CORRUPTED: SC/###/LA 184/2023]
+CP/HCCA/KANDY/67/2021(LA)
+D.C. Nawalapitiya Case No. 80/16/SPL
 
-    3. TERM OF EMPLOYMENT
-    This Agreement shall commence on January 1, 2024 and continue until terminated by either party.
+Plaintiff
 
-    4. CONFIDENTIALITY
-    Employee agrees to maintain confidentiality of all proprietary information during employment.
+Vs.
 
-    5. INTELLECTUAL PROPERTY
-    All work product created during employment shall belong to Employer.
+Rev. Father Paneer Selvam
+(Now Deceased)
+Believers Church
+No. 26, Dekinda Road,
+Nawalapitiya.
 
-    6. TERMINATION
-    Either party may terminate this agreement with [CORRUPTED: ## days] written notice.
+Defendant
 
-    7. GOVERNING LAW
-    This Agreement shall be governed by the laws of the State of California.
+Paneer Selvam Jenita Enriya
+No. 5B, Dekinda Road, Bawwagama,
+Nawalapitiya.
 
-    [MISSING: Force Majeure Clause - Should appear here]
+Substituted Defendant
 
-    8. ENTIRE AGREEMENT
-    This Agreement constitutes the entire agreement between the parties.
+THEN BETWEEN
 
-    [MISSING: Arbitration Clause - Required for dispute resolution]
+Believers Church
+No. 54, Jayasooriya Mawatha,
+Kandana.
 
-    SIGNATURES
+Plaintiff – Petitioner
 
-    Employer: [MISSING: Employer Signature - Signature required]
-    Date: _____________
+And
 
-    Employee: [MISSING: Employee Signature - Signature required]
-    Date: _____________
+Paneer Selvam Jenita Enriya
+No. 5B, Dekinda Road, Bawwagama,
+Nawalapitiya.
+
+Substituted Defendant – Respondent
+
+NOW BETWEEN
+
+Believers Church
+No. 54, Jayasooriya Mawatha,
+Kandana.
+
+Plaintiff – Petitioner – Petitioner
+
+Vs.
+
+Paneer Selvam Jenita Enriya
+No. 5B, Dekinda Road, Bawwagama,
+Nawalapitiya.
+
+Substituted Defendant -Respondent-Respondent
+
+AND NOW BETWEEN
+
+Believers Church
+No. 54, Jayasooriya Mawatha,
+Kandana.
+
+Plaintiff – Petitioner – Petitioner – Petitioner
+
+Vs.
+
+Paneer Selvam Jenita Enriya
+No. 5B, Dekinda Road, Bawwagama,
+Nawalapitiya
+
+Substituted Defendant – Respondent – Respondent – Respondent
+
+Before: Hon. Vijith K. Malalgoda, PC, J.
+Hon. A. L. Shiran Gooneratne, J.
+Hon. Janak De Silva, J.
+
+Counsel:
+C. Sooriyaarachchi with G.C. Gunawardhena for the Plaintiff – Petitioner – Petitioner – Petitioner
+Ishan Alawathurage for the Substituted Defendant – Respondent – Respondent – Respondent
+
+Argued on: [MISSING: Argument Date - Enter date]
+Decided on: [MISSING: Decision Date - Enter date]
+
+[MISSING: Judge's Opening Statement - Required introduction]
+
+Janak De Silva, J.
+
+This is an application for leave to appeal from the judgment of the Civil Appellate High Court of the Central Province (Holden in Kandy) dated [CORRUPTED: ##.03.2023] by which leave to appeal against the order of the learned District Judge of Nawalapitiya dated 16.12.2021 was dismissed.
+
+The Plaintiff-Petitioner-Petitioner-Petitioner instituted action against the Defendant-Respondent-Respondent-Respondent seeking a declaration of title to the land more fully described in the schedule to the plaint, and an order of eviction against the Respondent and all persons claiming under him.
+
+[MISSING: Procedural History Clause - Details of previous hearings]
+
+The Petitioner as well as his registered Attorney-at-Law were absent when the matter was taken up for further trial on 24.09.2020. Hence, the action was dismissed.
+
+The Petitioner made an application in terms of Section 87(3) of the Civil Procedure Code to have the dismissal set aside. After inquiry, the learned District Judge refused to set aside the judgment entered upon the default of the Petitioner.
+
+Aggrieved by the said order of the learned District Judge, the Petitioner filed a leave to appeal application in the Civil Appellate High Court. The Respondent raised a preliminary objection that the application was misconceived in law and that the Petitioner should have come by way of final appeal. This was upheld by the Civil Appellate High Court and the Petitioner has filed this leave to appeal application against the said judgment.
+
+[MISSING: Legal Framework Section - Statutory provisions overview]
+
+The question that arises for determination is whether a party aggrieved by a default judgment must come by way of appeal or leave to appeal.
+
+Section 88(2) of the Civil Procedure Code reads as follows:
+"The order setting aside or refusing to set aside the judgment entered upon default shall be accompanied by a judgment adjudicating upon the facts and specifying the grounds upon which it is made, and shall be liable to an appeal to the Court of Appeal."
+
+This provision was examined by a fuller bench of this Court in Barbara Iranganie De Silva v. Hewa Waduge Indralatha [(2017) BALR 68] and it was held that the application approach test have no application to an application made pursuant to Section 88(2) of the Civil Procedure Code.
+
+I am in respectful agreement with the decision in Barbara Iranganie De Silva v. Hewa Waduge Indralatha. Hence, the leave to appeal application made by the Petitioner is misconceived in law. The Civil Appellate High Court was correct in dismissing the application on the preliminary objection raised by the Respondent. Accordingly, leave to appeal must be refused in this application.
+
+Before parting, I must make reference to the fact that the learned Counsel for the Respondent assisted Court by drawing our attention to the amendment made to Section 88(2) of the Civil Procedure Code by Act No. 5 of 2022.
+
+For all the foregoing reasons, I hold that leave to appeal must be refused. Application is dismissed. Parties shall bear their costs.
+
+Judge: [MISSING: Judge Signature - Signature required]
+Date: [MISSING: Signature Date - Enter date]
+
+Vijith K. Malalgoda, P.C., J.
+I agree.
+
+Judge: [MISSING: Second Judge Signature - Signature required]
+
+A. L. Shiran Gooneratne, J.
+I agree.
+
+Judge: [MISSING: Third Judge Signature - Signature required]
   `;
 
   const [analyzing, setAnalyzing] = useState(false);
@@ -135,112 +227,33 @@ export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceP
   const [processSteps, setProcessSteps] = useState(steps);
 
   const mockResults: AnalysisResults = {
-    totalClauses: 24,
-    validClauses: 19,
-    missingClauses: [
-      {
-        id: 1,
-        name: 'Force Majeure Clause',
-        severity: 'high',
-        description: 'Protection for unforeseen circumstances beyond control',
-        expectedLocation: 'Section 8',
-        suggestion: 'Should include provisions for natural disasters, pandemics, and government actions',
-        predictedText: 'Neither party shall be liable for any failure or delay in performance under this Agreement due to causes beyond their reasonable control, including but not limited to acts of God, natural disasters, war, terrorism, pandemics, government actions, labor disputes, or utility failures. The affected party shall promptly notify the other party and shall use reasonable efforts to minimize the impact of such events.',
-        confidence: 0.92,
-        jurisdiction: 'California, USA',
-        rationale: 'Detected references to external uncontrollable events elsewhere in the contract; absence of a relief mechanism indicates the need for a Force Majeure clause.',
-        alternatives: [
-          'Neither party shall be liable for delays caused by events beyond reasonable control (including natural disasters, war, pandemics, or government actions). The impacted party must notify the other party promptly and mitigate effects to the extent feasible.',
-          'Performance obligations are suspended during any event beyond a party’s reasonable control. The impacted party shall notify the other party and resume performance as soon as practicable.'
-        ],
-        isPredictable: true
-      },
-      {
-        id: 2,
-        name: 'Arbitration Clause',
-        severity: 'medium',
-        description: 'Dispute resolution mechanism missing',
-        expectedLocation: 'Section 9',
-        suggestion: 'Recommend mandatory arbitration before litigation',
-        predictedText: 'Any dispute, controversy, or claim arising out of or relating to this Agreement shall be resolved through binding arbitration in accordance with the rules of the American Arbitration Association. The arbitration shall take place in California, and the decision of the arbitrator shall be final and binding upon both parties.',
-        confidence: 0.87,
-        jurisdiction: 'California, USA',
-        rationale: 'Contract references governing law and confidentiality but lacks a primary dispute resolution mechanism; arbitration recommended for efficiency and confidentiality.',
-        alternatives: [
-          'All disputes arising from this Agreement shall be submitted to binding arbitration administered by the AAA. Venue shall be California. Judgment on the award may be entered in any court having jurisdiction.',
-          'Any claim or controversy arising from this Agreement shall be resolved exclusively by final and binding arbitration under AAA rules. The parties waive the right to a jury trial.'
-        ],
-        isPredictable: true
-      },
-      {
-        id: 3,
-        name: 'Effective Date',
-        severity: 'high',
-        description: 'Contract effective date is not specified',
-        expectedLocation: 'Header',
-        suggestion: 'Specify the date when the agreement becomes effective',
-        predictedText: '',
-        isPredictable: false,
-        placeholderText: '[Enter Effective Date]',
-        inputType: 'date'
-      },
-      {
-        id: 4,
-        name: 'Bonus Amount',
-        severity: 'medium',
-        description: 'Annual bonus amount or percentage is missing',
-        expectedLocation: 'Section 2. COMPENSATION',
-        suggestion: 'Specify bonus terms if applicable',
-        predictedText: '',
-        isPredictable: false,
-        placeholderText: '[Enter Bonus Amount/Percentage]',
-        inputType: 'currency'
-      },
-      {
-        id: 5,
-        name: 'Employer Signature',
-        severity: 'high',
-        description: 'Employer signature is missing from the agreement',
-        expectedLocation: 'End of Document',
-        suggestion: 'Document requires authorized signatory from employer',
-        predictedText: '',
-        isPredictable: false,
-        placeholderText: '[Employer Signature Required]',
-        inputType: 'signature'
-      },
-      {
-        id: 6,
-        name: 'Employee Signature',
-        severity: 'high',
-        description: 'Employee signature is missing from the agreement',
-        expectedLocation: 'End of Document',
-        suggestion: 'Document requires signature from employee',
-        predictedText: '',
-        isPredictable: false,
-        placeholderText: '[Employee Signature Required]',
-        inputType: 'signature'
-      }
-    ],
+    totalClauses: 18,
+    validClauses: 13,
+    missingClauses: supremeCourtMissingClauses as any,
     corruptedClauses: [
       {
         id: 1,
-        name: 'Compensation Amount',
-        issue: 'Salary figure corrupted or unreadable',
-        section: '2. COMPENSATION',
-        suggestion: 'Verify and restore the exact compensation amount',
-        predictedText: '$125,000',
+        name: 'Case Number',
+        issue: 'Part of the Supreme Court case number is corrupted (SC/###/LA)',
+        section: 'S.C. Case No:',
+        suggestion: 'Verify the complete SC case number from court records. The corrupted text shows: SC/###/LA 184/2023',
+        predictedText: 'SC/HCCA/LA 184/2023',
         isPredictable: false,
-        requiresManualInput: true
+        requiresManualInput: true,
+        inputType: 'text',
+        userInputValue: ''
       },
       {
         id: 2,
-        name: 'Notice Period',
-        issue: 'Number of days missing',
-        section: '6. TERMINATION',
-        suggestion: 'Standard notice period is typically 14-30 days',
-        predictedText: '30 days',
+        name: 'Civil Appellate High Court Date',
+        issue: 'Day portion of the date is corrupted (##.03.2023)',
+        section: 'Civil Appellate High Court',
+        suggestion: 'The date appears to be in March 2023 - verify the exact day. The corrupted text shows: ##.03.2023',
+        predictedText: '17.03.2023',
         isPredictable: false,
-        requiresManualInput: true
+        requiresManualInput: true,
+        inputType: 'text',
+        userInputValue: ''
       }
     ]
   };
@@ -432,7 +445,12 @@ export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceP
         const corruptedText = match ? match[1] : '###';
         const beforeText = line.substring(0, line.indexOf('[CORRUPTED:'));
         const afterText = line.substring(line.indexOf(']') + 1);
-        const clause = results?.corruptedClauses[0];
+        // Find matching corrupted clause based on section/context
+        const clause = results?.corruptedClauses.find(c => 
+          line.toLowerCase().includes(c.section.toLowerCase()) ||
+          corruptedText.includes('SC/') && c.name.includes('Case Number') ||
+          corruptedText.includes('.03.2023') && c.name.includes('Date')
+        ) || results?.corruptedClauses[0];
 
         return (
           <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
@@ -461,7 +479,13 @@ export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceP
       if (isMissing) {
         const match = line.match(/\[MISSING: ([^\]]+)\]/);
         const missingClause = match ? match[1] : 'Missing Clause';
-        const clause = results?.missingClauses.find(c => missingClause.includes(c.name));
+        // Extract the clause name from the marker text (e.g., "Argument Date - Enter date" -> "Argument Date")
+        const clauseName = missingClause.split(' - ')[0].trim();
+        const clause = results?.missingClauses.find(c => 
+          c.name.toLowerCase() === clauseName.toLowerCase() ||
+          clauseName.toLowerCase().includes(c.name.toLowerCase()) ||
+          c.name.toLowerCase().includes(clauseName.toLowerCase())
+        );
 
         return (
           <div key={idx} className="my-4">
