@@ -21,6 +21,8 @@ interface AnalysisResults {
   validClauses: number;
   missingClauses: MissingClause[];
   corruptedClauses: CorruptedClause[];
+  originalDocument?: string;
+  modifiedDocument?: string;
 }
 
 interface MissingClause {
@@ -864,17 +866,7 @@ export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceP
                 </div>
               )}
 
-              {analysisComplete && viewMode === 'comparison' && (
-                <div className="mt-4 flex items-center justify-center gap-4">
-                  <Button onClick={handleDownloadDocument} className="bg-success hover:bg-success/90">
-                    <Download className="w-4 h-4 mr-2" />
-                    Download Completed Document
-                  </Button>
-                  <Button variant="outline" onClick={() => onComplete(results!)}>
-                    View Full Review
-                  </Button>
-                </div>
-              )}
+
             </CardContent>
           </Card>
 
@@ -1036,7 +1028,11 @@ export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceP
                   </div>
                 </div>
 
-                <Button className="w-full mt-4" onClick={() => onComplete(results)}>
+                <Button className="w-full mt-4" onClick={() => onComplete({
+                  ...results,
+                  originalDocument: documentText,
+                  modifiedDocument: modifiedDocumentText
+                })}>
                   <Download className="w-4 h-4 mr-2" />
                   Continue to Full Review
                 </Button>
