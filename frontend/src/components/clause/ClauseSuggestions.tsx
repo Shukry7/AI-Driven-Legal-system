@@ -356,8 +356,19 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
       );
     }
 
-    const originalLines = results.originalDocument.trim().split('\n');
-    const modifiedLines = results.modifiedDocument.trim().split('\n');
+    // Normalize line endings so \r\n vs \n doesn't cause every line to be treated as "new"
+    const toNormalizedLines = (doc: string) =>
+      doc
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .trim()
+        .split('\n');
+
+    const originalLines = toNormalizedLines(results.originalDocument);
+    const modifiedLines = toNormalizedLines(results.modifiedDocument);
+
+    const originalLineSet = new Set(originalLines);
+    const modifiedLineSet = new Set(modifiedLines);
 
     return (
       <Card>
@@ -372,7 +383,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               <div className="bg-muted/30 rounded-lg p-4 overflow-y-auto" style={{ maxHeight: '600px' }}>
                 <div className="font-mono text-sm text-foreground leading-relaxed space-y-1">
                   {originalLines.map((line, idx) => {
-                    const isRemoved = !modifiedLines.includes(line) && (line.includes('[CORRUPTED:') || line.includes('[MISSING:'));
+                    const isRemoved = !modifiedLineSet.has(line) && (line.includes('[CORRUPTED:') || line.includes('[MISSING:'));
                     return (
                       <div
                         key={idx}
@@ -397,7 +408,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               <div className="bg-muted/30 rounded-lg p-4 overflow-y-auto" style={{ maxHeight: '600px' }}>
                 <div className="font-mono text-sm text-foreground leading-relaxed space-y-1">
                   {modifiedLines.map((line, idx) => {
-                    const isNew = !originalLines.includes(line) && !line.includes('[CORRUPTED:') && !line.includes('[MISSING:');
+                    const isNew = !originalLineSet.has(line) && !line.includes('[CORRUPTED:') && !line.includes('[MISSING:');
                     const isReplaced = acceptedChanges.some(c => 
                       line.includes(c.userInputValue || c.predictedText)
                     );
