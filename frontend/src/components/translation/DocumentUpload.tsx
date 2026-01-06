@@ -25,7 +25,7 @@ const preprocessingSteps = [
 
 export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
   const [file, setFile] = useState<File | null>(null);
-  const [sourceLanguage, setSourceLanguage] = useState<string>('');
+  const [sourceLanguage] = useState<string>('en');
   const [targetLanguage, setTargetLanguage] = useState<string>('');
   const [isDragging, setIsDragging] = useState(false);
   const [isProcessing, setIsProcessing] = useState(false);
@@ -86,7 +86,7 @@ STATEMENT OF CLAIM
     return validTypes.includes(file.type);
   };
 
-  const canProceed = file && sourceLanguage && targetLanguage && sourceLanguage !== targetLanguage && !isProcessing;
+  const canProceed = file && targetLanguage && targetLanguage !== 'en' && !isProcessing;
 
   return (
     <div className="space-y-6">
@@ -187,7 +187,7 @@ STATEMENT OF CLAIM
                   <label className="text-sm font-medium text-foreground mb-2 block">
                     Source Language
                   </label>
-                  <Select value={sourceLanguage} onValueChange={setSourceLanguage}>
+                  {/*<Select value={sourceLanguage} onValueChange={setSourceLanguage}>
                     <SelectTrigger>
                       <SelectValue placeholder="Select language" />
                     </SelectTrigger>
@@ -198,7 +198,8 @@ STATEMENT OF CLAIM
                         </SelectItem>
                       ))}
                     </SelectContent>
-                  </Select>
+                  </Select>*/}
+                  ENGLISH
                 </div>
                 <ArrowRight className="w-5 h-5 text-muted-foreground mt-6" />
                 <div className="flex-1">
@@ -210,7 +211,7 @@ STATEMENT OF CLAIM
                       <SelectValue placeholder="Select language" />
                     </SelectTrigger>
                     <SelectContent>
-                      {languages.filter(l => l.value !== sourceLanguage).map((lang) => (
+                      {languages.filter(l => l.value !== 'en').map((lang) => (
                         <SelectItem key={lang.value} value={lang.value}>
                           {lang.label} ({lang.native})
                         </SelectItem>
@@ -219,10 +220,10 @@ STATEMENT OF CLAIM
                   </Select>
                 </div>
               </div>
-              {sourceLanguage === targetLanguage && sourceLanguage && (
+              {targetLanguage === 'en' && (
                 <div className="flex items-center gap-2 mt-3 text-destructive text-sm">
                   <AlertCircle className="w-4 h-4" />
-                  Source and target languages must be different
+                  Target language cannot be the same as source language (English)
                 </div>
               )}
             </CardContent>
