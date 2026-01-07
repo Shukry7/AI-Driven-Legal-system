@@ -3,20 +3,18 @@ import { Sidebar } from '@/components/layout/Sidebar';
 import { TranslationModule } from '@/components/translation/TranslationModule';
 import { ClauseModule } from '@/components/clause/ClauseModule';
 import { Toaster } from '@/components/ui/sonner';
-import LegalLineageModule from '@/components/legalLineage/LegalLineageModule';
 
 export default function Index() {
-  const [activeModule, setActiveModule] = useState('translation');
+  const [activeModule, setActiveModule] = useState("translation");
 
   return (
     <div className="min-h-screen bg-background">
       <Sidebar activeModule={activeModule} onModuleChange={setActiveModule} />
-      
+
       <main className="ml-64 min-h-screen">
         <div className="p-8">
           {activeModule === 'translation' && <TranslationModule />}
           {activeModule === 'clause' && <ClauseModule />}
-          {activeModule === 'legalLineage' && <LegalLineageModule />}
           
           {activeModule !== 'translation' && activeModule !== 'clause' && (
             <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
@@ -32,7 +30,7 @@ export default function Index() {
           )}
         </div>
       </main>
-      
+
       <Toaster />
     </div>
   );

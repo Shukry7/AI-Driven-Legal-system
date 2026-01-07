@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { CheckCircle, XCircle, Edit3, Check, X, Sparkles, Download, RotateCcw, CheckCheck, XOctagon, ChevronRight, ChevronLeft, Info, Lightbulb, Copy, AlertTriangle, Eye, FileText } from 'lucide-react';
+import { CheckCircle, XCircle, Edit3, Check, X, Sparkles, Download, RotateCcw, CheckCheck, XOctagon, ChevronRight, ChevronLeft, Info, Lightbulb, Copy, AlertTriangle, Eye, FileText, Home, Database } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -15,6 +15,13 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 interface ClauseSuggestionsProps {
   results: AnalysisResults;
@@ -26,6 +33,8 @@ interface AnalysisResults {
   validClauses: number;
   missingClauses: MissingClause[];
   corruptedClauses: CorruptedClause[];
+  originalDocument?: string;
+  modifiedDocument?: string;
 }
 
 interface MissingClause {
@@ -73,6 +82,8 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
   const [viewMode, setViewMode] = useState<'wizard' | 'list'>('wizard');
   const [mainView, setMainView] = useState<'review' | 'comparison'>('review');
   const [manualInputValues, setManualInputValues] = useState<Record<number, string>>({});
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [isSavedToDb, setIsSavedToDb] = useState(false);
 
   // Separate predictable and non-predictable missing clauses
   const predictableMissing = results.missingClauses.filter(c => c.isPredictable !== false);
@@ -189,6 +200,92 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
     }));
   };
 
+  const handleDownloadReport = () => {
+    const report = generateReport();
+    const blob = new Blob([report], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `clause-analysis-report-${Date.now()}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleSaveToDatabase = async () => {
+    try {
+      const analysisData = {
+        timestamp: new Date().toISOString(),
+        totalClauses: results.totalClauses,
+        validClauses: results.validClauses,
+        missingClauses: results.missingClauses,
+        corruptedClauses: results.corruptedClauses,
+        acceptedChanges: [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted'),
+        rejectedChanges: [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected'),
+        editedChanges: [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited')
+      };
+      
+      console.log('Saving to database:', analysisData);
+      // TODO: Replace with actual API call
+      // await fetch('/api/clause-analysis', { method: 'POST', body: JSON.stringify(analysisData) });
+      
+      setIsSavedToDb(true);
+    } catch (error) {
+      console.error('Error saving to database:', error);
+    }
+  };
+
+  const handleBackToDashboard = () => {
+    setShowCompleteDialog(false);
+    onComplete();
+  };
+
+  const generateReport = () => {
+    const acceptedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted').length;
+    const rejectedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected').length;
+    const editedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited').length;
+    
+    return `CLAUSE ANALYSIS REPORT
+========================
+Generated: ${new Date().toLocaleString()}
+
+SUMMARY
+-------
+Total Clauses: ${results.totalClauses}
+Valid Clauses: ${results.validClauses}
+Corrupted Clauses: ${results.corruptedClauses.length}
+Missing Clauses: ${results.missingClauses.length}
+
+REVIEW STATISTICS
+-----------------
+Accepted: ${acceptedCount}
+Rejected: ${rejectedCount}
+Edited: ${editedCount}
+Pending: ${[...results.missingClauses, ...results.corruptedClauses].filter(c => !c.status).length}
+
+MISSING CLAUSES
+---------------
+${results.missingClauses.map(c => `
+${c.name} (${c.severity.toUpperCase()})
+Status: ${c.status || 'Pending'}
+Description: ${c.description}
+Suggestion: ${c.suggestion}
+${c.status === 'accepted' ? `Accepted Text: ${c.userInputValue || c.predictedText}` : ''}`).join('\n')}
+
+CORRUPTED CLAUSES
+-----------------
+${results.corruptedClauses.map(c => `
+${c.name}
+Status: ${c.status || 'Pending'}
+Issue: ${c.issue}
+Suggestion: ${c.suggestion}
+${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedText}` : ''}`).join('\n')}
+
+--- END OF REPORT ---`;
+  };
+
+
   const handleResetAll = (type: 'missingClauses' | 'corruptedClauses') => {
     setResults(prev => ({
       ...prev,
@@ -248,6 +345,105 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
   const allReviewed = totalItems.every(c => c.status);
   const acceptedChanges = totalItems.filter(c => c.status === 'accepted' || c.status === 'edited');
 
+  const renderComparisonView = () => {
+    if (!results.originalDocument || !results.modifiedDocument) {
+      return (
+        <Card>
+          <CardContent className="py-12 text-center">
+            <p className="text-muted-foreground">Document comparison data not available</p>
+          </CardContent>
+        </Card>
+      );
+    }
+
+    // Normalize line endings so \r\n vs \n doesn't cause every line to be treated as "new"
+    const toNormalizedLines = (doc: string) =>
+      doc
+        .replace(/\r\n/g, '\n')
+        .replace(/\r/g, '\n')
+        .trim()
+        .split('\n');
+
+    const originalLines = toNormalizedLines(results.originalDocument);
+    const modifiedLines = toNormalizedLines(results.modifiedDocument);
+
+    const originalLineSet = new Set(originalLines);
+    const modifiedLineSet = new Set(modifiedLines);
+
+    return (
+      <Card>
+        <CardContent className="p-6">
+          <div className="grid grid-cols-2 gap-6">
+            {/* Original Document */}
+            <div>
+              <h3 className="font-bold text-lg mb-4 text-muted-foreground flex items-center gap-2">
+                <FileText className="w-5 h-5" />
+                Original Document
+              </h3>
+              <div className="bg-muted/30 rounded-lg p-4 overflow-y-auto" style={{ maxHeight: '600px' }}>
+                <div className="font-mono text-sm text-foreground leading-relaxed space-y-1">
+                  {originalLines.map((line, idx) => {
+                    const isRemoved = !modifiedLineSet.has(line) && (line.includes('[CORRUPTED:') || line.includes('[MISSING:'));
+                    return (
+                      <div
+                        key={idx}
+                        className={`py-1 px-2 rounded ${
+                          isRemoved ? 'bg-red-100 dark:bg-red-900/30 line-through text-red-600' : ''
+                        }`}
+                      >
+                        {line || '\u00A0'}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            {/* Modified Document */}
+            <div>
+              <h3 className="font-bold text-lg mb-4 text-success flex items-center gap-2">
+                <CheckCircle className="w-5 h-5" />
+                Completed Document
+              </h3>
+              <div className="bg-muted/30 rounded-lg p-4 overflow-y-auto" style={{ maxHeight: '600px' }}>
+                <div className="font-mono text-sm text-foreground leading-relaxed space-y-1">
+                  {modifiedLines.map((line, idx) => {
+                    const isNew = !originalLineSet.has(line) && !line.includes('[CORRUPTED:') && !line.includes('[MISSING:');
+                    const isReplaced = acceptedChanges.some(c => 
+                      line.includes(c.userInputValue || c.predictedText)
+                    );
+                    return (
+                      <div
+                        key={idx}
+                        className={`py-1 px-2 rounded ${
+                          isNew || isReplaced ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium' : ''
+                        }`}
+                      >
+                        {line || '\u00A0'}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Legend */}
+          <div className="mt-6 flex items-center justify-center gap-8 text-sm">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-red-100 dark:bg-red-900/30 rounded"></div>
+              <span className="font-semibold text-muted-foreground">Removed/Corrupted</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 bg-green-100 dark:bg-green-900/30 rounded"></div>
+              <span className="font-semibold text-muted-foreground">Added/Corrected</span>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+    );
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
@@ -278,17 +474,16 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
                 <Download className="w-4 h-4 mr-2" />
                 Download Report
               </Button>
-              {acceptedChanges.length > 0 && (
-                <Button 
-                  variant="outline"
-                  onClick={() => setMainView('comparison')}
-                  className="border-green-600 text-green-600 hover:bg-green-50"
-                >
-                  <Eye className="w-4 h-4 mr-2" />
-                  View Comparison
-                </Button>
-              )}
-              <Button onClick={onComplete}>
+              <Button 
+                variant="outline"
+                onClick={() => setMainView('comparison')}
+                className="border-green-600 text-green-600 hover:bg-green-50"
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                Show Comparison
+              </Button>
+              <Button onClick={() => setShowCompleteDialog(true)} className="bg-blue-600 hover:bg-blue-700">
+                <CheckCheck className="w-4 h-4 mr-2" />
                 Complete Analysis
               </Button>
             </>
@@ -317,8 +512,12 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
         </div>
       )}
 
+      {/* Comparison View */}
+      {mainView === 'comparison' && renderComparisonView()}
+
       {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+      {mainView === 'review' && (
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
             <div className="text-center">
@@ -352,9 +551,10 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
           </CardContent>
         </Card>
       </div>
+      )}
 
       {/* Corrupted Clauses - Manual Input Required */}
-      {results.corruptedClauses.length > 0 && (
+      {mainView === 'review' && results.corruptedClauses.length > 0 && (
         <Card>
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
@@ -1035,6 +1235,49 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
           </CardContent>
         </Card>
       )}
+
+      {/* Complete Analysis Dialog */}
+      <Dialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCheck className="w-5 h-5 text-green-600" />
+              Complete Analysis
+            </DialogTitle>
+            <DialogDescription>
+              Your clause analysis is complete. Choose your next action:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-4">
+            <Button 
+              onClick={handleDownloadReport} 
+              className="w-full justify-start bg-blue-600 hover:bg-blue-700"
+              size="lg"
+            >
+              <Download className="w-5 h-5 mr-3" />
+              Download Report
+            </Button>
+            <Button 
+              onClick={handleSaveToDatabase} 
+              className="w-full justify-start bg-green-600 hover:bg-green-700"
+              size="lg"
+              disabled={isSavedToDb}
+            >
+              <Database className="w-5 h-5 mr-3" />
+              {isSavedToDb ? 'Saved to Database ✓' : 'Save to Database'}
+            </Button>
+            <Button 
+              onClick={handleBackToDashboard} 
+              className="w-full justify-start"
+              variant="outline"
+              size="lg"
+            >
+              <Home className="w-5 h-5 mr-3" />
+              Back to Dashboard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
