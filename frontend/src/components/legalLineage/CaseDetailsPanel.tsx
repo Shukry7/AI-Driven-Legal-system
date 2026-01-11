@@ -19,7 +19,8 @@ import {
   Link as LinkIcon,
   Clock,
   Award,
-  Zap
+  Zap,
+  Brain
 } from 'lucide-react';
 
 interface Props {

@@ -13,6 +13,7 @@ import {
   Bell,
   CheckCircle,
   AlertCircle,
+  GitGraph,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -125,6 +126,12 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 label="Document Analysis"
                 active={activeModule === "analysis"}
                 onClick={() => onModuleChange("analysis")}
+              />
+              <NavItem 
+                icon={GitGraph} 
+                label="Legal Lineage"
+                active={activeModule === 'legalLineage'}
+                onClick={() => onModuleChange('legalLineage')}
               />
             </div>
           )}

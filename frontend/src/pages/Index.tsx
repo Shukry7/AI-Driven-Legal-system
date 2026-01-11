@@ -4,6 +4,7 @@ import { TranslationModule } from "@/components/translation/TranslationModule";
 import { ClauseModule } from "@/components/clause/ClauseModule";
 import { ClassificationModule } from "@/components/classification/ClassificationModule";
 import { Toaster } from "@/components/ui/sonner";
+import LegalLineageModule from "@/components/legalLineage/LegalLineageModule";
 
 export default function Index() {
   const [activeModule, setActiveModule] = useState("translation");
@@ -17,6 +18,7 @@ export default function Index() {
           {activeModule === "translation" && <TranslationModule />}
           {activeModule === "clause" && <ClauseModule />}
           {activeModule === "classification" && <ClassificationModule />}
+          {activeModule === "legalLineage" && <LegalLineageModule />}
 
           {activeModule !== "translation" &&
             activeModule !== "clause" &&
