@@ -1,4 +1,4 @@
-# AI-Driven Legal Document Analysis Platform (Sri Lanka)
+# AI-driven-legal-document-analysis-platform-for-civil-cases-in-Sri-Lanka
 
 ## Overview
 
