@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { FileText, AlertCircle } from "lucide-react";
+import { FileText, AlertCircle, TrendingUp } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import {
@@ -9,11 +9,22 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
 
 interface Clause {
   id: number;
   text: string;
   risk: "high" | "medium" | "low";
+  confidence: number;
+  keyFactors: string[];
 }
 
 interface ClassificationWorkspaceProps {
@@ -83,70 +94,161 @@ Any further delays in payment will result in additional penalties as prescribed 
       id: 1,
       text: "The Defendant failed to deliver the materials within the agreed timeframe, causing significant financial losses to the Plaintiff.",
       risk: "high",
+      confidence: 94.5,
+      keyFactors: [
+        "Admission of breach",
+        "Quantifiable damages",
+        "Direct causation",
+        "Material harm established",
+      ],
     },
     {
       id: 2,
       text: "The Plaintiff claims damages amounting to Rs. 5,000,000 for breach of contract.",
       risk: "medium",
+      confidence: 87.2,
+      keyFactors: [
+        "Specific monetary claim",
+        "Subject to judicial review",
+        "Quantum may be disputed",
+      ],
     },
     {
       id: 3,
       text: "The Defendant admits the delay but disputes the quantum of damages.",
       risk: "high",
+      confidence: 91.8,
+      keyFactors: [
+        "Admission of delay",
+        "Liability acknowledged",
+        "Quantum in dispute",
+        "Partial defense only",
+      ],
     },
     {
       id: 4,
       text: "Upon careful consideration of the evidence presented, this Court finds that the Defendant did breach the contract by failing to deliver the materials within the stipulated timeframe.",
       risk: "high",
+      confidence: 96.3,
+      keyFactors: [
+        "Court finding",
+        "Breach established",
+        "Evidence-based decision",
+        "Legal liability confirmed",
+      ],
     },
     {
       id: 5,
       text: "The Plaintiff has provided sufficient evidence of the financial losses incurred due to the delay.",
       risk: "low",
+      confidence: 89.1,
+      keyFactors: [
+        "Procedural statement",
+        "Evidence assessment",
+        "No new liability created",
+      ],
     },
     {
       id: 6,
       text: "However, the quantum of damages claimed appears to be excessive.",
       risk: "medium",
+      confidence: 85.7,
+      keyFactors: [
+        "Damages may be reduced",
+        "Claim challenged",
+        "Moderate financial impact",
+      ],
     },
     {
       id: 7,
       text: "The Court notes that the Plaintiff failed to mitigate losses by seeking alternative suppliers.",
       risk: "high",
+      confidence: 92.4,
+      keyFactors: [
+        "Failure to mitigate",
+        "Adverse finding",
+        "Damages reduction likely",
+        "Legal duty breach",
+      ],
     },
     {
       id: 8,
       text: "The Defendant's conduct, while constituting a breach, was not malicious or intentional.",
       risk: "low",
+      confidence: 88.6,
+      keyFactors: [
+        "Mitigating circumstance",
+        "No malice found",
+        "Reduces liability severity",
+      ],
     },
     {
       id: 9,
       text: "The delay was caused by unforeseen circumstances beyond their reasonable control.",
       risk: "low",
+      confidence: 86.9,
+      keyFactors: [
+        "Force majeure elements",
+        "Reduced culpability",
+        "Partial defense established",
+      ],
     },
     {
       id: 10,
       text: "The Court finds in favor of the Plaintiff regarding the breach of contract.",
       risk: "medium",
+      confidence: 93.1,
+      keyFactors: [
+        "Liability established",
+        "Favorable finding",
+        "Quantum pending",
+      ],
     },
     {
       id: 11,
       text: "However, the damages are reduced to Rs. 2,500,000 taking into account the Plaintiff's failure to mitigate losses and the circumstances of the breach.",
       risk: "high",
+      confidence: 95.7,
+      keyFactors: [
+        "50% damages reduction",
+        "Final monetary award",
+        "Mitigation failure impact",
+        "Significant financial consequence",
+      ],
     },
     {
       id: 12,
       text: "The Defendant is ordered to pay the reduced damages within 60 days of this judgment.",
       risk: "medium",
+      confidence: 90.5,
+      keyFactors: [
+        "Payment order",
+        "Time-bound obligation",
+        "Enforceable judgment",
+      ],
     },
     {
       id: 13,
       text: "Any further delays in payment will result in additional penalties as prescribed by law.",
       risk: "high",
+      confidence: 93.8,
+      keyFactors: [
+        "Penalty clause",
+        "Escalating liability risk",
+        "Conditional additional costs",
+        "Compliance critical",
+      ],
     },
   ]);
 
   const [filter, setFilter] = useState<string>("all");
+  const [selectedClause, setSelectedClause] = useState<Clause | null>(null);
+  const [dialogOpen, setDialogOpen] = useState(false);
+
+  const handleClauseClick = (clause: Clause) => {
+    setSelectedClause(clause);
+    setDialogOpen(true);
+  };
 
   const getHighlightClass = (risk: "high" | "medium" | "low") => {
     switch (risk) {
@@ -214,10 +316,13 @@ Any further delays in payment will result in additional penalties as prescribed 
         parts.push(
           <mark
             key={`clause-${replacement.clause.id}`}
+            onClick={() => handleClauseClick(replacement.clause)}
             className={`${getHighlightClass(
               replacement.clause.risk
-            )} cursor-pointer transition-all hover:opacity-80`}
-            title={`${replacement.clause.risk.toUpperCase()} RISK - Click for details`}
+            )} cursor-pointer transition-all hover:opacity-80 hover:shadow-sm`}
+            title={`${replacement.clause.risk.toUpperCase()} RISK (${
+              replacement.clause.confidence
+            }% confidence) - Click for details`}
           >
             {replacement.clause.text}
           </mark>
@@ -386,6 +491,134 @@ Any further delays in payment will result in additional penalties as prescribed 
           Save Analysis
         </Button>
       </div>
+
+      {/* Clause Details Dialog */}
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <AlertCircle
+                className={`w-5 h-5 ${
+                  selectedClause?.risk === "high"
+                    ? "text-red-500"
+                    : selectedClause?.risk === "medium"
+                    ? "text-yellow-500"
+                    : "text-green-500"
+                }`}
+              />
+              Clause Risk Analysis
+            </DialogTitle>
+            <DialogDescription>
+              Detailed risk assessment and AI model insights
+            </DialogDescription>
+          </DialogHeader>
+
+          {selectedClause && (
+            <div className="space-y-6">
+              {/* Clause Text */}
+              <div>
+                <h3 className="text-sm font-semibold text-foreground mb-2">
+                  Clause Text
+                </h3>
+                <p className="text-sm text-muted-foreground bg-accent/5 p-3 rounded-lg border">
+                  "{selectedClause.text}"
+                </p>
+              </div>
+
+              {/* Risk Level & Confidence */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">
+                    Risk Level
+                  </h3>
+                  <Badge
+                    variant={
+                      selectedClause.risk === "high" ? "destructive" : "default"
+                    }
+                    className={`text-sm capitalize ${
+                      selectedClause.risk === "medium"
+                        ? "bg-yellow-500 hover:bg-yellow-600"
+                        : selectedClause.risk === "low"
+                        ? "bg-green-500 hover:bg-green-600"
+                        : ""
+                    }`}
+                  >
+                    {selectedClause.risk} Risk
+                  </Badge>
+                </div>
+
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1">
+                    <TrendingUp className="w-4 h-4" />
+                    Confidence Score
+                  </h3>
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-2xl font-bold text-foreground">
+                        {selectedClause.confidence}%
+                      </span>
+                      <span className="text-xs text-muted-foreground">
+                        {selectedClause.confidence >= 90
+                          ? "Very High"
+                          : selectedClause.confidence >= 80
+                          ? "High"
+                          : selectedClause.confidence >= 70
+                          ? "Moderate"
+                          : "Low"}
+                      </span>
+                    </div>
+                    <Progress
+                      value={selectedClause.confidence}
+                      className="h-2"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* Key Factors */}
+              <div>
+                <h3 className="text-sm font-semibold text-foreground mb-3">
+                  Key Risk Factors
+                </h3>
+                <div className="space-y-2">
+                  {selectedClause.keyFactors.map((factor, index) => (
+                    <div key={index} className="flex items-start gap-2 text-sm">
+                      <div
+                        className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                          selectedClause.risk === "high"
+                            ? "bg-red-500"
+                            : selectedClause.risk === "medium"
+                            ? "bg-yellow-500"
+                            : "bg-green-500"
+                        }`}
+                      />
+                      <span className="text-foreground">{factor}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Model Information */}
+              <div className="pt-4 border-t">
+                <div className="text-xs text-muted-foreground space-y-1">
+                  <p>
+                    <span className="font-medium">Model:</span> Legal-BERT
+                    (Fine-tuned)
+                  </p>
+                  <p>
+                    <span className="font-medium">Stage 1:</span> Clause
+                    Segmentation (BIO Tagging)
+                  </p>
+                  <p>
+                    <span className="font-medium">Stage 2:</span> Risk
+                    Classification (Semantic Analysis)
+                  </p>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
