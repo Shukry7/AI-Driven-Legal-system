@@ -1,4 +1,44 @@
+# Python
 venv/
 __pycache__/
-.env
 *.pyc
+*.pyo
+*.pyd
+.Python
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+.venv
+env/
+ENV/
+
+# Uploads and temporary files
+uploads/
+*.pdf
+*.txt
+
+# ML Models (large files - use Git LFS if needed)
+app/ml_models/*.pkl
+app/ml_models/*.h5
+app/ml_models/*.pt
+app/ml_models/*.joblib
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Logs
+*.log
+logs/
+
+# OS
+.DS_Store
+Thumbs.db
