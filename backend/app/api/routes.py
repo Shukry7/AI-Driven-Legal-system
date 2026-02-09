@@ -57,7 +57,7 @@ def upload_pdf():
         return jsonify({'success': False, 'error': f'Failed to save extracted text: {e}'}), 500
 
     preview = result[:2000]
-    return jsonify({'success': True, 'preview': preview, 'full_text_path': txt_path}), 200
+    return jsonify({'success': True, 'preview': preview, 'full_text': result, 'full_text_path': txt_path}), 200
 
 
 @main.route('/analyze-clauses', methods=['POST'])
@@ -177,7 +177,9 @@ def analyze_clauses():
         'filename': filename,
         'saved_pdf_path': saved_pdf_path,
         'saved_text_path': txt_path,
+        # Return both a short preview and the full extracted text
         'text_preview': extracted_text[:500] + '...' if len(extracted_text) > 500 else extracted_text,
+        'full_text': extracted_text,
         'clause_analysis': clause_analysis
     }
     # Log summary
