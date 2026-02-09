@@ -4,14 +4,20 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
+import api from './api';
+
 interface DocumentUploadProps {
-  onProceed: (data: { file: File }) => void;
+  // onProceed receives the uploaded file and the analysis result (if available)
+  onProceed: (data: { file: File; analysis?: any }) => void;
   onCancel: () => void;
 }
 
 export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const handleFileSelect = (file: File) => {
     if (file && (file.type === 'application/pdf' || 
@@ -39,9 +45,22 @@ export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProp
   };
 
   const handleProceed = () => {
-    if (selectedFile) {
-      onProceed({ file: selectedFile });
-    }
+    if (!selectedFile) return;
+    setError(null);
+    setLoading(true);
+    setProgress(0);
+
+    api.analyzeClauses(selectedFile, (p) => setProgress(p))
+      .then((res) => {
+        setLoading(false);
+        setProgress(null);
+        onProceed({ file: selectedFile!, analysis: res });
+      })
+      .catch((err) => {
+        setLoading(false);
+        setProgress(null);
+        setError(err?.error || err?.message || 'Upload failed');
+      });
   };
 
   return (
@@ -124,6 +143,22 @@ export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProp
                 </div>
               </div>
             </div>
+          )}
+
+          {loading && (
+            <div className="mt-2">
+              <p className="text-sm text-muted-foreground">Uploading... {progress ?? 0}%</p>
+              <div className="w-full bg-gray-200 rounded h-2 mt-1">
+                <div
+                  className="bg-accent h-2 rounded"
+                  style={{ width: `${progress ?? 0}%` }}
+                />
+              </div>
+            </div>
+          )}
+
+          {error && (
+            <div className="mt-2 text-sm text-destructive">{error}</div>
           )}
 
           <div className="flex gap-3 pt-4">

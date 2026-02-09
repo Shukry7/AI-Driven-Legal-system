@@ -33,9 +33,11 @@ def upload_pdf():
     os.makedirs(uploads_dir, exist_ok=True)
     saved_path = os.path.join(uploads_dir, filename)
     file_bytes = file.read()
+    current_app.logger.info("upload-pdf: received file=%s size=%d from=%s", filename, len(file_bytes), request.remote_addr)
     try:
         with open(saved_path, 'wb') as f:
             f.write(file_bytes)
+        current_app.logger.info("upload-pdf: saved PDF to %s", saved_path)
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to save uploaded file: {e}'}), 500
 
@@ -43,11 +45,14 @@ def upload_pdf():
     if not ok:
         return jsonify({'success': False, 'error': result}), 500
 
+    current_app.logger.info("upload-pdf: completed text extraction length=%d", len(result))
+
     # Save extracted text to a .txt file beside the PDF
     txt_path = saved_path + '.txt'
     try:
         with open(txt_path, 'w', encoding='utf-8') as t:
             t.write(result)
+        current_app.logger.info("upload-pdf: saved extracted text to %s", txt_path)
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to save extracted text: {e}'}), 500
 
@@ -115,6 +120,7 @@ def analyze_clauses():
 
     filename = secure_filename(file.filename)
     file_bytes = file.read()
+    current_app.logger.info("analyze-clauses: received file=%s size=%d from=%s", filename, len(file_bytes), request.remote_addr)
     
     # Step 1: Save uploaded PDF
     uploads_dir = os.path.join(current_app.root_path, '..', 'uploads')
@@ -124,6 +130,7 @@ def analyze_clauses():
     try:
         with open(saved_pdf_path, 'wb') as f:
             f.write(file_bytes)
+        current_app.logger.info("analyze-clauses: saved PDF to %s", saved_pdf_path)
     except Exception as e:
         return jsonify({
             'success': False, 
@@ -137,14 +144,16 @@ def analyze_clauses():
             'success': False, 
             'error': f'PDF text extraction failed: {result}'
         }), 500
-    
+
     extracted_text = result
+    current_app.logger.info("analyze-clauses: completed text extraction length=%d", len(extracted_text))
     
     # Step 3: Save extracted text to file
     txt_path = saved_pdf_path + '.txt'
     try:
         with open(txt_path, 'w', encoding='utf-8') as t:
             t.write(extracted_text)
+        current_app.logger.info("analyze-clauses: saved extracted text to %s", txt_path)
     except Exception as e:
         return jsonify({
             'success': False, 
@@ -153,7 +162,9 @@ def analyze_clauses():
     
     # Step 4: Analyze clauses (ML model integration will be added in next phase)
     try:
+        current_app.logger.info("analyze-clauses: starting clause analysis")
         clause_analysis = analyze_clause_detection(extracted_text)
+        current_app.logger.info("analyze-clauses: clause analysis completed")
     except Exception as e:
         return jsonify({
             'success': False, 
@@ -169,6 +180,13 @@ def analyze_clauses():
         'text_preview': extracted_text[:500] + '...' if len(extracted_text) > 500 else extracted_text,
         'clause_analysis': clause_analysis
     }
+    # Log summary
+    try:
+        stats = clause_analysis.get('statistics', {}) if isinstance(clause_analysis, dict) else {}
+        current_app.logger.info("analyze-clauses: finished; total_clauses=%s present=%s missing=%s",
+                                stats.get('total_clauses'), stats.get('present'), stats.get('missing'))
+    except Exception:
+        pass
     
     return jsonify(response), 200
 
