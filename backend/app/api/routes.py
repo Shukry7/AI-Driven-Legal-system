@@ -42,22 +42,35 @@ def upload_pdf():
         return jsonify({'success': False, 'error': f'Failed to save uploaded file: {e}'}), 500
 
     ok, result = pdf_bytes_to_text(file_bytes)
+    extracted_text = None
     if not ok:
-        return jsonify({'success': False, 'error': result}), 500
+        current_app.logger.info("upload-pdf: initial extraction failed: %s; attempting OCR fallback", result)
+        try:
+            from ..services.pdf_service import _ocr_fallback
+            ocr_ok, ocr_result = _ocr_fallback(file_bytes)
+        except Exception as e:
+            ocr_ok, ocr_result = False, str(e)
 
-    current_app.logger.info("upload-pdf: completed text extraction length=%d", len(result))
+        if not ocr_ok:
+            return jsonify({'success': False, 'error': f'Extraction failed: {result}; OCR fallback failed: {ocr_result}'}), 500
+
+        extracted_text = ocr_result
+        current_app.logger.info("upload-pdf: OCR fallback succeeded, extracted length=%d", len(extracted_text))
+    else:
+        extracted_text = result
+        current_app.logger.info("upload-pdf: completed text extraction length=%d", len(extracted_text))
 
     # Save extracted text to a .txt file beside the PDF
     txt_path = saved_path + '.txt'
     try:
         with open(txt_path, 'w', encoding='utf-8') as t:
-            t.write(result)
+            t.write(extracted_text)
         current_app.logger.info("upload-pdf: saved extracted text to %s", txt_path)
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to save extracted text: {e}'}), 500
 
-    preview = result[:2000]
-    return jsonify({'success': True, 'preview': preview, 'full_text': result, 'full_text_path': txt_path}), 200
+    preview = extracted_text[:2000]
+    return jsonify({'success': True, 'preview': preview, 'full_text': extracted_text, 'full_text_path': txt_path}), 200
 
 
 @main.route('/analyze-clauses', methods=['POST'])
@@ -101,64 +114,90 @@ def analyze_clauses():
             }
         }
     """
-    # Validate file upload
-    if 'file' not in request.files:
-        return jsonify({
-            'success': False, 
-            'error': "No file part in request. Use key 'file' in form-data"
-        }), 400
+    # Support two modes:
+    # 1) Direct file upload (multipart/form-data with 'file') - prefer this for new uploads
+    #    Optional form field 'original_filename' may be provided to control saved filename.
+    # 2) Reference to an existing file in uploads/ via 'filename' form field (legacy/support)
 
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({'success': False, 'error': 'No file selected'}), 400
-    
-    if not file.filename.lower().endswith('.pdf'):
-        return jsonify({
-            'success': False, 
-            'error': 'Only PDF files are supported'
-        }), 400
-
-    filename = secure_filename(file.filename)
-    file_bytes = file.read()
-    current_app.logger.info("analyze-clauses: received file=%s size=%d from=%s", filename, len(file_bytes), request.remote_addr)
-    
-    # Step 1: Save uploaded PDF
     uploads_dir = os.path.join(current_app.root_path, '..', 'uploads')
     os.makedirs(uploads_dir, exist_ok=True)
-    saved_pdf_path = os.path.join(uploads_dir, filename)
-    
-    try:
-        with open(saved_pdf_path, 'wb') as f:
-            f.write(file_bytes)
-        current_app.logger.info("analyze-clauses: saved PDF to %s", saved_pdf_path)
-    except Exception as e:
-        return jsonify({
-            'success': False, 
-            'error': f'Failed to save PDF: {str(e)}'
-        }), 500
-    
-    # Step 2: Extract text from PDF
-    ok, result = pdf_bytes_to_text(file_bytes)
-    if not ok:
-        return jsonify({
-            'success': False, 
-            'error': f'PDF text extraction failed: {result}'
-        }), 500
 
-    extracted_text = result
-    current_app.logger.info("analyze-clauses: completed text extraction length=%d", len(extracted_text))
-    
-    # Step 3: Save extracted text to file
-    txt_path = saved_pdf_path + '.txt'
-    try:
-        with open(txt_path, 'w', encoding='utf-8') as t:
-            t.write(extracted_text)
-        current_app.logger.info("analyze-clauses: saved extracted text to %s", txt_path)
-    except Exception as e:
-        return jsonify({
-            'success': False, 
-            'error': f'Failed to save extracted text: {str(e)}'
-        }), 500
+    extracted_text = None
+    saved_pdf_path = None
+    txt_path = None
+
+    # Mode 1: file upload in request.files
+    if 'file' in request.files:
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'Uploaded file has no filename'}), 400
+
+        # Allow client to suggest a filename (e.g., original_filename); fall back to uploaded filename
+        client_name = request.form.get('original_filename') or request.form.get('filename')
+        save_name = secure_filename(client_name) if client_name else secure_filename(file.filename)
+        # Ensure `filename` is always defined for the response later
+        filename = save_name
+        saved_pdf_path = os.path.join(uploads_dir, save_name)
+
+        try:
+            file_bytes = file.read()
+            with open(saved_pdf_path, 'wb') as f:
+                f.write(file_bytes)
+            current_app.logger.info("analyze-clauses: saved uploaded PDF to %s", saved_pdf_path)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to save uploaded PDF: {e}'}), 500
+
+        ok, result = pdf_bytes_to_text(file_bytes)
+        if not ok:
+            return jsonify({'success': False, 'error': f'PDF text extraction failed: {result}'}), 500
+
+        extracted_text = result
+        current_app.logger.info("analyze-clauses: completed text extraction length=%d", len(extracted_text))
+
+        txt_path = saved_pdf_path + '.txt'
+        try:
+            with open(txt_path, 'w', encoding='utf-8') as t:
+                t.write(extracted_text)
+            current_app.logger.info("analyze-clauses: saved extracted text to %s", txt_path)
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to save extracted text: {str(e)}'}), 500
+
+    else:
+        # Mode 2: existing file reference via form/json 'filename'
+        data_filename = None
+        if request.form and 'filename' in request.form:
+            data_filename = request.form.get('filename')
+        elif request.json and isinstance(request.json, dict) and 'filename' in request.json:
+            data_filename = request.json.get('filename')
+
+        if not data_filename:
+            return jsonify({'success': False, 'error': "No file uploaded and no 'filename' provided."}), 400
+
+        if isinstance(data_filename, str) and data_filename.strip() == '':
+            return jsonify({'success': False, 'error': 'please upload document to start analysis'}), 400
+
+        filename = secure_filename(data_filename)
+        candidate_path = os.path.abspath(os.path.join(uploads_dir, filename))
+        uploads_dir_abs = os.path.abspath(uploads_dir)
+        if not (candidate_path == uploads_dir_abs or candidate_path.startswith(uploads_dir_abs + os.sep)):
+            return jsonify({'success': False, 'error': 'Invalid filename or path'}), 400
+
+        if not os.path.exists(candidate_path):
+            return jsonify({'success': False, 'error': f'File not found: {filename}'}), 404
+
+        # For /analyze-clauses we expect a text file previously produced by /upload-pdf
+        if not filename.lower().endswith('.txt'):
+            return jsonify({'success': False, 'error': 'analyze-clauses expects a .txt filename previously generated by /upload-pdf'}), 400
+
+        try:
+            with open(candidate_path, 'r', encoding='utf-8') as t:
+                extracted_text = t.read()
+        except Exception as e:
+            return jsonify({'success': False, 'error': f'Failed to read text file: {e}'}), 500
+
+        saved_pdf_path = None
+        txt_path = candidate_path
+        current_app.logger.info("analyze-clauses: using existing text file %s (len=%d)", txt_path, len(extracted_text))
     
     # Step 4: Analyze clauses (ML model integration will be added in next phase)
     try:

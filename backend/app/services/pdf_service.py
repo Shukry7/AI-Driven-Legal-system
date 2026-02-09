@@ -8,6 +8,7 @@ suitable for legal document analysis and ML model processing.
 import re
 from io import BytesIO
 from typing import Tuple
+import logging
 
 try:
     import pdfplumber
@@ -37,9 +38,21 @@ def pdf_bytes_to_text(pdf_bytes: bytes) -> Tuple[bool, str]:
     
     try:
         if PDF_LIBRARY == 'pdfplumber':
-            return _extract_with_pdfplumber(pdf_bytes)
+            ok, result = _extract_with_pdfplumber(pdf_bytes)
         else:
-            return _extract_with_pypdf2(pdf_bytes)
+            ok, result = _extract_with_pypdf2(pdf_bytes)
+
+        if ok:
+            return True, result
+
+        # If PDF libraries couldn't extract text, try OCR fallback for scanned PDFs
+        if isinstance(result, str) and 'no text could be extracted' in result.lower():
+            ocr_ok, ocr_result = _ocr_fallback(pdf_bytes)
+            if ocr_ok:
+                return True, ocr_result
+            return False, f"PDF extraction failed: {result}; OCR fallback failed: {ocr_result}"
+
+        return False, result
     except Exception as e:
         return False, f"PDF extraction failed: {str(e)}"
 
@@ -185,3 +198,54 @@ def extract_metadata_from_text(text: str) -> dict:
         metadata['case_number'] = match.group(1)
     
     return metadata
+
+
+def _ocr_fallback(pdf_bytes: bytes) -> Tuple[bool, str]:
+    """
+    OCR fallback using `pdf2image` to convert pages to images and `pytesseract` to extract text.
+
+    Returns (True, text) on success or (False, error_message) on failure.
+    """
+    logger = logging.getLogger(__name__)
+
+    try:
+        from pdf2image import convert_from_bytes
+    except Exception as e:
+        logger.info("OCR fallback unavailable: pdf2image import failed: %s", e)
+        return False, "pdf2image is not installed or not available: " + str(e)
+
+    try:
+        import pytesseract
+    except Exception as e:
+        logger.info("OCR fallback unavailable: pytesseract import failed: %s", e)
+        return False, "pytesseract is not installed or Tesseract binary not available: " + str(e)
+
+    try:
+        logger.info("OCR fallback: starting pdf2image conversion")
+        images = convert_from_bytes(pdf_bytes, dpi=300)
+        logger.info("OCR fallback: conversion complete, %d pages", len(images))
+    except Exception as e:
+        logger.info("OCR fallback: pdf2image conversion failed: %s", e)
+        return False, f"pdf2image conversion failed: {e}"
+
+    ocr_parts = []
+    try:
+        logger.info("OCR fallback: starting Tesseract OCR on pages")
+        for idx, img in enumerate(images, start=1):
+            text = pytesseract.image_to_string(img, lang='eng')
+            logger.info("OCR page %d done, %d chars", idx, len(text or ""))
+            if text and text.strip():
+                ocr_parts.append(f"\n--- Page {idx} (OCR) ---\n")
+                ocr_parts.append(text)
+
+        raw_text = "\n".join(ocr_parts)
+        if not raw_text.strip():
+            logger.info("OCR fallback: produced no text")
+            return False, "OCR produced no text"
+
+        cleaned = clean_extracted_text(raw_text)
+        logger.info("OCR fallback: complete, total_chars=%d", len(cleaned))
+        return True, cleaned
+    except Exception as e:
+        logger.info("OCR extraction error: %s", e)
+        return False, f"OCR extraction error: {e}"

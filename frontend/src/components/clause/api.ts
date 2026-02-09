@@ -7,7 +7,6 @@ type UploadResult = {
   full_text_path?: string;
   error?: string;
 };
-
 type AnalyzeResult = any;
 
 function postFileWithProgress(endpoint: string, file: File, onProgress?: (p: number) => void): Promise<any> {
@@ -16,6 +15,8 @@ function postFileWithProgress(endpoint: string, file: File, onProgress?: (p: num
     const xhr = new XMLHttpRequest();
     const fd = new FormData();
     fd.append('file', file, file.name);
+    // Include the original filename as a separate field so backend can store/track it
+    fd.append('original_filename', file.name);
 
     xhr.open('POST', url, true);
 

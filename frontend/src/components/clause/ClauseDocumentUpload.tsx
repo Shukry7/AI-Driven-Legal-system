@@ -50,10 +50,12 @@ export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProp
     setLoading(true);
     setProgress(0);
 
-    api.analyzeClauses(selectedFile, (p) => setProgress(p))
+    // Call the upload endpoint when the user clicks the upload/start button
+    api.uploadPdf(selectedFile, (p) => setProgress(p))
       .then((res) => {
         setLoading(false);
         setProgress(null);
+        // Pass the upload response (preview / full_text_path) to the next step
         onProceed({ file: selectedFile!, analysis: res });
       })
       .catch((err) => {
