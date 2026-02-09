@@ -15,6 +15,8 @@ interface ClauseWorkspaceProps {
   file: File;
   onComplete: (results: AnalysisResults) => void;
   onCancel: () => void;
+  // Optional original document text provided by backend preview
+  originalDocument?: string;
 }
 
 interface AnalysisResults {
@@ -68,8 +70,8 @@ interface ProcessStep {
   icon: string;
 }
 
-export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceProps) {
-  const documentText = `IN THE SUPREME COURT OF THE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA
+export function ClauseWorkspace({ file, onComplete, onCancel, originalDocument }: ClauseWorkspaceProps) {
+  const defaultDocumentText = `IN THE SUPREME COURT OF THE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA
 
 In the matter of an application for Leave to Appeal under and in terms of Section 5C (1) of the High Court of the Provinces (Special Provisions) Act No.19 of 1990 as amended by Act, No. 54 of 2006
 
@@ -202,6 +204,9 @@ I agree.
 
 Judge: [MISSING: Third Judge Signature - Signature required]
   `;
+
+  // Use provided `originalDocument` if available, otherwise fall back to sample
+  const [documentText, setDocumentText] = useState<string>(originalDocument ?? defaultDocumentText);
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
@@ -852,16 +857,17 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               )}
             </CardHeader>
             <CardContent>
-              <div className="overflow-y-auto bg-muted/30 p-6 rounded-lg" style={{ maxHeight: '600px' }}>
-                {!analysisComplete && analyzing && (
-                  <div className="flex flex-col items-center justify-center h-96">
+              <div className="overflow-y-auto bg-muted/30 p-6 rounded-lg" style={{ maxHeight: '600px', position: 'relative' }}>
+                {/* Non-blocking analysis overlay: shows while analyzing but allows preview scrolling */}
+                {analyzing && (
+                  <div className="absolute inset-0 bg-white/70 z-20 flex flex-col items-center justify-center">
                     <Loader2 className="w-16 h-16 animate-spin text-accent mb-4" />
                     <p className="text-lg font-bold text-foreground">Analyzing document...</p>
                     <p className="text-sm text-muted-foreground mt-2">AI is scanning for issues</p>
                   </div>
                 )}
 
-                {analysisComplete && viewMode === 'review' && (
+                {viewMode === 'review' && (
                   <div
                     className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"
                     style={{ fontSize: `${zoom}%` }}
@@ -870,7 +876,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                   </div>
                 )}
 
-                {analysisComplete && viewMode === 'comparison' && renderComparisonView()}
+                {viewMode === 'comparison' && renderComparisonView()}
               </div>
 
               {analysisComplete && viewMode === 'review' && (
