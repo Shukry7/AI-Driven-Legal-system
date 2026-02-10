@@ -22,7 +22,8 @@ export default function Index() {
 
           {activeModule !== "translation" &&
             activeModule !== "clause" &&
-            activeModule !== "classification" && (
+            activeModule !== "classification" && 
+            activeModule !== "legalLineage" && (
               <div className="flex items-center justify-center h-[calc(100vh-8rem)]">
                 <div className="text-center">
                   <h2 className="font-heading text-xl font-bold text-foreground mb-2">
