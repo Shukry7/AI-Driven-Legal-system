@@ -824,6 +824,48 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         </Button>
       </div>
 
+      {/* Analysis Progress - placed above document preview and full width */}
+      <Card className="w-full">
+        <CardHeader>
+          <CardTitle className="text-lg flex items-center gap-2">
+            <Loader2 className={analyzing ? 'animate-spin text-accent' : 'text-success'} />
+            Analysis Progress
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <Progress value={progress} className="w-full" />
+          <div className="flex gap-3 py-2 flex-nowrap">
+            {processSteps.map((step) => (
+              <div
+                key={step.id}
+                className="p-3 rounded-lg bg-muted/30 border border-border flex items-center gap-3 box-border"
+                style={{ flex: `1 1 ${100 / processSteps.length}%`, minWidth: 0 }}
+              >
+                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
+                  {step.status === 'complete' && (
+                    <CheckCircle className="w-5 h-5 text-success" />
+                  )}
+                  {step.status === 'processing' && (
+                    <Loader2 className="w-5 h-5 text-accent animate-spin" />
+                  )}
+                  {step.status === 'pending' && (
+                    <span className="text-lg">{step.icon}</span>
+                  )}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className={`text-sm font-medium ${step.status === 'complete' ? 'text-foreground' : 'text-muted-foreground'}`}>
+                    {step.name}
+                  </div>
+                  <div className="text-xs text-muted-foreground mt-1">
+                    {step.status === 'complete' ? 'Completed' : step.status === 'processing' ? 'In progress' : 'Pending'}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </CardContent>
+      </Card>
+
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left & Center - Document Viewer */}
         <div className="lg:col-span-2 space-y-6">
@@ -974,40 +1016,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
           )}
         </div>
 
-        {/* Right Panel - Progress & Summary */}
+        {/* Right Panel - Summary only (progress moved above) */}
         <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Loader2 className={analyzing ? 'animate-spin text-accent' : 'text-success'} />
-                Analysis Progress
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Progress value={progress} className="w-full" />
-              <div className="space-y-2">
-                {processSteps.map((step) => (
-                  <div key={step.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted">
-                      {step.status === 'complete' && (
-                        <CheckCircle className="w-5 h-5 text-success" />
-                      )}
-                      {step.status === 'processing' && (
-                        <Loader2 className="w-5 h-5 text-accent animate-spin" />
-                      )}
-                      {step.status === 'pending' && (
-                        <span className="text-lg">{step.icon}</span>
-                      )}
-                    </div>
-                    <span className={`text-sm font-medium ${step.status === 'complete' ? 'text-foreground' : 'text-muted-foreground'}`}>
-                      {step.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
           {analysisComplete && results && (
             <Card>
               <CardHeader>
