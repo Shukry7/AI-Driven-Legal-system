@@ -9,6 +9,7 @@ import re
 from io import BytesIO
 from typing import Tuple
 import logging
+import os
 
 try:
     import pdfplumber
@@ -222,7 +223,12 @@ def _ocr_fallback(pdf_bytes: bytes) -> Tuple[bool, str]:
 
     try:
         logger.info("OCR fallback: starting pdf2image conversion")
-        images = convert_from_bytes(pdf_bytes, dpi=300)
+        poppler_path = os.environ.get('POPPLER_PATH') or os.environ.get('PDF2IMAGE_POPPLER_PATH')
+        if poppler_path:
+            logger.info("Using POPPLER_PATH=%s for pdf2image", poppler_path)
+            images = convert_from_bytes(pdf_bytes, dpi=300, poppler_path=poppler_path)
+        else:
+            images = convert_from_bytes(pdf_bytes, dpi=300)
         logger.info("OCR fallback: conversion complete, %d pages", len(images))
     except Exception as e:
         logger.info("OCR fallback: pdf2image conversion failed: %s", e)
