@@ -808,7 +808,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-heading text-2xl font-bold text-foreground">
@@ -1070,6 +1071,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             </Card>
           )}
         </div>
+      </div>
       </div>
     </div>
   );
