@@ -206,29 +206,6 @@ export default function LegalLineageModule() {
         <div className="flex gap-6">
           {/* Main Content */}
           <div className="flex-1">
-            {/* View Toggle */}
-            <div className="mb-6">
-              <div className="inline-flex items-center bg-white/70 backdrop-blur-sm border border-slate-200 rounded-xl p-1 shadow-sm">
-                {[
-                  { key: 'map', icon: Map, label: 'Lineage Map' },
-                  { key: 'translations', icon: Globe, label: 'Translations' },
-                  { key: 'clauses', icon: FileText, label: 'Clause Analysis' }
-                ].map(({ key, icon: Icon, label }) => (
-                  <button
-                    key={key}
-                    onClick={() => setView(key as any)}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-300 ${
-                      view === key
-                        ? 'bg-gradient-to-r from-indigo-500 to-teal-500 text-white shadow-md'
-                        : 'text-slate-600 hover:text-slate-900 hover:bg-slate-100'
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {label}
-                  </button>
-                ))}
-              </div>
-            </div>
 
             {/* Processing Indicator */}
             {processing && (
