@@ -1,4 +1,6 @@
 import { FileText, Upload, Clock, CheckCircle } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import api from '@/config/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 
@@ -8,29 +10,21 @@ interface ClauseEntryProps {
 }
 
 export function ClauseEntry({ onStartNew }: ClauseEntryProps) {
-  const recentAnalyses = [
-    {
-      id: '1',
-      name: 'Employment Agreement - TechCorp',
-      date: '2024-01-15',
-      status: 'completed',
-      issues: 4
-    },
-    {
-      id: '2',
-      name: 'Vendor Service Contract',
-      date: '2024-01-14',
-      status: 'completed',
-      issues: 2
-    },
-    {
-      id: '3',
-      name: 'NDA - Confidentiality Agreement',
-      date: '2024-01-12',
-      status: 'completed',
-      issues: 1
-    }
-  ];
+  const [recentAnalyses, setRecentAnalyses] = useState<Array<{ filename: string; date: string }>>([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const files = await api.getRecentUploads();
+        if (!mounted) return;
+        setRecentAnalyses(files.map(f => ({ filename: f.filename, date: new Date(f.iso_timestamp).toLocaleString() })));
+      } catch (err) {
+        console.error('Failed to load recent uploads', err);
+      }
+    })();
+    return () => { mounted = false; };
+  }, []);
 
   return (
     <div className="space-y-6">
@@ -67,9 +61,9 @@ export function ClauseEntry({ onStartNew }: ClauseEntryProps) {
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {recentAnalyses.map((analysis) => (
+            {recentAnalyses.map((analysis, idx) => (
               <div
-                key={analysis.id}
+                key={analysis.filename + idx}
                 className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/5 transition-colors cursor-pointer"
               >
                 <div className="flex items-center gap-3 flex-1">
@@ -77,19 +71,13 @@ export function ClauseEntry({ onStartNew }: ClauseEntryProps) {
                     <FileText className="w-5 h-5 text-accent" />
                   </div>
                   <div className="flex-1">
-                    <h3 className="font-medium text-foreground">{analysis.name}</h3>
+                    <h3 className="font-medium text-foreground">{analysis.filename}</h3>
                     <p className="text-sm text-muted-foreground">{analysis.date}</p>
                   </div>
                 </div>
                 <div className="flex items-center gap-4">
                   <div className="text-right">
-                    <p className="text-sm font-medium text-foreground">
-                      {analysis.issues} issues found
-                    </p>
-                    <div className="flex items-center gap-1 text-xs text-success">
-                      <CheckCircle className="w-3 h-3" />
-                      Completed
-                    </div>
+                    <p className="text-sm font-medium text-foreground">Ready</p>
                   </div>
                 </div>
               </div>

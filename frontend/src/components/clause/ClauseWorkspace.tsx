@@ -211,10 +211,12 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [analysisRunning, setAnalysisRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [zoom, setZoom] = useState(100);
   const [selectedIssue, setSelectedIssue] = useState<{ type: string; data: any } | null>(null);
   const [results, setResults] = useState<AnalysisResults | null>(null);
+  const [corruptedMatches, setCorruptedMatches] = useState<string[]>([]);
   const [editingClauseId, setEditingClauseId] = useState<number | null>(null);
   const [editedText, setEditedText] = useState('');
   const [activePopover, setActivePopover] = useState<string | null>(null);
@@ -233,6 +235,23 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   ];
 
   const [processSteps, setProcessSteps] = useState(steps);
+
+  const updateStepStatus = (stepId: number, status: 'pending' | 'processing' | 'complete') => {
+    setProcessSteps(prev => prev.map(s => s.id === stepId ? { ...s, status } : s));
+  };
+  // store active timeouts so we can clear them on new analysis/run
+  const timeoutsRef = (globalThis as any).__clause_timeouts__ || { ids: [] };
+  (globalThis as any).__clause_timeouts__ = timeoutsRef;
+  const clearScheduledTimeouts = () => {
+    try {
+      timeoutsRef.ids.forEach((id: number) => clearTimeout(id));
+    } catch {}
+    timeoutsRef.ids = [];
+  };
+
+  const resetProcessSteps = () => {
+    setProcessSteps(steps.map(s => ({ ...s, status: 'pending' })));
+  };
 
   const mockResults: AnalysisResults = {
     totalClauses: 18,
@@ -272,11 +291,24 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     setAnalyzing(true);
     setAnalysisComplete(false);
     setProgress(5);
+    // reset UI step state and clear previous timers
+    clearScheduledTimeouts();
+    resetProcessSteps();
+    setAnalysisRunning(true);
 
     try {
-      const resp = await api.analyzeClauses(file, (p: number) => setProgress(p));
+      // mark extracting text as started
+      updateStepStatus(1, 'processing');
+      setProgress(8);
+
+      const resp = await api.analyzeClauses(file, (p: number) => setProgress(Math.max(8, Math.round(p * 0.9))));
       // Expect backend response shape: { success, full_text, clause_analysis }
       if (resp && resp.success) {
+        // Extraction finished
+        updateStepStatus(1, 'complete');
+        // Begin clause identification
+        updateStepStatus(2, 'processing');
+        setProgress(60);
         const analysis = resp.clause_analysis || {};
         const stats = analysis.statistics || {};
 
@@ -331,14 +363,47 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         setDocumentText(resp.full_text || documentText);
         setModifiedDocumentText(resp.full_text || documentText);
         setResults(mappedResults as any);
-        setProgress(100);
-        setAnalysisComplete(true);
+        // set corrupted matches from backend if provided
+        if (resp && Array.isArray(resp.corruptions)) {
+          setCorruptedMatches(resp.corruptions.map((c: any) => c.match));
+        } else {
+          setCorruptedMatches([]);
+        }
+
+        // Stage the remaining steps over ~10 seconds so the progress animation looks smooth
+        // timings: ~2.5s, ~5s, ~7.5s, ~10s from now
+        // schedule staged updates and keep references
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(2, 'complete');
+          updateStepStatus(3, 'processing');
+          setProgress(70);
+        }, 2500) as unknown as number);
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(3, 'complete');
+          updateStepStatus(4, 'processing');
+          setProgress(85);
+        }, 5000) as unknown as number);
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(4, 'complete');
+          updateStepStatus(5, 'processing');
+          setProgress(95);
+        }, 7500) as unknown as number);
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(5, 'complete');
+          setProgress(100);
+          setAnalysisComplete(true);
+          setAnalysisRunning(false);
+          setAnalyzing(false);
+          // clear refs
+          timeoutsRef.ids = [];
+        }, 10000) as unknown as number);
       } else {
         console.error('analyzeClauses failed', resp);
       }
     } catch (err) {
       console.error('Analysis error', err);
-    } finally {
+      clearScheduledTimeouts();
+      setAnalysisRunning(false);
       setAnalyzing(false);
     }
   };
@@ -538,6 +603,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       const isCorrupted = line.includes('[CORRUPTED:');
       const isMissing = line.includes('[MISSING:');
 
+      // If backend detected corruption matches (heuristics), check those too
+      const heuristicMatch = corruptedMatches.find(m => m && line.includes(m));
+
       if (isCorrupted) {
         const match = line.match(/\[CORRUPTED: ([^\]]+)\]/);
         const corruptedText = match ? match[1] : '###';
@@ -610,6 +678,21 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                 {clause && renderClausePopover(clause, 'missing')}
               </PopoverContent>
             </Popover>
+          </div>
+        );
+      }
+
+      // Highlight heuristic-detected corrupted fragment (first match in line)
+      if (heuristicMatch) {
+        const beforeText = line.substring(0, line.indexOf(heuristicMatch));
+        const afterText = line.substring(line.indexOf(heuristicMatch) + heuristicMatch.length);
+        return (
+          <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
+            {beforeText}
+            <span className="relative inline-block bg-warning text-warning-foreground px-2 py-0.5 rounded cursor-pointer hover:bg-warning/80 transition-all duration-200">
+              {heuristicMatch}
+            </span>
+            {afterText}
           </div>
         );
       }
@@ -913,7 +996,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!analyzing && !analysisComplete && (
+          {!analysisRunning && !analysisComplete && (
             <Button onClick={startAnalysis}>Start AI Analysis</Button>
           )}
           <Button variant="outline" onClick={onCancel}>
@@ -1031,6 +1114,13 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                         className="w-full font-mono text-sm"
                       />
                     </div>
+                  ) : analysisRunning ? (
+                    // While analysis is running, do NOT render the document preview content
+                    // Render an empty placeholder box so the overlay fully hides the document
+                    <div
+                      className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"
+                      style={{ fontSize: `${zoom}%`, minHeight: '400px' }}
+                    />
                   ) : (
                     <div
                       className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"

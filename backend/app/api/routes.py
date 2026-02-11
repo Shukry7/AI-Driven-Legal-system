@@ -4,6 +4,7 @@ import os
 
 from ..services.pdf_service import pdf_bytes_to_text
 from ..services.clause_detection_service import analyze_clause_detection, LEGAL_CLAUSES
+from ..services.corruption_detection_service import detect_corruptions
 
 main = Blueprint('main', __name__)
 
@@ -203,6 +204,12 @@ def analyze_clauses():
     try:
         current_app.logger.info("analyze-clauses: starting clause analysis")
         clause_analysis = analyze_clause_detection(extracted_text)
+        # Run corruption detection heuristics on the raw extracted text
+        try:
+            corruptions = detect_corruptions(extracted_text)
+        except Exception as e:
+            current_app.logger.exception('corruption detection failed')
+            corruptions = []
         current_app.logger.info("analyze-clauses: clause analysis completed")
     except Exception as e:
         return jsonify({
@@ -219,7 +226,8 @@ def analyze_clauses():
         # Return both a short preview and the full extracted text
         'text_preview': extracted_text[:500] + '...' if len(extracted_text) > 500 else extracted_text,
         'full_text': extracted_text,
-        'clause_analysis': clause_analysis
+        'clause_analysis': clause_analysis,
+        'corruptions': corruptions
     }
     # Log summary
     try:
