@@ -50,6 +50,34 @@ export async function analyzeClauses(file: File, onProgress?: (p: number) => voi
   return postFileWithProgress('/analyze-clauses', file, onProgress);
 }
 
+export async function analyzeByFilename(filename: string): Promise<AnalyzeResult> {
+  const url = `${API_BASE}/analyze-clauses`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename })
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({ error: 'unknown' }));
+    throw json;
+  }
+  return res.json();
+}
+
+export async function saveTextFile(filename: string, content: string): Promise<{ success: boolean; error?: string }> {
+  const url = `${API_BASE}/save-text`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ filename, content })
+  });
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({ success: false, error: 'unknown' }));
+    return json;
+  }
+  return res.json();
+}
+
 export async function listClauses(): Promise<string[]> {
   const res = await fetch(`${API_BASE}/clauses/list`);
   if (!res.ok) throw new Error('Failed to load clauses');
@@ -57,4 +85,11 @@ export async function listClauses(): Promise<string[]> {
   return json.clauses || [];
 }
 
-export default { uploadPdf, analyzeClauses, listClauses };
+export async function getRecentUploads(): Promise<{ filename: string; iso_timestamp: string }[]> {
+  const res = await fetch(`${API_BASE}/uploads/recent`);
+  if (!res.ok) return [];
+  const json = await res.json().catch(() => ({ files: [] }));
+  return (json.files || []).map((f: any) => ({ filename: f.filename, iso_timestamp: f.iso_timestamp }));
+}
+
+export default { uploadPdf, analyzeClauses, analyzeByFilename, saveTextFile, listClauses, getRecentUploads };

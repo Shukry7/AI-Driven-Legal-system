@@ -10,6 +10,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
+import api from '@/config/api';
 
 interface ClauseWorkspaceProps {
   file: File;
@@ -218,6 +219,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   const [editedText, setEditedText] = useState('');
   const [activePopover, setActivePopover] = useState<string | null>(null);
   const [modifiedDocumentText, setModifiedDocumentText] = useState(documentText);
+  const [savedTextFilename, setSavedTextFilename] = useState<string | null>(null);
+  const [isEditingDocument, setIsEditingDocument] = useState(false);
   const [viewMode, setViewMode] = useState<'review' | 'comparison'>('review');
   const [manualInputValues, setManualInputValues] = useState<Record<number, string>>({});
 
@@ -268,19 +271,76 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   const startAnalysis = async () => {
     setAnalyzing(true);
     setAnalysisComplete(false);
+    setProgress(5);
 
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      setProcessSteps(prev => prev.map((step, idx) => ({
-        ...step,
-        status: idx < i + 1 ? 'complete' : idx === i + 1 ? 'processing' : 'pending'
-      })));
-      setProgress(((i + 1) / steps.length) * 100);
+    try {
+      const resp = await api.analyzeClauses(file, (p: number) => setProgress(p));
+      // Expect backend response shape: { success, full_text, clause_analysis }
+      if (resp && resp.success) {
+        const analysis = resp.clause_analysis || {};
+        const stats = analysis.statistics || {};
+
+        // Map backend clause list into UI's expected missing/corrupted arrays
+        const clauses = Array.isArray(analysis.clauses) ? analysis.clauses : [];
+        const missingClauses = clauses
+          .map((c: any, idx: number) => ({
+            id: idx + 1,
+            name: c.clause_name,
+            severity: 'medium',
+            description: c.content || '',
+            expectedLocation: '',
+            suggestion: c.llm_suggestion || '',
+            predictedText: c.content || '',
+            confidence: c.confidence || undefined,
+            rationale: undefined,
+            alternatives: [],
+            jurisdiction: undefined,
+            status: c.status === 'Missing' ? undefined : c.status === 'Present' ? 'accepted' : undefined,
+            isPredictable: true
+          }))
+          .filter((c: any) => !c.status || c.status !== 'accepted');
+
+        const corruptedClauses = clauses
+          .map((c: any, idx: number) => ({
+            id: idx + 1,
+            name: c.clause_name,
+            issue: c.status === 'Corrupt' ? 'Detected as corrupt' : '',
+            section: c.clause_name,
+            suggestion: c.llm_suggestion || '',
+            predictedText: c.content || '',
+            status: c.status === 'Corrupt' ? undefined : 'accepted',
+            isPredictable: false,
+            requiresManualInput: c.status === 'Corrupt'
+          }))
+          .filter((c: any) => c.requiresManualInput);
+
+        const mappedResults = {
+          totalClauses: stats.total_clauses || clauses.length,
+          validClauses: stats.present || 0,
+          missingClauses,
+          corruptedClauses,
+          originalDocument: resp.full_text || documentText,
+          modifiedDocument: resp.full_text || documentText
+        };
+
+        // Save the server-side saved text filename (if provided) so edits can be persisted
+        const savedPath = resp.saved_text_path || resp.full_text_path || resp.full_text_path || '';
+        const filenameOnly = typeof savedPath === 'string' && savedPath ? savedPath.split(/[/\\]/).pop() : null;
+        if (filenameOnly) setSavedTextFilename(filenameOnly);
+
+        setDocumentText(resp.full_text || documentText);
+        setModifiedDocumentText(resp.full_text || documentText);
+        setResults(mappedResults as any);
+        setProgress(100);
+        setAnalysisComplete(true);
+      } else {
+        console.error('analyzeClauses failed', resp);
+      }
+    } catch (err) {
+      console.error('Analysis error', err);
+    } finally {
+      setAnalyzing(false);
     }
-
-    setAnalyzing(false);
-    setAnalysisComplete(true);
-    setResults(mockResults);
   };
 
   const handleAcceptClause = (type: 'missing' | 'corrupted', id: number) => {
@@ -394,6 +454,41 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     setEditingClauseId(null);
     setEditedText('');
     setActivePopover(null);
+  };
+
+  const handleStartDocumentEdit = () => {
+    setIsEditingDocument(true);
+    setActivePopover(null);
+  };
+
+  const handleCancelDocumentEdit = () => {
+    setIsEditingDocument(false);
+    setModifiedDocumentText(documentText);
+  };
+
+  const handleDoneDocumentEdit = async () => {
+    if (!savedTextFilename) {
+      console.error('No saved filename available to update on server');
+      setIsEditingDocument(false);
+      return;
+    }
+
+    try {
+      setAnalyzing(true);
+      setProgress(75);
+      const resp = await api.saveTextFile(savedTextFilename, modifiedDocumentText);
+      if (resp && resp.success) {
+        setDocumentText(modifiedDocumentText);
+        setIsEditingDocument(false);
+        setProgress(100);
+      } else {
+        console.error('saveTextFile failed', resp);
+      }
+    } catch (err) {
+      console.error('save text error', err);
+    } finally {
+      setAnalyzing(false);
+    }
   };
 
   const handleUseAlternative = (clauseId: number, altText: string) => {
@@ -882,7 +977,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               </CardTitle>
               {analysisComplete && (
                 <div className="flex items-center gap-2">
-                  {viewMode === 'review' && (
+                  {viewMode === 'review' && !isEditingDocument && (
                     <>
                       <Button size="icon" variant="outline" onClick={() => setZoom(Math.max(50, zoom - 10))}>
                         <ZoomOut className="w-4 h-4" />
@@ -893,6 +988,17 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                       </Button>
                     </>
                   )}
+
+                  {/* Edit controls for the document preview */}
+                  {!isEditingDocument ? (
+                    <Button size="sm" onClick={handleStartDocumentEdit}>Edit</Button>
+                  ) : (
+                    <>
+                      <Button size="sm" onClick={handleDoneDocumentEdit} className="bg-success">Done</Button>
+                      <Button size="sm" variant="outline" onClick={handleCancelDocumentEdit}>Cancel</Button>
+                    </>
+                  )}
+
                   <Button 
                     variant={viewMode === 'comparison' ? 'default' : 'outline'}
                     size="sm"
@@ -916,12 +1022,23 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                 )}
 
                 {viewMode === 'review' && (
-                  <div
-                    className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"
-                    style={{ fontSize: `${zoom}%` }}
-                  >
-                    {renderDocumentWithHighlights()}
-                  </div>
+                  isEditingDocument ? (
+                    <div className="font-mono text-sm text-foreground leading-relaxed bg-card p-2 rounded-lg shadow-sm">
+                      <Textarea
+                        value={modifiedDocumentText}
+                        onChange={(e) => setModifiedDocumentText(e.target.value)}
+                        rows={24}
+                        className="w-full font-mono text-sm"
+                      />
+                    </div>
+                  ) : (
+                    <div
+                      className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"
+                      style={{ fontSize: `${zoom}%` }}
+                    >
+                      {renderDocumentWithHighlights()}
+                    </div>
+                  )
                 )}
 
                 {viewMode === 'comparison' && renderComparisonView()}
