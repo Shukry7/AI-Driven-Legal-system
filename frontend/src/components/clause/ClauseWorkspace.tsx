@@ -263,9 +263,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     ]
   };
 
-  useEffect(() => {
-    startAnalysis();
-  }, []);
+  // Analysis will run only when the user explicitly starts it via the UI
 
   const startAnalysis = async () => {
     setAnalyzing(true);
@@ -819,52 +817,59 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             Analyzing: {file.name}
           </p>
         </div>
-        <Button variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+        <div className="flex items-center gap-2">
+          {!analyzing && !analysisComplete && (
+            <Button onClick={startAnalysis}>Start AI Analysis</Button>
+          )}
+          <Button variant="outline" onClick={onCancel}>
+            Cancel
+          </Button>
+        </div>
       </div>
 
-      {/* Analysis Progress - placed above document preview and full width */}
-      <Card className="w-full">
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Loader2 className={analyzing ? 'animate-spin text-accent' : 'text-success'} />
-            Analysis Progress
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <Progress value={progress} className="w-full" />
-          <div className="flex gap-3 py-2 flex-nowrap">
-            {processSteps.map((step) => (
-              <div
-                key={step.id}
-                className="p-3 rounded-lg bg-muted/30 border border-border flex items-center gap-3 box-border"
-                style={{ flex: `1 1 ${100 / processSteps.length}%`, minWidth: 0 }}
-              >
-                <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
-                  {step.status === 'complete' && (
-                    <CheckCircle className="w-5 h-5 text-success" />
-                  )}
-                  {step.status === 'processing' && (
-                    <Loader2 className="w-5 h-5 text-accent animate-spin" />
-                  )}
-                  {step.status === 'pending' && (
-                    <span className="text-lg">{step.icon}</span>
-                  )}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className={`text-sm font-medium ${step.status === 'complete' ? 'text-foreground' : 'text-muted-foreground'}`}>
-                    {step.name}
+      {/* Analysis Progress - shown only when running or after completion */}
+      {(analyzing || analysisComplete) && (
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Loader2 className={analyzing ? 'animate-spin text-accent' : 'text-success'} />
+              Analysis Progress
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Progress value={progress} className="w-full" />
+            <div className="flex gap-3 py-2 flex-nowrap">
+              {processSteps.map((step) => (
+                <div
+                  key={step.id}
+                  className="p-3 rounded-lg bg-muted/30 border border-border flex items-center gap-3 box-border"
+                  style={{ flex: `1 1 ${100 / processSteps.length}%`, minWidth: 0 }}
+                >
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
+                    {step.status === 'complete' && (
+                      <CheckCircle className="w-5 h-5 text-success" />
+                    )}
+                    {step.status === 'processing' && (
+                      <Loader2 className="w-5 h-5 text-accent animate-spin" />
+                    )}
+                    {step.status === 'pending' && (
+                      <span className="text-lg">{step.icon}</span>
+                    )}
                   </div>
-                  <div className="text-xs text-muted-foreground mt-1">
-                    {step.status === 'complete' ? 'Completed' : step.status === 'processing' ? 'In progress' : 'Pending'}
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-medium ${step.status === 'complete' ? 'text-foreground' : 'text-muted-foreground'}`}>
+                      {step.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {step.status === 'complete' ? 'Completed' : step.status === 'processing' ? 'In progress' : 'Pending'}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Left & Center - Document Viewer */}

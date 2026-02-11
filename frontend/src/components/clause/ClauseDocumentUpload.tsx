@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 
-import api from './api';
+import api from '../../config/api';
 
 interface DocumentUploadProps {
   // onProceed receives the uploaded file and the analysis result (if available)
