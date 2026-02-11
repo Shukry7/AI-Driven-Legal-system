@@ -4,6 +4,7 @@ import os
 
 from ..services.pdf_service import pdf_bytes_to_text
 from ..services.clause_detection_service import analyze_clause_detection, LEGAL_CLAUSES
+from ..services.corruption_detection_service import detect_corruptions
 
 main = Blueprint('main', __name__)
 
@@ -203,6 +204,12 @@ def analyze_clauses():
     try:
         current_app.logger.info("analyze-clauses: starting clause analysis")
         clause_analysis = analyze_clause_detection(extracted_text)
+        # Run corruption detection heuristics on the raw extracted text
+        try:
+            corruptions = detect_corruptions(extracted_text)
+        except Exception as e:
+            current_app.logger.exception('corruption detection failed')
+            corruptions = []
         current_app.logger.info("analyze-clauses: clause analysis completed")
     except Exception as e:
         return jsonify({
@@ -219,7 +226,8 @@ def analyze_clauses():
         # Return both a short preview and the full extracted text
         'text_preview': extracted_text[:500] + '...' if len(extracted_text) > 500 else extracted_text,
         'full_text': extracted_text,
-        'clause_analysis': clause_analysis
+        'clause_analysis': clause_analysis,
+        'corruptions': corruptions
     }
     # Log summary
     try:
@@ -252,3 +260,85 @@ def list_clauses():
         'total_clauses': len(LEGAL_CLAUSES),
         'clauses': LEGAL_CLAUSES
     }), 200
+
+
+@main.route('/save-text', methods=['POST'])
+def save_text():
+    """
+    Save/overwrite an extracted .txt file in the uploads directory.
+
+    Expects JSON body: { "filename": "somefile.pdf.txt", "content": "...text..." }
+    Returns { success: true } on success or { success: false, error: "..." } on failure.
+    """
+    uploads_dir = os.path.join(current_app.root_path, '..', 'uploads')
+    os.makedirs(uploads_dir, exist_ok=True)
+
+    data = None
+    if request.is_json:
+        data = request.get_json()
+    else:
+        # accept form posts as well
+        data = request.form.to_dict()
+
+    filename = data.get('filename') if isinstance(data, dict) else None
+    content = data.get('content') if isinstance(data, dict) else None
+
+    if not filename or not isinstance(filename, str):
+        return jsonify({'success': False, 'error': 'filename is required'}), 400
+
+    if not content or not isinstance(content, str):
+        return jsonify({'success': False, 'error': 'content is required'}), 400
+
+    # Only allow .txt files and ensure safe path inside uploads
+    if not filename.lower().endswith('.txt'):
+        return jsonify({'success': False, 'error': 'Only .txt files may be saved via this endpoint'}), 400
+
+    candidate_path = os.path.abspath(os.path.join(uploads_dir, filename))
+    uploads_dir_abs = os.path.abspath(uploads_dir)
+    if not (candidate_path == uploads_dir_abs or candidate_path.startswith(uploads_dir_abs + os.sep)):
+        return jsonify({'success': False, 'error': 'Invalid filename or path'}), 400
+
+    try:
+        with open(candidate_path, 'w', encoding='utf-8') as f:
+            f.write(content)
+        current_app.logger.info("save-text: updated %s", candidate_path)
+        return jsonify({'success': True}), 200
+    except Exception as e:
+        current_app.logger.exception('Failed to write text file')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/uploads/recent', methods=['GET'])
+def recent_uploads():
+    """Return the most recent .txt uploaded/extracted files (most recent first).
+
+    Response: { success: true, files: [ { filename, mtime, iso_timestamp } ] }
+    """
+    uploads_dir = os.path.join(current_app.root_path, '..', 'uploads')
+    try:
+        os.makedirs(uploads_dir, exist_ok=True)
+        entries = []
+        for name in os.listdir(uploads_dir):
+            if not name.lower().endswith('.txt'):
+                continue
+            path = os.path.join(uploads_dir, name)
+            try:
+                mtime = os.path.getmtime(path)
+            except Exception:
+                mtime = 0
+            entries.append((name, mtime))
+
+        # sort by mtime desc and take first 4
+        entries.sort(key=lambda e: e[1], reverse=True)
+        recent = []
+        for name, mtime in entries[:4]:
+            recent.append({
+                'filename': name,
+                'mtime': mtime,
+                'iso_timestamp': __import__('datetime').datetime.fromtimestamp(mtime).isoformat()
+            })
+
+        return jsonify({'success': True, 'files': recent}), 200
+    except Exception as e:
+        current_app.logger.exception('recent_uploads failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
