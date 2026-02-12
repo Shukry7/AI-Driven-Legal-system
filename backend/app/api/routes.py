@@ -5,7 +5,8 @@ import json
 import datetime
 
 from ..services.pdf_service import pdf_bytes_to_text
-from ..services.clause_detection_service import analyze_clause_detection, LEGAL_CLAUSES
+from ..services.clause_detection_service import analyze_clause_detection
+from ..services.clause_patterns import CLAUSE_DEFINITIONS
 from ..services.corruption_detection_service import detect_corruptions
 
 main = Blueprint('main', __name__)
@@ -284,13 +285,22 @@ def list_clauses():
         {
             "success": true,
             "total_clauses": 28,
-            "clauses": ["Case Title", "Bench Composition", ...]
+            "clauses": [{"key": "CourtTitle", "name": "Court Title", ...}, ...]
         }
     """
+    clause_list = [
+        {
+            "key": key,
+            "name": info["name"],
+            "description": info["description"]
+        }
+        for key, info in CLAUSE_DEFINITIONS.items()
+    ]
+    
     return jsonify({
         'success': True,
-        'total_clauses': len(LEGAL_CLAUSES),
-        'clauses': LEGAL_CLAUSES
+        'total_clauses': len(clause_list),
+        'clauses': clause_list
     }), 200
 
 

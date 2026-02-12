@@ -1,122 +1,65 @@
 """
 Clause Detection Service - Main service for analyzing legal judgments.
 
-This service will:1. Receive extracted text from legal judgments
-2. Process text through ML model for clause detection (28 predefined clauses)
-3. Validate predictions using regression (future implementation)
-4. Send missing clauses to LLM for suggestions (future implementation)
-5. Return structured results
+This service:
+1. Receives extracted text from legal judgments
+2. Processes text through regex-based clause detection (28 predefined clauses)
+3. Categorizes each clause as Present, Missing, or Corrupted
+4. Returns structured results with clause positions for highlighting
 
-NOTE: This is the foundational structure. ML model integration,
-regression validation, and LLM integration will be added in next phase.
+NOTE: Uses comprehensive regex patterns from clause_patterns.py
+Future enhancements: ML model integration, LLM suggestions for missing clauses
 """
 
 from typing import Dict, List, Tuple, Optional
-
-
-# 28 Predefined Legal Clauses for Supreme Court Judgments
-LEGAL_CLAUSES = [
-    "Case Title",
-    "Bench Composition",
-    "Date of Judgment",
-    "Petitioner Name",
-    "Respondent Name",
-    "Case Number",
-    "Citation",
-    "Advocate for Petitioner",
-    "Advocate for Respondent",
-    "Subject Matter",
-    "Acts Referred",
-    "Precedents Cited",
-    "Facts of the Case",
-    "Issues Raised",
-    "Arguments by Petitioner",
-    "Arguments by Respondent",
-    "Legal Analysis",
-    "Ratio Decidendi",
-    "Obiter Dicta",
-    "Court's Findings",
-    "Final Judgment",
-    "Orders Passed",
-    "Relief Granted",
-    "Costs",
-    "Appeal Provisions",
-    "Conclusion",
-    "Dissenting Opinion",
-    "Concurring Opinion"
-]
+from .clause_patterns import detect_all_clauses, get_corrupted_regions, CLAUSE_DEFINITIONS
 
 
 class ClauseStatus:
     """Enum-like class for clause status."""
     PRESENT = "Present"
     MISSING = "Missing"
-    CORRUPT = "Corrupt"
+    CORRUPT = "Corrupted"
 
 
 def analyze_clause_detection(text: str) -> Dict:
     """
     Main function to analyze legal judgment for clause detection.
     
-    This is a placeholder that returns the structure for clause detection.
-    In the next phase, this will:
-    - Call ML model for clause detection
-    - Apply regression-based validation
-    - Use LLM for missing clause prediction
+    Uses regex patterns to detect all 28 clauses and categorize them as:
+    - Present: Clause found and valid
+    - Missing: Clause not found in document
+    - Corrupted: Clause found but contains corruption indicators
     
     Args:
         text: Extracted and cleaned text from legal judgment PDF
         
     Returns:
-        Dict: Structured response containing clause analysis
+        Dict: Structured response containing clause analysis with positions
     """
     
-    # TODO: Phase 2 - Integrate ML model here
-    # model_predictions = ml_model.predict(text)
+    # Detect all clauses using regex patterns
+    clause_results = detect_all_clauses(text)
     
-    # TODO: Phase 3 - Apply regression validation
-    # validated_results = regression_validator.validate(model_predictions)
-    
-    # TODO: Phase 4 - LLM suggestions for missing clauses
-    # llm_suggestions = llm_service.suggest_missing_clauses(text, missing_clauses)
-    
-    # Initialize clause structure
-    clauses = _initialize_clause_structure()
+    # Get corrupted regions for highlighting
+    corrupted_regions = get_corrupted_regions(text, clause_results)
     
     # Calculate statistics
-    statistics = get_clause_statistics(clauses)
+    statistics = get_clause_statistics(clause_results)
     
-    # For now, return basic structure showing text was received
+    # Return structured result
     result = {
         "success": True,
         "text_length": len(text),
         "word_count": len(text.split()),
-        "clauses_analyzed": len(LEGAL_CLAUSES),
-        "clauses": clauses,
+        "clauses_analyzed": len(clause_results),
+        "clauses": clause_results,
         "statistics": statistics,
-        "message": "Text processed successfully. ML model integration pending."
+        "corrupted_regions": corrupted_regions,
+        "message": f"Analysis complete: {statistics['present']} present, {statistics['missing']} missing, {statistics['corrupted']} corrupted"
     }
     
     return result
-
-
-def _initialize_clause_structure() -> List[Dict]:
-    """
-    Initialize the clause detection structure.
-    
-    Returns:
-        List[Dict]: List of all 28 clauses with their initial status
-    """
-    clauses = []
-    for clause_name in LEGAL_CLAUSES:
-        clauses.append({
-            "clause_name": clause_name,
-            "status": ClauseStatus.MISSING,  # Default status
-            "confidence": None,  # Will be set by ML model
-            "content": None,  # Will contain extracted/predicted content
-            "llm_suggestion": None  # Will contain LLM suggestions if missing
-        })
-    return clauses
 
 
 def get_clause_statistics(clauses: List[Dict]) -> Dict:
@@ -132,13 +75,13 @@ def get_clause_statistics(clauses: List[Dict]) -> Dict:
     total = len(clauses)
     present = sum(1 for c in clauses if c["status"] == ClauseStatus.PRESENT)
     missing = sum(1 for c in clauses if c["status"] == ClauseStatus.MISSING)
-    corrupt = sum(1 for c in clauses if c["status"] == ClauseStatus.CORRUPT)
+    corrupted = sum(1 for c in clauses if c["status"] == ClauseStatus.CORRUPT)
     
     return {
         "total_clauses": total,
         "present": present,
         "missing": missing,
-        "corrupt": corrupt,
+        "corrupted": corrupted,
         "completion_percentage": round((present / total) * 100, 2) if total > 0 else 0
     }
 
