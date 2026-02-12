@@ -1,6 +1,8 @@
 from flask import Blueprint, jsonify, request, current_app
 from werkzeug.utils import secure_filename
 import os
+import json
+import datetime
 
 from ..services.pdf_service import pdf_bytes_to_text
 from ..services.clause_detection_service import analyze_clause_detection, LEGAL_CLAUSES
@@ -39,6 +41,16 @@ def upload_pdf():
         with open(saved_path, 'wb') as f:
             f.write(file_bytes)
         current_app.logger.info("upload-pdf: saved PDF to %s", saved_path)
+        # write sidecar metadata with upload timestamp (ISO UTC)
+        try:
+            meta = {
+                'filename': filename,
+                'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
+            }
+            with open(saved_path + '.meta.json', 'w', encoding='utf-8') as m:
+                json.dump(meta, m)
+        except Exception:
+            current_app.logger.exception('upload-pdf: failed to write metadata for %s', saved_path)
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to save uploaded file: {e}'}), 500
 
@@ -145,6 +157,16 @@ def analyze_clauses():
             with open(saved_pdf_path, 'wb') as f:
                 f.write(file_bytes)
             current_app.logger.info("analyze-clauses: saved uploaded PDF to %s", saved_pdf_path)
+            # write metadata for uploaded PDF
+            try:
+                meta = {
+                    'filename': save_name,
+                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
+                }
+                with open(saved_pdf_path + '.meta.json', 'w', encoding='utf-8') as m:
+                    json.dump(meta, m)
+            except Exception:
+                current_app.logger.exception('analyze-clauses: failed to write metadata for %s', saved_pdf_path)
         except Exception as e:
             return jsonify({'success': False, 'error': f'Failed to save uploaded PDF: {e}'}), 500
 
@@ -160,6 +182,16 @@ def analyze_clauses():
             with open(txt_path, 'w', encoding='utf-8') as t:
                 t.write(extracted_text)
             current_app.logger.info("analyze-clauses: saved extracted text to %s", txt_path)
+            # write metadata for extracted text as well
+            try:
+                meta_txt = {
+                    'filename': os.path.basename(txt_path),
+                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
+                }
+                with open(txt_path + '.meta.json', 'w', encoding='utf-8') as m:
+                    json.dump(meta_txt, m)
+            except Exception:
+                current_app.logger.exception('analyze-clauses: failed to write metadata for %s', txt_path)
         except Exception as e:
             return jsonify({'success': False, 'error': f'Failed to save extracted text: {str(e)}'}), 500
 
