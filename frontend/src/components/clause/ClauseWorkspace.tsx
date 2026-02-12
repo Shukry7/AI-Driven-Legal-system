@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -9,6 +9,8 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
 import api from '@/config/api';
 
@@ -23,10 +25,18 @@ interface ClauseWorkspaceProps {
 interface AnalysisResults {
   totalClauses: number;
   validClauses: number;
+  presentClauses: number; // New: clauses that are present and valid
   missingClauses: MissingClause[];
   corruptedClauses: CorruptedClause[];
   originalDocument?: string;
   modifiedDocument?: string;
+  statistics?: {
+    total_clauses: number;
+    present: number;
+    missing: number;
+    corrupted: number;
+    completion_percentage: number;
+  };
 }
 
 interface MissingClause {
@@ -217,6 +227,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   const [selectedIssue, setSelectedIssue] = useState<{ type: string; data: any } | null>(null);
   const [results, setResults] = useState<AnalysisResults | null>(null);
   const [corruptedMatches, setCorruptedMatches] = useState<string[]>([]);
+  const [corruptedRegions, setCorruptedRegions] = useState<Array<{clause_name: string, text: string, start: number, end: number}>>([]);
   const [editingClauseId, setEditingClauseId] = useState<number | null>(null);
   const [editedText, setEditedText] = useState('');
   const [activePopover, setActivePopover] = useState<string | null>(null);
@@ -225,6 +236,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   const [isEditingDocument, setIsEditingDocument] = useState(false);
   const [viewMode, setViewMode] = useState<'review' | 'comparison'>('review');
   const [manualInputValues, setManualInputValues] = useState<Record<number, string>>({});
+  const [showClauseDetailsDialog, setShowClauseDetailsDialog] = useState(false);
 
   const steps: ProcessStep[] = [
     { id: 1, name: 'Extracting text', status: 'pending', icon: '📄' },
@@ -256,6 +268,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   const mockResults: AnalysisResults = {
     totalClauses: 18,
     validClauses: 13,
+    presentClauses: 13,
     missingClauses: supremeCourtMissingClauses as any,
     corruptedClauses: [
       {
@@ -349,10 +362,13 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         const mappedResults = {
           totalClauses: stats.total_clauses || clauses.length,
           validClauses: stats.present || 0,
+          presentClauses: stats.present || 0,
           missingClauses,
           corruptedClauses,
           originalDocument: resp.full_text || documentText,
-          modifiedDocument: resp.full_text || documentText
+          modifiedDocument: resp.full_text || documentText,
+          statistics: stats,
+          __raw_response__: resp // Store raw response for detailed clause access
         };
 
         // Save the server-side saved text filename (if provided) so edits can be persisted
@@ -363,7 +379,15 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         setDocumentText(resp.full_text || documentText);
         setModifiedDocumentText(resp.full_text || documentText);
         setResults(mappedResults as any);
-        // set corrupted matches from backend if provided
+        
+        // Set corrupted regions from backend for highlighting
+        if (resp && resp.clause_analysis && Array.isArray(resp.clause_analysis.corrupted_regions)) {
+          setCorruptedRegions(resp.clause_analysis.corrupted_regions);
+        } else {
+          setCorruptedRegions([]);
+        }
+        
+        // set corrupted matches from backend if provided (legacy support)
         if (resp && Array.isArray(resp.corruptions)) {
           setCorruptedMatches(resp.corruptions.map((c: any) => c.match));
         } else {
@@ -597,13 +621,26 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   };
 
   const renderDocumentWithHighlights = () => {
-    const lines = documentText.trim().split('\n');
+    const text = documentText;
+    const lines = text.trim().split('\n');
+    let charOffset = 0;
 
     return lines.map((line, idx) => {
+      const lineStart = charOffset;
+      const lineEnd = charOffset + line.length;
+      charOffset = lineEnd + 1; // +1 for newline
+
       const isCorrupted = line.includes('[CORRUPTED:');
       const isMissing = line.includes('[MISSING:');
 
-      // If backend detected corruption matches (heuristics), check those too
+      // Check if any corrupted region from backend falls within this line
+      const lineCorruptedRegions = corruptedRegions.filter(region => 
+        (region.start >= lineStart && region.start < lineEnd) ||
+        (region.end > lineStart && region.end <= lineEnd) ||
+        (region.start < lineStart && region.end > lineEnd)
+      );
+
+      // If backend detected corruption matches (heuristics), check those too (legacy)
       const heuristicMatch = corruptedMatches.find(m => m && line.includes(m));
 
       if (isCorrupted) {
@@ -625,6 +662,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               <PopoverTrigger asChild>
                 <span
                   className="relative inline-block bg-warning text-warning-foreground px-2 py-0.5 rounded cursor-pointer hover:bg-warning/80 transition-all duration-200"
+                  title={`Corrupted: ${corruptedText}`}
                 >
                   {corruptedText}
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -682,14 +720,47 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         );
       }
 
-      // Highlight heuristic-detected corrupted fragment (first match in line)
+      // Highlight corrupted regions detected by backend regex patterns
+      if (lineCorruptedRegions.length > 0) {
+        let highlightedLine = line;
+        const sortedRegions = [...lineCorruptedRegions].sort((a, b) => b.start - a.start); // Sort descending to replace from end
+        
+        for (const region of sortedRegions) {
+          const relativeStart = Math.max(0, region.start - lineStart);
+          const relativeEnd = Math.min(line.length, region.end - lineStart);
+          
+          if (relativeStart < relativeEnd && relativeStart >= 0 && relativeEnd <= line.length) {
+            const beforeRegion = highlightedLine.substring(0, relativeStart);
+            const corruptedPart = highlightedLine.substring(relativeStart, relativeEnd);
+            const afterRegion = highlightedLine.substring(relativeEnd);
+            
+            return (
+              <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
+                {beforeRegion}
+                <span 
+                  className="relative inline-block bg-warning/70 text-warning-foreground px-1 py-0.5 rounded cursor-help border border-warning"
+                  title={`Corrupted: ${region.clause_name}`}
+                >
+                  {corruptedPart}
+                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
+                  </span>
+                </span>
+                {afterRegion}
+              </div>
+            );
+          }
+        }
+      }
+
+      // Highlight heuristic-detected corrupted fragment (legacy support)
       if (heuristicMatch) {
         const beforeText = line.substring(0, line.indexOf(heuristicMatch));
         const afterText = line.substring(line.indexOf(heuristicMatch) + heuristicMatch.length);
         return (
           <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
             {beforeText}
-            <span className="relative inline-block bg-warning text-warning-foreground px-2 py-0.5 rounded cursor-pointer hover:bg-warning/80 transition-all duration-200">
+            <span className="relative inline-block bg-warning/60 text-warning-foreground px-2 py-0.5 rounded cursor-help border border-warning/50" title="Corruption detected by heuristics">
               {heuristicMatch}
             </span>
             {afterText}
@@ -933,6 +1004,114 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  // Helper function to get organized clause lists from backend response
+  const getOrganizedClauses = () => {
+    if (!results) return { present: [], missing: [], corrupted: [] };
+    
+    // Get clauses from the actual analysis response if available
+    const resp = (results as any).__raw_response__;
+    if (resp && resp.clause_analysis && Array.isArray(resp.clause_analysis.clauses)) {
+      const clauses = resp.clause_analysis.clauses;
+      return {
+        present: clauses.filter((c: any) => c.status === 'Present').map((c: any) => c.clause_name),
+        missing: clauses.filter((c: any) => c.status === 'Missing').map((c: any) => c.clause_name),
+        corrupted: clauses.filter((c: any) => c.status === 'Corrupted').map((c: any) => c.clause_name)
+      };
+    }
+    
+    // Fallback: use the processed missing/corrupted arrays
+    return {
+      present: [], // Can be calculated: total - missing - corrupted
+      missing: results.missingClauses.map((c: any) => c.name),
+      corrupted: results.corruptedClauses.map((c: any) => c.name)
+    };
+  };
+
+  const renderClauseDetailsDialog = () => {
+    const organized = getOrganizedClauses();
+    const presentCount = results?.statistics?.present || results?.presentClauses || 0;
+    const missingCount = results?.statistics?.missing || results?.missingClauses.length || 0;
+    const corruptedCount = results?.statistics?.corrupted || results?.corruptedClauses.length || 0;
+    
+    return (
+      <DialogContent className="max-w-2xl max-h-[80vh]">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-bold">Clause Detection Details</DialogTitle>
+          <DialogDescription>
+            Complete breakdown of all {results?.statistics?.total_clauses || results?.totalClauses || 0} clauses analyzed in this document
+          </DialogDescription>
+        </DialogHeader>
+        
+        <ScrollArea className="h-[500px] pr-4">
+          <Tabs defaultValue="present" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="present" className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                Present ({presentCount})
+              </TabsTrigger>
+              <TabsTrigger value="missing" className="flex items-center gap-2">
+                <XCircle className="w-4 h-4" />
+                Missing ({missingCount})
+              </TabsTrigger>
+              <TabsTrigger value="corrupted" className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                Corrupted ({corruptedCount})
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="present" className="space-y-2 mt-4">
+              {organized.present.length > 0 ? (
+                organized.present.map((clauseName, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-success/10 border border-success/20 rounded-lg">
+                    <CheckCircle className="w-4 h-4 text-success flex-shrink-0" />
+                    <span className="text-sm font-medium">{clauseName}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No present clauses to display</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="missing" className="space-y-2 mt-4">
+              {organized.missing.length > 0 ? (
+                organized.missing.map((clauseName, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                    <XCircle className="w-4 h-4 text-destructive flex-shrink-0" />
+                    <span className="text-sm font-medium">{clauseName}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No missing clauses - document is complete!</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="corrupted" className="space-y-2 mt-4">
+              {organized.corrupted.length > 0 ? (
+                organized.corrupted.map((clauseName, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-warning/10 border border-warning/20 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
+                    <span className="text-sm font-medium">{clauseName}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No corrupted clauses detected</p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </ScrollArea>
+      </DialogContent>
+    );
   };
 
   const renderComparisonView = () => {
@@ -1238,20 +1417,42 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               <CardContent className="space-y-3">
                 <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
                   <span className="text-sm font-semibold text-muted-foreground">Total Clauses</span>
-                  <span className="text-2xl font-bold text-foreground">{results.totalClauses}</span>
+                  <span className="text-2xl font-bold text-foreground">{results.statistics?.total_clauses || results.totalClauses}</span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-success/10 rounded-lg">
-                  <span className="text-sm font-semibold text-success">Valid</span>
-                  <span className="text-2xl font-bold text-success">{results.validClauses}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-warning/10 rounded-lg">
-                  <span className="text-sm font-semibold text-warning">Corrupted</span>
-                  <span className="text-2xl font-bold text-warning">{results.corruptedClauses.length}</span>
+                  <span className="text-sm font-semibold text-success">Present</span>
+                  <span className="text-2xl font-bold text-success">{results.statistics?.present || results.presentClauses}</span>
                 </div>
                 <div className="flex justify-between items-center p-3 bg-destructive/10 rounded-lg">
                   <span className="text-sm font-semibold text-destructive">Missing</span>
-                  <span className="text-2xl font-bold text-destructive">{results.missingClauses.length}</span>
+                  <span className="text-2xl font-bold text-destructive">{results.statistics?.missing || results.missingClauses.length}</span>
                 </div>
+                <div className="flex justify-between items-center p-3 bg-warning/10 rounded-lg">
+                  <span className="text-sm font-semibold text-warning">Corrupted</span>
+                  <span className="text-2xl font-bold text-warning">{results.statistics?.corrupted || results.corruptedClauses.length}</span>
+                </div>
+
+                {/* Completion Percentage */}
+                {results.statistics?.completion_percentage !== undefined && (
+                  <div className="mt-4 pt-4 border-t border-border">
+                    <div className="flex justify-between items-center mb-2">
+                      <span className="text-sm font-semibold text-muted-foreground">Completion</span>
+                      <span className="text-sm font-bold text-accent">{results.statistics.completion_percentage.toFixed(1)}%</span>
+                    </div>
+                    <Progress value={results.statistics.completion_percentage} className="h-2" />
+                  </div>
+                )}
+
+                {/* View Clause Details Button */}
+                <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
+                  <DialogTrigger asChild>
+                    <Button variant="outline" className="w-full mt-4" size="sm">
+                      <List className="w-4 h-4 mr-2" />
+                      View Clause Details
+                    </Button>
+                  </DialogTrigger>
+                  {renderClauseDetailsDialog()}
+                </Dialog>
 
                 {/* Real-time Decision Tracking */}
                 <div className="mt-4 pt-4 border-t border-border space-y-2">

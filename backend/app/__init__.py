@@ -53,4 +53,11 @@ def create_app():
     from .api import main
     app.register_blueprint(main)
 
+    # Start background cleanup of uploaded files (deletes files older than UPLOAD_RETENTION_HOURS)
+    try:
+        from .utils.cleanup_uploads import start_uploads_cleanup
+        start_uploads_cleanup(app)
+    except Exception:
+        app.logger.exception('Failed to start uploads cleanup')
+
     return app
