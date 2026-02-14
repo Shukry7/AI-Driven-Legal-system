@@ -42,130 +42,315 @@ export function ClauseComparisonView({
   const addedChanges = changes.filter(c => c.type === 'added');
   const correctedChanges = changes.filter(c => c.type === 'corrected');
 
-  // Helper to highlight changes in text
-  const highlightAdditions = (text: string) => {
-    // Find lines that are new (contain added/corrected content)
-    const lines = text.split('\n');
-    return lines.map((line, idx) => {
-      const isNewContent = changes.some(change => 
-        line.includes(change.newText.substring(0, 50)) || 
-        line.includes(change.name.toUpperCase())
-      );
+  // Helper function to strip formatting markers for display
+  const stripFormattingMarkers = (text: string): string => {
+    // Remove format markers like <<F:size=14,bold=1>>...<</F>>
+    return text
+      .replace(/<<F:[^>]+>>/g, '')
+      .replace(/<<\/F>>/g, '')
+      // Also remove old-style bold markers for backward compatibility
+      .replace(/<<BOLD>>/g, '')
+      .replace(/<<\/BOLD>>/g, '');
+  };
+
+  // Create a simple diff highlighting system based on changes
+  const createDiffHighlighting = () => {
+    // Find positions where changes were made
+    const changePositions = changes.map(change => {
+      const searchText = change.name.toUpperCase();
+      const newText = change.newText;
       
-      if (isNewContent) {
+      return {
+        type: change.type,
+        searchText,
+        newText,
+        originalText: change.originalText || ''
+      };
+    });
+
+    return changePositions;
+  };
+
+  const diffPositions = createDiffHighlighting();
+
+  // Render original document (plain text, no modifications)
+  const renderOriginalDocument = (text: string) => {
+    // Strip formatting markers for display
+    const displayText = stripFormattingMarkers(text);
+    const lines = displayText.split('\n');
+    return lines.map((line, idx) => (
+      <div 
+        key={idx} 
+        className="px-2"
+        style={{ whiteSpace: 'pre', lineHeight: '1.2' }}
+      >
+        {line || '\u00A0'}
+      </div>
+    ));
+  };
+
+  // Render modified document with green for additions and red for removals
+  const renderModifiedDocument = (text: string) => {
+    // Strip formatting markers for display
+    const displayText = stripFormattingMarkers(text);
+    const displayOriginal = stripFormattingMarkers(originalDocument);
+    const lines = displayText.split('\n');
+    
+    return lines.map((line, idx) => {
+      // Check if this line contains added content
+      const hasAddedContent = changes.some(change => {
+        if (change.type === 'added' || change.type === 'corrected') {
+          // Check if this line contains the new text from the change
+          const snippet = change.newText.substring(0, Math.min(100, change.newText.length));
+          return line.includes(snippet) || line.includes(change.name.toUpperCase());
+        }
+        return false;
+      });
+
+      // Check if this line had content removed (corrected clauses)
+      const hasRemovedContent = changes.some(change => {
+        if (change.type === 'corrected' && change.originalText) {
+          const snippet = change.originalText.substring(0, Math.min(100, change.originalText.length));
+          return displayOriginal.split('\n')[idx]?.includes(snippet);
+        }
+        return false;
+      });
+
+      if (hasAddedContent) {
         return (
           <div 
             key={idx} 
             className="bg-green-100 dark:bg-green-900/30 border-l-4 border-green-500 px-2"
-            style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
+            style={{ whiteSpace: 'pre', lineHeight: '1.2' }}
           >
             <span className="text-green-800 dark:text-green-200">{line || '\u00A0'}</span>
           </div>
         );
       }
-      return <div key={idx} className="px-2" style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}>{line || '\u00A0'}</div>;
-    });
-  };
 
-  // Helper to highlight removed/corrupted content in original
-  const highlightRemovals = (text: string) => {
-    const lines = text.split('\n');
-    return lines.map((line, idx) => {
-      const isCorrupted = line.includes('[CORRUPTED:');
-      const isMissing = line.includes('[MISSING:');
-      
-      if (isCorrupted) {
-        return (
-          <div 
-            key={idx} 
-            className="bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 px-2"
-            style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
-          >
-            <span className="text-yellow-800 dark:text-yellow-200">{line}</span>
-          </div>
-        );
-      }
-      if (isMissing) {
+      if (hasRemovedContent) {
         return (
           <div 
             key={idx} 
             className="bg-red-100 dark:bg-red-900/30 border-l-4 border-red-500 px-2"
-            style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
+            style={{ whiteSpace: 'pre', lineHeight: '1.2' }}
           >
-            <span className="text-red-800 dark:text-red-200">{line}</span>
+            <span className="text-red-800 dark:text-red-200 line-through">{displayOriginal.split('\n')[idx] || '\u00A0'}</span>
           </div>
         );
       }
-      return <div key={idx} className="px-2" style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}>{line || '\u00A0'}</div>;
+
+      return (
+        <div 
+          key={idx} 
+          className="px-2"
+          style={{ whiteSpace: 'pre', lineHeight: '1.2' }}
+        >
+          {line || '\u00A0'}
+        </div>
+      );
     });
   };
 
-  const handleDownloadOriginal = () => {
-    const blob = new Blob([originalDocument], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${fileName.replace(/\.[^/.]+$/, '')}_original.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleDownloadOriginal = async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+      
+      const response = await fetch(`${API_BASE}/generate-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: originalDocument,
+          filename: `${fileName.replace(/\.[^/.]+$/, '')}_original.pdf`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^/.]+$/, '')}_original.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      // Fallback to text
+      const blob = new Blob([originalDocument], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^/.]+$/, '')}_original.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
-  const handleDownloadCompleted = () => {
-    const blob = new Blob([modifiedDocument], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${fileName.replace(/\.[^/.]+$/, '')}_completed.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleDownloadCompleted = async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+      
+      const response = await fetch(`${API_BASE}/generate-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: modifiedDocument,
+          filename: `${fileName.replace(/\.[^/.]+$/, '')}_completed.pdf`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^/.]+$/, '')}_completed.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      // Fallback to text
+      const blob = new Blob([modifiedDocument], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^/.]+$/, '')}_completed.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
-  const handleDownloadComparison = () => {
-    // Create a comparison document with change markers
-    let comparisonDoc = `DOCUMENT COMPARISON REPORT
-========================
-Original File: ${fileName}
-Generated: ${new Date().toLocaleString()}
+  const handleDownloadComparison = async () => {
+    try {
+      // Generate comparison report as text
+      const comparisonText = [
+        'DOCUMENT COMPARISON REPORT',
+        '========================',
+        `Original File: ${fileName}`,
+        `Generated: ${new Date().toLocaleString()}`,
+        '',
+        'SUMMARY OF CHANGES',
+        '------------------',
+        `• Added Clauses: ${addedChanges.length}`,
+        `• Corrected Clauses: ${correctedChanges.length}`,
+        `• Total Changes: ${changes.length}`,
+        '',
+        'DETAILED CHANGES',
+        '----------------',
+        ''
+      ];
 
-SUMMARY OF CHANGES
-------------------
-• Added Clauses: ${addedChanges.length}
-• Corrected Clauses: ${correctedChanges.length}
-• Total Changes: ${changes.length}
+      changes.forEach((change, idx) => {
+        comparisonText.push(`${idx + 1}. ${change.name} (${change.type.toUpperCase()})`);
+        comparisonText.push(`   Section: ${change.section}`);
+        if (change.originalText) {
+          comparisonText.push(`   Original: ${change.originalText}`);
+        }
+        comparisonText.push(`   New Text: ${change.newText}`);
+        comparisonText.push('');
+      });
 
-DETAILED CHANGES
-----------------
+      comparisonText.push('');
+      comparisonText.push('COMPLETED DOCUMENT');
+      comparisonText.push('==================');
+      comparisonText.push('');
+      comparisonText.push(modifiedDocument);
 
-`;
+      const comparisonDoc = comparisonText.join('\n');
 
-    changes.forEach((change, idx) => {
-      comparisonDoc += `${idx + 1}. ${change.name} (${change.type.toUpperCase()})
-   Section: ${change.section}
-   ${change.originalText ? `Original: ${change.originalText}\n   ` : ''}New Text: ${change.newText}
+      // Send to backend for PDF generation
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+      
+      const response = await fetch(`${API_BASE}/generate-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: comparisonDoc,
+          filename: `${fileName.replace(/\.[^/.]+$/, '')}_comparison_report.pdf`
+        })
+      });
 
-`;
-    });
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
 
-    comparisonDoc += `
-COMPLETED DOCUMENT
-==================
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^/.]+$/, '')}_comparison_report.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error generating comparison PDF:', error);
+      // Fallback to text
+      const comparisonText = [
+        'DOCUMENT COMPARISON REPORT',
+        '========================',
+        `Original File: ${fileName}`,
+        `Generated: ${new Date().toLocaleString()}`,
+        '',
+        'SUMMARY OF CHANGES',
+        '------------------',
+        `• Added Clauses: ${addedChanges.length}`,
+        `• Corrected Clauses: ${correctedChanges.length}`,
+        `• Total Changes: ${changes.length}`,
+        '',
+        'DETAILED CHANGES',
+        '----------------',
+        ''
+      ];
 
-${modifiedDocument}
-`;
+      changes.forEach((change, idx) => {
+        comparisonText.push(`${idx + 1}. ${change.name} (${change.type.toUpperCase()})`);
+        comparisonText.push(`   Section: ${change.section}`);
+        if (change.originalText) {
+          comparisonText.push(`   Original: ${change.originalText}`);
+        }
+        comparisonText.push(`   New Text: ${change.newText}`);
+        comparisonText.push('');
+      });
 
-    const blob = new Blob([comparisonDoc], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${fileName.replace(/\.[^/.]+$/, '')}_comparison_report.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+      comparisonText.push('');
+      comparisonText.push('COMPLETED DOCUMENT');
+      comparisonText.push('==================');
+      comparisonText.push('');
+      comparisonText.push(modifiedDocument);
+
+      const comparisonDoc = comparisonText.join('\n');
+
+      const blob = new Blob([comparisonDoc], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^/.]+$/, '')}_comparison_report.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   return (
@@ -308,16 +493,12 @@ ${modifiedDocument}
             </CardHeader>
             <CardContent>
               <div className="font-mono text-xs bg-muted/30 rounded-lg max-h-[600px] overflow-y-auto border p-2" style={{ lineHeight: '1.2' }}>
-                {highlightRemovals(originalDocument)}
+                {renderOriginalDocument(originalDocument)}
               </div>
               <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-yellow-500 rounded"></div>
-                  <span>Corrupted</span>
-                </div>
-                <div className="flex items-center gap-1">
-                  <div className="w-3 h-3 bg-red-500 rounded"></div>
-                  <span>Missing</span>
+                  <div className="w-3 h-3 bg-gray-400 rounded"></div>
+                  <span>Original Content</span>
                 </div>
               </div>
             </CardContent>
@@ -338,12 +519,16 @@ ${modifiedDocument}
             </CardHeader>
             <CardContent>
               <div className="font-mono text-xs bg-green-50/50 dark:bg-green-900/10 rounded-lg max-h-[600px] overflow-y-auto border border-green-200 dark:border-green-800 p-2" style={{ lineHeight: '1.2' }}>
-                {highlightAdditions(modifiedDocument)}
+                {renderModifiedDocument(modifiedDocument)}
               </div>
               <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
                 <div className="flex items-center gap-1">
                   <div className="w-3 h-3 bg-green-500 rounded"></div>
-                  <span>Added/Corrected</span>
+                  <span>Added Content</span>
+                </div>
+                <div className="flex items-center gap-1">
+                  <div className="w-3 h-3 bg-red-500 rounded"></div>
+                  <span>Removed/Corrected</span>
                 </div>
               </div>
             </CardContent>
@@ -360,7 +545,17 @@ ${modifiedDocument}
           </CardHeader>
           <CardContent>
             <div className="font-mono text-xs bg-muted/30 rounded-lg max-h-[700px] overflow-y-auto border p-2" style={{ lineHeight: '1.2' }}>
-              {highlightAdditions(modifiedDocument)}
+              {renderModifiedDocument(modifiedDocument)}
+            </div>
+            <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground justify-center">
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-green-500 rounded"></div>
+                <span>Added</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <div className="w-3 h-3 bg-red-500 rounded"></div>
+                <span>Removed</span>
+              </div>
             </div>
           </CardContent>
         </Card>

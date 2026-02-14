@@ -1,10 +1,11 @@
-from flask import Blueprint, jsonify, request, current_app
+from flask import Blueprint, jsonify, request, current_app, send_file
 from werkzeug.utils import secure_filename
 import os
 import json
 import datetime
+from io import BytesIO
 
-from ..services.pdf_service import pdf_bytes_to_text
+from ..services.pdf_service import pdf_bytes_to_text, text_to_pdf, strip_bold_markers
 from ..services.clause_detection_service import analyze_clause_detection
 from ..services.clause_patterns import CLAUSE_DEFINITIONS
 from ..services.corruption_detection_service import detect_corruptions
@@ -83,6 +84,7 @@ def upload_pdf():
     except Exception as e:
         return jsonify({'success': False, 'error': f'Failed to save extracted text: {e}'}), 500
 
+    # Keep bold markers in the response - frontend will handle display
     preview = extracted_text[:2000]
     return jsonify({'success': True, 'preview': preview, 'full_text': extracted_text, 'full_text_path': txt_path}), 200
 
@@ -347,6 +349,43 @@ def save_text():
         return jsonify({'success': True}), 200
     except Exception as e:
         current_app.logger.exception('Failed to write text file')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/generate-pdf', methods=['POST'])
+def generate_pdf():
+    """
+    Generate a PDF from modified text content.
+    
+    Expects JSON: { "text": "...", "filename": "..." }
+    Returns: PDF file as binary download
+    """
+    try:
+        data = request.get_json()
+        if not data or 'text' not in data:
+            return jsonify({'success': False, 'error': 'Missing text parameter'}), 400
+        
+        text = data['text']
+        filename = data.get('filename', 'document_completed.pdf')
+        
+        # Generate PDF from text
+        pdf_bytes = text_to_pdf(text)
+        
+        # Create BytesIO object to send as file
+        pdf_io = BytesIO(pdf_bytes)
+        pdf_io.seek(0)
+        
+        current_app.logger.info("generate-pdf: created PDF, size=%d bytes for filename=%s", len(pdf_bytes), filename)
+        
+        return send_file(
+            pdf_io,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=filename
+        )
+        
+    except Exception as e:
+        current_app.logger.exception('generate-pdf failed')
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
