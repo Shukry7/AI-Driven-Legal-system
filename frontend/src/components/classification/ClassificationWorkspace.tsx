@@ -266,7 +266,7 @@ Any further delays in payment will result in additional penalties as prescribed 
   const highlightDocument = () => {
     if (filter === "original") {
       return (
-        <div className="whitespace-pre-wrap leading-relaxed">
+        <div className="whitespace-pre" style={{ lineHeight: '1.2' }}>
           {documentText}
         </div>
       );
@@ -476,7 +476,7 @@ Any further delays in payment will result in additional penalties as prescribed 
           <CardTitle className="text-base">Judgment Document</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="prose max-w-none text-foreground text-sm leading-relaxed">
+          <div className="prose max-w-none text-foreground text-sm" style={{ lineHeight: '1.2' }}>
             {highlightDocument()}
           </div>
         </CardContent>

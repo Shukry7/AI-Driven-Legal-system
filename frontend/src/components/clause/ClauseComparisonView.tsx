@@ -56,13 +56,14 @@ export function ClauseComparisonView({
         return (
           <div 
             key={idx} 
-            className="bg-green-100 dark:bg-green-900/30 border-l-4 border-green-500 px-2 py-0.5"
+            className="bg-green-100 dark:bg-green-900/30 border-l-4 border-green-500 px-2"
+            style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
           >
             <span className="text-green-800 dark:text-green-200">{line || '\u00A0'}</span>
           </div>
         );
       }
-      return <div key={idx} className="px-2 py-0.5">{line || '\u00A0'}</div>;
+      return <div key={idx} className="px-2" style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}>{line || '\u00A0'}</div>;
     });
   };
 
@@ -77,7 +78,8 @@ export function ClauseComparisonView({
         return (
           <div 
             key={idx} 
-            className="bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 px-2 py-0.5"
+            className="bg-yellow-100 dark:bg-yellow-900/30 border-l-4 border-yellow-500 px-2"
+            style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
           >
             <span className="text-yellow-800 dark:text-yellow-200">{line}</span>
           </div>
@@ -87,13 +89,14 @@ export function ClauseComparisonView({
         return (
           <div 
             key={idx} 
-            className="bg-red-100 dark:bg-red-900/30 border-l-4 border-red-500 px-2 py-0.5"
+            className="bg-red-100 dark:bg-red-900/30 border-l-4 border-red-500 px-2"
+            style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
           >
             <span className="text-red-800 dark:text-red-200">{line}</span>
           </div>
         );
       }
-      return <div key={idx} className="px-2 py-0.5">{line || '\u00A0'}</div>;
+      return <div key={idx} className="px-2" style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}>{line || '\u00A0'}</div>;
     });
   };
 
@@ -304,7 +307,7 @@ ${modifiedDocument}
               </div>
             </CardHeader>
             <CardContent>
-              <div className="font-mono text-xs leading-relaxed bg-muted/30 rounded-lg max-h-[600px] overflow-y-auto border">
+              <div className="font-mono text-xs bg-muted/30 rounded-lg max-h-[600px] overflow-y-auto border p-2" style={{ lineHeight: '1.2' }}>
                 {highlightRemovals(originalDocument)}
               </div>
               <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
@@ -334,7 +337,7 @@ ${modifiedDocument}
               </div>
             </CardHeader>
             <CardContent>
-              <div className="font-mono text-xs leading-relaxed bg-green-50/50 dark:bg-green-900/10 rounded-lg max-h-[600px] overflow-y-auto border border-green-200 dark:border-green-800">
+              <div className="font-mono text-xs bg-green-50/50 dark:bg-green-900/10 rounded-lg max-h-[600px] overflow-y-auto border border-green-200 dark:border-green-800 p-2" style={{ lineHeight: '1.2' }}>
                 {highlightAdditions(modifiedDocument)}
               </div>
               <div className="mt-3 flex items-center gap-4 text-xs text-muted-foreground">
@@ -356,7 +359,7 @@ ${modifiedDocument}
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="font-mono text-xs leading-relaxed bg-muted/30 rounded-lg max-h-[700px] overflow-y-auto border">
+            <div className="font-mono text-xs bg-muted/30 rounded-lg max-h-[700px] overflow-y-auto border p-2" style={{ lineHeight: '1.2' }}>
               {highlightAdditions(modifiedDocument)}
             </div>
           </CardContent>
