@@ -656,7 +656,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         ) || results?.corruptedClauses[0];
 
         return (
-          <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
+          <div key={idx} className="hover:bg-warning/5 transition-colors">
             {beforeText}
             <Popover open={activePopover === `corrupted-${clause?.id}`} onOpenChange={(open) => setActivePopover(open ? `corrupted-${clause?.id}` : null)}>
               <PopoverTrigger asChild>
@@ -735,7 +735,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             const afterRegion = highlightedLine.substring(relativeEnd);
             
             return (
-              <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
+              <div key={idx} className="hover:bg-warning/5 transition-colors">
                 {beforeRegion}
                 <span 
                   className="relative inline-block bg-warning/70 text-warning-foreground px-1 py-0.5 rounded cursor-help border border-warning"
@@ -758,7 +758,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         const beforeText = line.substring(0, line.indexOf(heuristicMatch));
         const afterText = line.substring(line.indexOf(heuristicMatch) + heuristicMatch.length);
         return (
-          <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
+          <div key={idx} className="hover:bg-warning/5 transition-colors">
             {beforeText}
             <span className="relative inline-block bg-warning/60 text-warning-foreground px-2 py-0.5 rounded cursor-help border border-warning/50" title="Corruption detected by heuristics">
               {heuristicMatch}
@@ -768,7 +768,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         );
       }
 
-      return <div key={idx} className="py-1">{line || '\u00A0'}</div>;
+      return <div key={idx} style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}>{line || '\u00A0'}</div>;
     });
   };
 
@@ -1125,14 +1125,15 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             <FileText className="w-4 h-4" />
             Original Document
           </h3>
-          <div className="font-mono text-xs text-foreground leading-relaxed bg-muted/30 p-4 rounded-lg border border-border h-[600px] overflow-y-auto">
+          <div className="font-mono text-xs text-foreground bg-muted/30 p-2 rounded-lg border border-border h-[600px] overflow-y-auto" style={{ lineHeight: '1.2' }}>
             {originalLines.map((line, idx) => (
               <div 
                 key={idx} 
-                className={`py-0.5 ${
+                className={`${
                   line.includes('[CORRUPTED:') ? 'bg-warning/20 px-1' : 
                   line.includes('[MISSING:') ? 'bg-destructive/10 border-l-2 border-destructive px-2' : ''
                 }`}
+                style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
               >
                 {line || '\u00A0'}
               </div>
@@ -1144,13 +1145,14 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             <CheckCircle className="w-4 h-4" />
             Modified Document
           </h3>
-          <div className="font-mono text-xs text-foreground leading-relaxed bg-success/5 p-4 rounded-lg border border-success h-[600px] overflow-y-auto">
+          <div className="font-mono text-xs text-foreground bg-success/5 p-2 rounded-lg border border-success h-[600px] overflow-y-auto" style={{ lineHeight: '1.2' }}>
             {modifiedLines.map((line, idx) => {
               const isNew = !originalLines.includes(line) && !line.includes('[CORRUPTED:') && !line.includes('[MISSING:');
               return (
                 <div 
                   key={idx} 
-                  className={`py-0.5 ${isNew ? 'bg-success/20 px-1 font-semibold' : ''}`}
+                  className={`${isNew ? 'bg-success/20 px-1 font-semibold' : ''}`}
+                  style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
                 >
                   {line || '\u00A0'}
                 </div>
@@ -1228,9 +1230,100 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         </Card>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left & Center - Document Viewer */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* Analysis Summary - Horizontal Layout */}
+      {analysisComplete && results && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Analysis Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="flex flex-col items-center justify-center p-4 bg-muted rounded-lg">
+                <span className="text-3xl font-bold text-foreground">{results.statistics?.total_clauses || results.totalClauses}</span>
+                <span className="text-sm font-semibold text-muted-foreground mt-1">Total Clauses</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-4 bg-success/10 rounded-lg">
+                <span className="text-3xl font-bold text-success">{results.statistics?.present || results.presentClauses}</span>
+                <span className="text-sm font-semibold text-success mt-1">Present</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-4 bg-destructive/10 rounded-lg">
+                <span className="text-3xl font-bold text-destructive">{results.statistics?.missing || results.missingClauses.length}</span>
+                <span className="text-sm font-semibold text-destructive mt-1">Missing</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-4 bg-warning/10 rounded-lg">
+                <span className="text-3xl font-bold text-warning">{results.statistics?.corrupted || results.corruptedClauses.length}</span>
+                <span className="text-sm font-semibold text-warning mt-1">Corrupted</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Completion Percentage */}
+              {results.statistics?.completion_percentage !== undefined && (
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Completion</span>
+                    <span className="text-sm font-bold text-accent">{results.statistics.completion_percentage.toFixed(1)}%</span>
+                  </div>
+                  <Progress value={results.statistics.completion_percentage} className="h-2" />
+                </div>
+              )}
+
+              {/* Real-time Decision Tracking */}
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Accepted</span>
+                    <Badge variant="default" className="bg-success text-success-foreground">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted').length}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Rejected</span>
+                    <Badge variant="default" className="bg-destructive text-destructive-foreground">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected').length}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Edited</span>
+                    <Badge variant="default" className="bg-accent text-accent-foreground">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited').length}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Pending</span>
+                    <Badge variant="outline">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => !c.status).length}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <List className="w-4 h-4 mr-2" />
+                    View Clause Details
+                  </Button>
+                </DialogTrigger>
+                {renderClauseDetailsDialog()}
+              </Dialog>
+              <Button className="flex-1" onClick={() => onComplete({
+                ...results,
+                originalDocument: documentText,
+                modifiedDocument: modifiedDocumentText
+              })}>
+                <Download className="w-4 h-4 mr-2" />
+                Continue to Full Review
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Document Viewer - Full Width */}
+      <div className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="flex items-center gap-2">
@@ -1273,7 +1366,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               )}
             </CardHeader>
             <CardContent>
-              <div className="overflow-y-auto bg-muted/30 p-6 rounded-lg" style={{ maxHeight: '600px', position: 'relative' }}>
+              <div className="overflow-y-auto bg-muted/30 rounded-lg" style={{ maxHeight: '600px', position: 'relative' }}>
                 {/* Non-blocking analysis overlay: shows while analyzing but allows preview scrolling */}
                 {analyzing && (
                   <div className="absolute inset-0 bg-white/70 z-20 flex flex-col items-center justify-center">
@@ -1285,7 +1378,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
                 {viewMode === 'review' && (
                   isEditingDocument ? (
-                    <div className="font-mono text-sm text-foreground leading-relaxed bg-card p-2 rounded-lg shadow-sm">
+                    <div className="font-mono text-sm text-foreground bg-card p-2 rounded-lg shadow-sm">
                       <Textarea
                         value={modifiedDocumentText}
                         onChange={(e) => setModifiedDocumentText(e.target.value)}
@@ -1297,13 +1390,13 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                     // While analysis is running, do NOT render the document preview content
                     // Render an empty placeholder box so the overlay fully hides the document
                     <div
-                      className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"
-                      style={{ fontSize: `${zoom}%`, minHeight: '400px' }}
+                      className="font-mono text-sm text-foreground bg-card rounded-lg shadow-sm"
+                      style={{ fontSize: `${zoom}%`, minHeight: '400px', whiteSpace: 'pre', padding: '0.5rem' }}
                     />
                   ) : (
                     <div
-                      className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"
-                      style={{ fontSize: `${zoom}%` }}
+                      className="font-mono text-sm text-foreground bg-card rounded-lg shadow-sm"
+                      style={{ fontSize: `${zoom}%`, whiteSpace: 'pre', padding: '0.5rem', lineHeight: '1.2' }}
                     >
                       {renderDocumentWithHighlights()}
                     </div>
@@ -1334,9 +1427,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             </CardContent>
           </Card>
 
-          {/* Issue Detail Panel */}
-          {selectedIssue && (
-            <Card className="border-accent/50">
+        {/* Issue Detail Panel */}
+        {selectedIssue && (
+          <Card className="border-accent/50">
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <CardTitle className="flex items-center gap-2">
@@ -1405,95 +1498,6 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               </CardContent>
             </Card>
           )}
-        </div>
-
-        {/* Right Panel - Summary only (progress moved above) */}
-        <div className="space-y-6">
-          {analysisComplete && results && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Analysis Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
-                  <span className="text-sm font-semibold text-muted-foreground">Total Clauses</span>
-                  <span className="text-2xl font-bold text-foreground">{results.statistics?.total_clauses || results.totalClauses}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-success/10 rounded-lg">
-                  <span className="text-sm font-semibold text-success">Present</span>
-                  <span className="text-2xl font-bold text-success">{results.statistics?.present || results.presentClauses}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-destructive/10 rounded-lg">
-                  <span className="text-sm font-semibold text-destructive">Missing</span>
-                  <span className="text-2xl font-bold text-destructive">{results.statistics?.missing || results.missingClauses.length}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-warning/10 rounded-lg">
-                  <span className="text-sm font-semibold text-warning">Corrupted</span>
-                  <span className="text-2xl font-bold text-warning">{results.statistics?.corrupted || results.corruptedClauses.length}</span>
-                </div>
-
-                {/* Completion Percentage */}
-                {results.statistics?.completion_percentage !== undefined && (
-                  <div className="mt-4 pt-4 border-t border-border">
-                    <div className="flex justify-between items-center mb-2">
-                      <span className="text-sm font-semibold text-muted-foreground">Completion</span>
-                      <span className="text-sm font-bold text-accent">{results.statistics.completion_percentage.toFixed(1)}%</span>
-                    </div>
-                    <Progress value={results.statistics.completion_percentage} className="h-2" />
-                  </div>
-                )}
-
-                {/* View Clause Details Button */}
-                <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
-                  <DialogTrigger asChild>
-                    <Button variant="outline" className="w-full mt-4" size="sm">
-                      <List className="w-4 h-4 mr-2" />
-                      View Clause Details
-                    </Button>
-                  </DialogTrigger>
-                  {renderClauseDetailsDialog()}
-                </Dialog>
-
-                {/* Real-time Decision Tracking */}
-                <div className="mt-4 pt-4 border-t border-border space-y-2">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Accepted</span>
-                    <Badge variant="default" className="bg-success text-success-foreground">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted').length}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Rejected</span>
-                    <Badge variant="default" className="bg-destructive text-destructive-foreground">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected').length}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Edited</span>
-                    <Badge variant="default" className="bg-accent text-accent-foreground">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited').length}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Pending Review</span>
-                    <Badge variant="outline">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => !c.status).length}
-                    </Badge>
-                  </div>
-                </div>
-
-                <Button className="w-full mt-4" onClick={() => onComplete({
-                  ...results,
-                  originalDocument: documentText,
-                  modifiedDocument: modifiedDocumentText
-                })}>
-                  <Download className="w-4 h-4 mr-2" />
-                  Continue to Full Review
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </div>
       </div>
       </div>
     </div>

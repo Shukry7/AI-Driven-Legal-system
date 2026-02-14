@@ -77,7 +77,8 @@ def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
                 return False, "PDF has no pages"
             
             for page_num, page in enumerate(pdf.pages, start=1):
-                page_text = page.extract_text()
+                # Use layout=True to preserve spacing and positioning
+                page_text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
                 if page_text:
                     # Add page marker for reference
                     text_parts.append(f"\n--- Page {page_num} ---\n")
@@ -88,8 +89,8 @@ def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
         if not raw_text.strip():
             return False, "No text could be extracted from PDF"
         
-        # Clean and normalize the extracted text
-        cleaned_text = clean_extracted_text(raw_text)
+        # Clean with minimal processing to preserve layout
+        cleaned_text = clean_extracted_text_preserve_layout(raw_text)
         return True, cleaned_text
         
     except Exception as e:
@@ -168,6 +169,44 @@ def clean_extracted_text(text: str) -> str:
     text = re.sub(r'[^\x20-\x7E\n\t\u0080-\uFFFF]+', '', text)
     
     # Trim overall whitespace
+    text = text.strip()
+    
+    return text
+
+
+def clean_extracted_text_preserve_layout(text: str) -> str:
+    """
+    Clean extracted text while preserving layout, spacing, and formatting.
+    
+    This version is less aggressive than clean_extracted_text() and maintains:
+    - Multiple spaces for alignment
+    - Indentation
+    - Original line spacing
+    - Column alignment
+    
+    Args:
+        text: Raw extracted text
+        
+    Returns:
+        str: Cleaned text with preserved layout
+    """
+    if not text:
+        return ""
+    
+    # Normalize line endings only
+    text = text.replace('\r\n', '\n').replace('\r', '\n')
+    
+    # Remove excessive blank lines (more than 3 consecutive)
+    text = re.sub(r'\n{4,}', '\n\n\n', text)
+    
+    # Remove trailing whitespace from each line (but preserve leading spaces/indentation)
+    lines = [line.rstrip() for line in text.split('\n')]
+    text = '\n'.join(lines)
+    
+    # Remove non-printable characters except newlines, tabs, and spaces
+    text = re.sub(r'[^\x20-\x7E\n\t\u0080-\uFFFF]+', '', text)
+    
+    # Trim overall leading/trailing whitespace
     text = text.strip()
     
     return text
