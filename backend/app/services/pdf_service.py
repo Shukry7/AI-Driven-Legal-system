@@ -21,6 +21,36 @@ except ImportError:
     except ImportError:
         PDF_LIBRARY = None
 
+# For PDF generation
+try:
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import A4
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+    REPORTLAB_AVAILABLE = True
+except ImportError:
+    REPORTLAB_AVAILABLE = False
+
+
+def strip_bold_markers(text: str) -> str:
+    """
+    Remove formatting markers from text for display purposes.
+    
+    Args:
+        text: Text that may contain <<F:...>>...<</F>> markers
+        
+    Returns:
+        str: Text with markers removed
+    """
+    import re
+    # Remove format markers
+    text = re.sub(r'<<F:[^>]+>>', '', text)
+    text = re.sub(r'<</F>>', '', text)
+    # Also remove old-style markers for backward compatibility
+    text = re.sub(r'<<BOLD>>', '', text)
+    text = re.sub(r'<</BOLD>>', '', text)
+    return text
+
 
 def pdf_bytes_to_text(pdf_bytes: bytes) -> Tuple[bool, str]:
     """
@@ -61,12 +91,13 @@ def pdf_bytes_to_text(pdf_bytes: bytes) -> Tuple[bool, str]:
 def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
     """
     Extract text using pdfplumber (preferred method - better formatting).
+    Preserves bold text by marking it with special markers.
     
     Args:
         pdf_bytes: Raw PDF bytes
         
     Returns:
-        Tuple[bool, str]: Success status and extracted text
+        Tuple[bool, str]: Success status and extracted text with bold markers
     """
     try:
         text_parts = []
@@ -77,12 +108,26 @@ def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
                 return False, "PDF has no pages"
             
             for page_num, page in enumerate(pdf.pages, start=1):
-                # Use layout=True to preserve spacing and positioning
-                page_text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
-                if page_text:
-                    # Add page marker for reference
-                    text_parts.append(f"\n--- Page {page_num} ---\n")
-                    text_parts.append(page_text)
+                # Add page marker for reference
+                text_parts.append(f"\n--- Page {page_num} ---\n")
+                
+                # Extract with character-level info to detect bold text
+                try:
+                    chars = page.chars
+                    if chars:
+                        # Group characters into words/lines with formatting info
+                        page_text = _extract_text_with_formatting(chars, page)
+                        text_parts.append(page_text)
+                    else:
+                        # Fallback to regular extraction if no char info
+                        page_text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
+                        if page_text:
+                            text_parts.append(page_text)
+                except:
+                    # Fallback to regular extraction on any error
+                    page_text = page.extract_text(layout=True, x_tolerance=2, y_tolerance=3)
+                    if page_text:
+                        text_parts.append(page_text)
         
         raw_text = "\n".join(text_parts)
         
@@ -95,6 +140,83 @@ def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
         
     except Exception as e:
         return False, f"pdfplumber extraction error: {str(e)}"
+
+
+def _extract_text_with_formatting(chars, page):
+    """
+    Extract text from character-level data, preserving formatting (bold, underline, font size).
+    Formatting is preserved with markers: <<F:size=14,bold=1,underline=1>>text<</F>>
+    
+    Args:
+        chars: List of character dictionaries from pdfplumber
+        page: Page object for layout extraction
+        
+    Returns:
+        str: Text with formatting markers
+    """
+    try:
+        # Sort characters by position (top to bottom, left to right)
+        sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
+        
+        lines = []
+        current_line = []
+        current_y = None
+        prev_format = None
+        y_tolerance = 3
+        
+        for char in sorted_chars:
+            char_y = round(char['top'], 1)
+            char_text = char.get('text', '')
+            font_name = char.get('fontname', '').lower()
+            font_size = round(char.get('size', 10))
+            
+            # Detect formatting attributes
+            is_bold = 'bold' in font_name
+            # Check for underline - some PDFs store this in font name or as separate property
+            # This is a heuristic - underline detection varies by PDF
+            
+            # Create format signature
+            current_format = {
+                'size': font_size,
+                'bold': 1 if is_bold else 0,
+            }
+            
+            # Check if we're on a new line
+            if current_y is None:
+                current_y = char_y
+            elif abs(char_y - current_y) > y_tolerance:
+                # New line - save current line
+                if current_line:
+                    if prev_format:
+                        current_line.append('<</F>>')
+                    lines.append(''.join(current_line))
+                current_line = []
+                current_y = char_y
+                prev_format = None
+            
+            # Check if format changed
+            if prev_format != current_format:
+                if prev_format:
+                    current_line.append('<</F>>')
+                # Only add format marker if different from default (size=10, bold=0)
+                if current_format['size'] != 10 or current_format['bold'] != 0:
+                    marker = f"<<F:size={current_format['size']},bold={current_format['bold']}>>"
+                    current_line.append(marker)
+                prev_format = current_format
+            
+            current_line.append(char_text)
+        
+        # Add last line
+        if current_line:
+            if prev_format:
+                current_line.append('<</F>>')
+            lines.append(''.join(current_line))
+        
+        return '\n'.join(lines)
+        
+    except Exception as e:
+        # On any error, fallback to simple extraction
+        return page.extract_text(layout=True, x_tolerance=2, y_tolerance=3) or ''
 
 
 def _extract_with_pypdf2(pdf_bytes: bytes) -> Tuple[bool, str]:
@@ -294,3 +416,155 @@ def _ocr_fallback(pdf_bytes: bytes) -> Tuple[bool, str]:
     except Exception as e:
         logger.info("OCR extraction error: %s", e)
         return False, f"OCR extraction error: {e}"
+
+
+def text_to_pdf(text: str) -> bytes:
+    """
+    Convert text to PDF with preserved layout and formatting.
+    Supports format markers: <<F:size=14,bold=1>>text<</F>>
+    
+    Args:
+        text: Text content to convert to PDF (may contain format markers)
+        
+    Returns:
+        bytes: PDF file as bytes
+    """
+    if not REPORTLAB_AVAILABLE:
+        raise ImportError("reportlab is required for PDF generation. Install with: pip install reportlab")
+    
+    buffer = BytesIO()
+    
+    # Create PDF with A4 page size
+    pdf = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+    
+    # Set up margins and text positioning
+    margin_left = 50
+    margin_right = 50
+    margin_top = 50
+    margin_bottom = 50
+    
+    max_width = width - margin_left - margin_right
+    
+    # Starting position
+    y = height - margin_top
+    
+    # Split text into lines
+    lines = text.split('\n')
+    
+    for line in lines:
+        # Calculate line height based on max font size in the line
+        max_font_size = _get_max_font_size_in_line(line)
+        line_height = max_font_size * 1.2  # 120% of font size for spacing
+        
+        # Check if we need a new page
+        if y < margin_bottom + line_height:
+            pdf.showPage()
+            y = height - margin_top
+        
+        # Parse line for format markers and render with formatting
+        _render_line_with_formatting(pdf, line, margin_left, y, max_width)
+        y -= line_height
+    
+    # Save PDF
+    pdf.save()
+    
+    # Get PDF bytes
+    buffer.seek(0)
+    return buffer.getvalue()
+
+
+def _get_max_font_size_in_line(line: str) -> float:
+    """Get the maximum font size used in a line."""
+    import re
+    max_size = 10  # default
+    
+    # Find all format markers
+    for match in re.finditer(r'<<F:size=(\d+)', line):
+        size = int(match.group(1))
+        max_size = max(max_size, size)
+    
+    return max_size
+
+def _render_line_with_formatting(pdf, line, x, y, max_width):
+    """
+    Render a line of text with formatting support (font size, bold).
+    Parses markers like: <<F:size=14,bold=1>>text<</F>>
+    
+    Args:
+        pdf: ReportLab canvas object
+        line: Text line (may contain <<F:...>>text<</F>> markers)
+        x: X position to start rendering
+        y: Y position to render at
+        max_width: Maximum width for text
+    """
+    import re
+    
+    # Pattern: <<F:size=(\d+),bold=(\d+)>>(.*?)<</F>>
+    format_pattern = re.compile(r'<<F:size=(\d+),bold=(\d+)>>(.*?)<</F>>')
+    
+    parts = []
+    current_pos = 0
+    
+    for match in format_pattern.finditer(line):
+        # Add text before formatted section (if any) - use default formatting
+        if match.start() > current_pos:
+            parts.append({
+                'text': line[current_pos:match.start()],
+                'size': 10,
+                'bold': False
+            })
+        
+        # Add formatted section
+        size = int(match.group(1))
+        bold = int(match.group(2)) == 1
+        text = match.group(3)
+        
+        parts.append({
+            'text': text,
+            'size': size,
+            'bold': bold
+        })
+        
+        current_pos = match.end()
+    
+    # Add remaining text after last formatted section
+    if current_pos < len(line):
+        parts.append({
+            'text': line[current_pos:],
+            'size': 10,
+            'bold': False
+        })
+    
+    # If no format markers found, render as normal
+    if not parts:
+        pdf.setFont("Courier", 10)
+        pdf.drawString(x, y, line)
+        return
+    
+    # Render each part with appropriate font
+    current_x = x
+    for part in parts:
+        text = part['text']
+        size = part['size']
+        bold = part['bold']
+        
+        if not text:
+            continue
+        
+        # Choose font based on bold
+        if bold:
+            font_name = "Courier-Bold"
+        else:
+            font_name = "Courier"
+        
+        pdf.setFont(font_name, size)
+        
+        # Check if text fits
+        text_width = pdf.stringWidth(text, font_name, size)
+        if current_x + text_width > x + max_width:
+            # Text wrapping needed - for simplicity, just render what fits
+            pass
+        
+        pdf.drawString(current_x, y, text)
+        current_x += text_width

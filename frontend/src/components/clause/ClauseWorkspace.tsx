@@ -248,6 +248,17 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   const [processSteps, setProcessSteps] = useState(steps);
 
+  // Helper function to strip formatting markers for display
+  const stripFormattingMarkers = (text: string): string => {
+    // Remove format markers like <<F:size=14,bold=1>>...<</F>>
+    return text
+      .replace(/<<F:[^>]+>>/g, '')
+      .replace(/<<\/F>>/g, '')
+      // Also remove old-style bold markers for backward compatibility
+      .replace(/<<BOLD>>/g, '')
+      .replace(/<<\/BOLD>>/g, '');
+  };
+
   const updateStepStatus = (stepId: number, status: 'pending' | 'processing' | 'complete') => {
     setProcessSteps(prev => prev.map(s => s.id === stepId ? { ...s, status } : s));
   };
@@ -621,8 +632,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   };
 
   const renderDocumentWithHighlights = () => {
-    const text = documentText;
-    const lines = text.trim().split('\n');
+    // Strip formatting markers for display (but keep them in the actual data)
+    const displayText = stripFormattingMarkers(documentText);
+    const lines = displayText.trim().split('\n');
     let charOffset = 0;
 
     return lines.map((line, idx) => {
@@ -994,16 +1006,51 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     }
   };
 
-  const handleDownloadDocument = () => {
-    const blob = new Blob([modifiedDocumentText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${file.name.replace(/\.[^/.]+$/, '')}_completed.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleDownloadDocument = async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+      
+      // Call backend to generate PDF
+      const response = await fetch(`${API_BASE}/generate-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: modifiedDocumentText,
+          filename: `${file.name.replace(/\.[^/.]+$/, '')}_completed.pdf`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+
+      // Get the PDF blob
+      const blob = await response.blob();
+      
+      // Create download link and trigger download
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${file.name.replace(/\.[^/.]+$/, '')}_completed.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      // Fallback to text download
+      const blob = new Blob([modifiedDocumentText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${file.name.replace(/\.[^/.]+$/, '')}_completed.txt`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    }
   };
 
   // Helper function to get organized clause lists from backend response
@@ -1115,8 +1162,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   };
 
   const renderComparisonView = () => {
-    const originalLines = documentText.trim().split('\n');
-    const modifiedLines = modifiedDocumentText.trim().split('\n');
+    // Strip formatting markers for display
+    const originalLines = stripFormattingMarkers(documentText).trim().split('\n');
+    const modifiedLines = stripFormattingMarkers(modifiedDocumentText).trim().split('\n');
     
     return (
       <div className="grid grid-cols-2 gap-4">
@@ -1133,7 +1181,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                   line.includes('[CORRUPTED:') ? 'bg-warning/20 px-1' : 
                   line.includes('[MISSING:') ? 'bg-destructive/10 border-l-2 border-destructive px-2' : ''
                 }`}
-                style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
+                style={{ whiteSpace: 'pre' }}
               >
                 {line || '\u00A0'}
               </div>
@@ -1152,7 +1200,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                 <div 
                   key={idx} 
                   className={`${isNew ? 'bg-success/20 px-1 font-semibold' : ''}`}
-                  style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}
+                  style={{ whiteSpace: 'pre' }}
                 >
                   {line || '\u00A0'}
                 </div>
@@ -1309,12 +1357,16 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                 </DialogTrigger>
                 {renderClauseDetailsDialog()}
               </Dialog>
+              <Button variant="outline" size="sm" onClick={handleDownloadDocument}>
+                <Download className="w-4 h-4 mr-2" />
+                Download PDF
+              </Button>
               <Button className="flex-1" onClick={() => onComplete({
                 ...results,
                 originalDocument: documentText,
                 modifiedDocument: modifiedDocumentText
               })}>
-                <Download className="w-4 h-4 mr-2" />
+                <CheckCircle className="w-4 h-4 mr-2" />
                 Continue to Full Review
               </Button>
             </div>
