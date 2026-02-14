@@ -163,7 +163,7 @@ def _extract_text_with_formatting(chars, page):
         sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), round(c['x0'], 1)))
         
         # Group characters into lines
-        lines_data = []
+        all_line_chars = []
         current_line_chars = []
         current_y = None
         y_tolerance = 3
@@ -175,17 +175,29 @@ def _extract_text_with_formatting(chars, page):
             if current_y is None:
                 current_y = char_y
             elif abs(char_y - current_y) > y_tolerance:
-                # Process and save current line
+                # Save current line
                 if current_line_chars:
-                    lines_data.append(_process_line_chars(current_line_chars, page_width))
+                    all_line_chars.append(current_line_chars)
                 current_line_chars = []
                 current_y = char_y
             
             current_line_chars.append(char)
         
-        # Process last line
+        # Add last line
         if current_line_chars:
-            lines_data.append(_process_line_chars(current_line_chars, page_width))
+            all_line_chars.append(current_line_chars)
+        
+        # Find minimum x position across all lines (leftmost content)
+        min_x_global = float('inf')
+        for line_chars in all_line_chars:
+            if line_chars:
+                line_min_x = min(c['x0'] for c in line_chars)
+                min_x_global = min(min_x_global, line_min_x)
+        
+        # Process lines with relative positioning
+        lines_data = []
+        for line_chars in all_line_chars:
+            lines_data.append(_process_line_chars(line_chars, page_width, min_x_global))
         
         # Convert lines to text
         return '\n'.join(lines_data)
@@ -195,13 +207,14 @@ def _extract_text_with_formatting(chars, page):
         return page.extract_text(layout=True, x_tolerance=2, y_tolerance=3) or ''
 
 
-def _process_line_chars(line_chars, page_width):
+def _process_line_chars(line_chars, page_width, min_x_global):
     """
     Process characters in a line to extract formatted text with positioning.
     
     Args:
         line_chars: List of character dicts in this line
         page_width: Width of the page
+        min_x_global: Minimum x position across all lines in document
         
     Returns:
         str: Formatted line with position and style markers
@@ -212,10 +225,10 @@ def _process_line_chars(line_chars, page_width):
     # Calculate line's leftmost position
     min_x = min(c['x0'] for c in line_chars)
     
-    # Convert x position to character spaces (approximate)
-    # Assuming average character width of 6 points
+    # Convert relative x position to character spaces
+    # Use relative positioning from the leftmost content in document
     char_width = 6
-    indent_chars = int(min_x / char_width)
+    indent_chars = int((min_x - min_x_global) / char_width)
     
     # Build line with formatting markers
     line_parts = []
