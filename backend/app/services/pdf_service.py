@@ -144,79 +144,118 @@ def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
 
 def _extract_text_with_formatting(chars, page):
     """
-    Extract text from character-level data, preserving formatting (bold, underline, font size).
-    Formatting is preserved with markers: <<F:size=14,bold=1,underline=1>>text<</F>>
+    Extract text from character-level data, preserving formatting and positioning.
+    Preserves: bold, font size, centering, indentation
+    Formatting: <<F:size=14,bold=1,indent=20>>text<</F>>
     
     Args:
         chars: List of character dictionaries from pdfplumber
         page: Page object for layout extraction
         
     Returns:
-        str: Text with formatting markers
+        str: Text with formatting and position markers
     """
     try:
-        # Sort characters by position (top to bottom, left to right)
-        sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), c['x0']))
+        # Get page dimensions
+        page_width = page.width
         
-        lines = []
-        current_line = []
+        # Sort characters by position (top to bottom, left to right)
+        sorted_chars = sorted(chars, key=lambda c: (round(c['top'], 1), round(c['x0'], 1)))
+        
+        # Group characters into lines
+        lines_data = []
+        current_line_chars = []
         current_y = None
-        prev_format = None
         y_tolerance = 3
         
         for char in sorted_chars:
             char_y = round(char['top'], 1)
-            char_text = char.get('text', '')
-            font_name = char.get('fontname', '').lower()
-            font_size = round(char.get('size', 10))
-            
-            # Detect formatting attributes
-            is_bold = 'bold' in font_name
-            # Check for underline - some PDFs store this in font name or as separate property
-            # This is a heuristic - underline detection varies by PDF
-            
-            # Create format signature
-            current_format = {
-                'size': font_size,
-                'bold': 1 if is_bold else 0,
-            }
             
             # Check if we're on a new line
             if current_y is None:
                 current_y = char_y
             elif abs(char_y - current_y) > y_tolerance:
-                # New line - save current line
-                if current_line:
-                    if prev_format:
-                        current_line.append('<</F>>')
-                    lines.append(''.join(current_line))
-                current_line = []
+                # Process and save current line
+                if current_line_chars:
+                    lines_data.append(_process_line_chars(current_line_chars, page_width))
+                current_line_chars = []
                 current_y = char_y
-                prev_format = None
             
-            # Check if format changed
-            if prev_format != current_format:
-                if prev_format:
-                    current_line.append('<</F>>')
-                # Only add format marker if different from default (size=10, bold=0)
-                if current_format['size'] != 10 or current_format['bold'] != 0:
-                    marker = f"<<F:size={current_format['size']},bold={current_format['bold']}>>"
-                    current_line.append(marker)
-                prev_format = current_format
-            
-            current_line.append(char_text)
+            current_line_chars.append(char)
         
-        # Add last line
-        if current_line:
-            if prev_format:
-                current_line.append('<</F>>')
-            lines.append(''.join(current_line))
+        # Process last line
+        if current_line_chars:
+            lines_data.append(_process_line_chars(current_line_chars, page_width))
         
-        return '\n'.join(lines)
+        # Convert lines to text
+        return '\n'.join(lines_data)
         
     except Exception as e:
         # On any error, fallback to simple extraction
         return page.extract_text(layout=True, x_tolerance=2, y_tolerance=3) or ''
+
+
+def _process_line_chars(line_chars, page_width):
+    """
+    Process characters in a line to extract formatted text with positioning.
+    
+    Args:
+        line_chars: List of character dicts in this line
+        page_width: Width of the page
+        
+    Returns:
+        str: Formatted line with position and style markers
+    """
+    if not line_chars:
+        return ''
+    
+    # Calculate line's leftmost position
+    min_x = min(c['x0'] for c in line_chars)
+    
+    # Convert x position to character spaces (approximate)
+    # Assuming average character width of 6 points
+    char_width = 6
+    indent_chars = int(min_x / char_width)
+    
+    # Build line with formatting markers
+    line_parts = []
+    prev_format = None
+    
+    for char in line_chars:
+        char_text = char.get('text', '')
+        font_name = char.get('fontname', '').lower()
+        font_size = round(char.get('size', 10))
+        
+        # Detect formatting
+        is_bold = 'bold' in font_name
+        
+        current_format = {
+            'size': font_size,
+            'bold': 1 if is_bold else 0,
+        }
+        
+        # Check if format changed
+        if prev_format != current_format:
+            if prev_format:
+                line_parts.append('<</F>>')
+            # Add format marker if different from default
+            if current_format['size'] != 10 or current_format['bold'] != 0:
+                marker = f"<<F:size={current_format['size']},bold={current_format['bold']}>>"
+                line_parts.append(marker)
+            prev_format = current_format
+        
+        line_parts.append(char_text)
+    
+    # Close last format tag
+    if prev_format:
+        line_parts.append('<</F>>')
+    
+    # Add leading spaces for indentation
+    line_text = ''.join(line_parts)
+    if indent_chars > 0:
+        line_text = ' ' * indent_chars + line_text
+    
+    return line_text
 
 
 def _extract_with_pypdf2(pdf_bytes: bytes) -> Tuple[bool, str]:
