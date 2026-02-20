@@ -8,6 +8,7 @@ type View = 'entry' | 'upload' | 'workspace' | 'suggestions';
 
 interface UploadData {
   file: File;
+  analysis?: any;
 }
 
 interface AnalysisResults {
@@ -62,6 +63,8 @@ export function ClauseModule() {
     return (
       <ClauseWorkspace
         file={uploadData.file}
+        // Prefer full extracted text when available, otherwise use preview
+        originalDocument={uploadData.analysis?.full_text ?? uploadData.analysis?.text_preview}
         onComplete={handleAnalysisComplete}
         onCancel={() => setCurrentView('entry')}
       />

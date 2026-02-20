@@ -13,6 +13,7 @@ import {
   Bell,
   CheckCircle,
   AlertCircle,
+  GitGraph,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
   CheckCircle,

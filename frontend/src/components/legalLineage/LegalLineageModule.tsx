@@ -1,6 +1,6 @@
 import React, { useState, useRef, useEffect } from 'react';
 import LineageMap from './LineageMap';
-import ErrorBoundary from './ErrorBoundary';
+import ErrorBoundary from './ErrorBoundry';
 import CaseDetailsPanel from './CaseDetailsPanel';
 import { searchCases, fetchLineage, setUseMock, analyzeAct } from './api';
 import type { CaseNode } from './types';
