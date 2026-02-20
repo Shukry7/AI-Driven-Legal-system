@@ -16,10 +16,6 @@ import {
   GitGraph,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
-  CheckCircle,
-  GitGraph
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
 
 interface SidebarProps {
   activeModule: string;
