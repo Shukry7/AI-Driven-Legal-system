@@ -9,6 +9,16 @@ from ..services.pdf_service import pdf_bytes_to_text, text_to_pdf, strip_bold_ma
 from ..services.clause_detection_service import analyze_clause_detection
 from ..services.clause_patterns import CLAUSE_DEFINITIONS
 from ..services.corruption_detection_service import detect_corruptions
+from ..services.translation_service import (
+    translate_document,
+    get_translation_history,
+    get_translation_job,
+    get_glossary,
+    get_glossary_categories,
+    get_model_info,
+    export_translation_text,
+    LANGUAGE_LABELS,
+)
 
 main = Blueprint('main', __name__)
 
@@ -422,4 +432,192 @@ def recent_uploads():
         return jsonify({'success': True, 'files': recent}), 200
     except Exception as e:
         current_app.logger.exception('recent_uploads failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==========================================================================
+# Translation endpoints
+# ==========================================================================
+
+
+@main.route('/translate', methods=['POST'])
+def translate():
+    """Translate a legal document.
+
+    Accepts either:
+      - multipart/form-data with a 'file' (PDF) + form fields 'source_lang', 'target_lang'
+      - JSON body with 'text', 'source_lang', 'target_lang'
+
+    Returns structured translation result with sections and confidence scores.
+    """
+    source_lang = None
+    target_lang = None
+    text = None
+    filename = 'document.pdf'
+
+    # --- Mode 1: file upload ---
+    if 'file' in request.files:
+        file = request.files['file']
+        if file.filename == '':
+            return jsonify({'success': False, 'error': 'Uploaded file has no filename'}), 400
+
+        source_lang = request.form.get('source_lang', 'en')
+        target_lang = request.form.get('target_lang', '')
+        filename = file.filename
+
+        file_bytes = file.read()
+
+        # Save uploaded file
+        uploads_dir = os.path.join(current_app.root_path, '..', 'uploads')
+        os.makedirs(uploads_dir, exist_ok=True)
+        safe_name = secure_filename(filename)
+        saved_path = os.path.join(uploads_dir, safe_name)
+        try:
+            with open(saved_path, 'wb') as f:
+                f.write(file_bytes)
+        except Exception as e:
+            current_app.logger.exception('translate: failed to save file')
+
+        # Extract text from PDF
+        ok, result = pdf_bytes_to_text(file_bytes)
+        if not ok:
+            return jsonify({'success': False, 'error': f'PDF text extraction failed: {result}'}), 500
+        text = result
+
+    # --- Mode 2: JSON body with raw text ---
+    elif request.is_json:
+        data = request.get_json()
+        text = data.get('text', '')
+        source_lang = data.get('source_lang', 'en')
+        target_lang = data.get('target_lang', '')
+        filename = data.get('filename', 'document.txt')
+    else:
+        return jsonify({'success': False, 'error': 'Provide a file upload or JSON body with text'}), 400
+
+    # Validate
+    if not text or not text.strip():
+        return jsonify({'success': False, 'error': 'No text to translate'}), 400
+    if not target_lang:
+        return jsonify({'success': False, 'error': 'target_lang is required'}), 400
+    if source_lang == target_lang:
+        return jsonify({'success': False, 'error': 'Source and target languages must differ'}), 400
+
+    current_app.logger.info(
+        "translate: %s → %s, file=%s, text_len=%d",
+        source_lang, target_lang, filename, len(text),
+    )
+
+    try:
+        result = translate_document(text, source_lang, target_lang, filename)
+        return jsonify({'success': True, **result}), 200
+    except Exception as e:
+        current_app.logger.exception('translate: failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/translate/history', methods=['GET'])
+def translate_history():
+    """Return list of completed translation jobs."""
+    try:
+        jobs = get_translation_history()
+        return jsonify({'success': True, 'jobs': jobs}), 200
+    except Exception as e:
+        current_app.logger.exception('translate/history failed')
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@main.route('/translate/job/<job_id>', methods=['GET'])
+def translate_job_detail(job_id):
+    """Get full details of a specific translation job."""
+    job = get_translation_job(job_id)
+    if not job:
+        return jsonify({'success': False, 'error': 'Job not found'}), 404
+    return jsonify({'success': True, **job}), 200
+
+
+@main.route('/translate/glossary', methods=['GET'])
+def translate_glossary():
+    """Return legal glossary terms.
+
+    Query params:
+        category (optional): filter by category
+        search (optional): search in any language
+    """
+    category = request.args.get('category')
+    search = request.args.get('search')
+    terms = get_glossary(category=category, search=search)
+    categories = get_glossary_categories()
+    return jsonify({
+        'success': True,
+        'terms': terms,
+        'categories': categories,
+        'total': len(terms),
+    }), 200
+
+
+@main.route('/translate/model-info', methods=['GET'])
+def translate_model_info():
+    """Return model metadata and performance metrics."""
+    info = get_model_info()
+    return jsonify({'success': True, **info}), 200
+
+
+@main.route('/translate/export', methods=['POST'])
+def translate_export():
+    """Export a translated document as PDF.
+
+    JSON body: { "job_id": "...", "format": "pdf" | "txt" | "json" }
+    """
+    data = request.get_json() or {}
+    job_id = data.get('job_id')
+    export_format = data.get('format', 'pdf')
+
+    if not job_id:
+        return jsonify({'success': False, 'error': 'job_id is required'}), 400
+
+    job = get_translation_job(job_id)
+    if not job:
+        return jsonify({'success': False, 'error': 'Translation job not found'}), 404
+
+    translated_text = export_translation_text(job_id)
+    if translated_text is None:
+        return jsonify({'success': False, 'error': 'No translated content found'}), 404
+
+    src = LANGUAGE_LABELS.get(job['source_language'], job['source_language'])
+    tgt = LANGUAGE_LABELS.get(job['target_language'], job['target_language'])
+    base_name = os.path.splitext(job['filename'])[0]
+
+    if export_format == 'json':
+        return jsonify({
+            'success': True,
+            'filename': job['filename'],
+            'source_language': job['source_language'],
+            'target_language': job['target_language'],
+            'sections': job.get('translated_sections', []),
+            'statistics': job.get('statistics', {}),
+        }), 200
+
+    if export_format == 'txt':
+        txt_io = BytesIO(translated_text.encode('utf-8'))
+        txt_io.seek(0)
+        return send_file(
+            txt_io,
+            mimetype='text/plain; charset=utf-8',
+            as_attachment=True,
+            download_name=f'{base_name}_{tgt}.txt',
+        )
+
+    # Default: PDF
+    try:
+        pdf_bytes = text_to_pdf(translated_text)
+        pdf_io = BytesIO(pdf_bytes)
+        pdf_io.seek(0)
+        return send_file(
+            pdf_io,
+            mimetype='application/pdf',
+            as_attachment=True,
+            download_name=f'{base_name}_{tgt}.pdf',
+        )
+    except Exception as e:
+        current_app.logger.exception('translate/export PDF generation failed')
         return jsonify({'success': False, 'error': str(e)}), 500
