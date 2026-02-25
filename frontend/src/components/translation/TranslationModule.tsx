@@ -8,6 +8,7 @@ import { TranslationSummary } from './TranslationSummary';
 import { ModelInsights } from './ModelInsights';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { FileText, GitCompare, BookOpen, BarChart3 } from 'lucide-react';
+import type { TranslationJobResult } from '@/config/api';
 
 type View = 'entry' | 'upload' | 'workspace' | 'comparison' | 'glossary' | 'summary' | 'insights';
 
@@ -15,11 +16,13 @@ interface UploadData {
   file: File;
   sourceLanguage: string;
   targetLanguage: string;
+  extractedText: string;
 }
 
 export function TranslationModule() {
   const [currentView, setCurrentView] = useState<View>('entry');
   const [uploadData, setUploadData] = useState<UploadData | null>(null);
+  const [translationResult, setTranslationResult] = useState<TranslationJobResult | null>(null);
   const [activeTab, setActiveTab] = useState('translate');
 
   const handleStartNew = () => setCurrentView('upload');
@@ -29,11 +32,16 @@ export function TranslationModule() {
     setCurrentView('workspace');
   };
 
+  const handleTranslationComplete = (result: TranslationJobResult) => {
+    setTranslationResult(result);
+  };
+
   const handleComplete = () => setCurrentView('summary');
   
   const handleFinish = () => {
     setCurrentView('entry');
     setUploadData(null);
+    setTranslationResult(null);
   };
 
   // Tab-based navigation for sub-views
@@ -98,8 +106,10 @@ export function TranslationModule() {
         file={uploadData.file}
         sourceLanguage={uploadData.sourceLanguage}
         targetLanguage={uploadData.targetLanguage}
+        extractedText={uploadData.extractedText}
         onBack={() => setCurrentView('upload')}
         onComplete={handleComplete}
+        onTranslationComplete={handleTranslationComplete}
       />
     );
   }
@@ -107,6 +117,7 @@ export function TranslationModule() {
   if (currentView === 'summary') {
     return (
       <TranslationSummary 
+        translationResult={translationResult}
         onComplete={handleFinish}
         onBack={() => setCurrentView('workspace')}
       />

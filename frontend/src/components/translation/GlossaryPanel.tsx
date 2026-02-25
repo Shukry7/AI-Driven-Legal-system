@@ -1,30 +1,13 @@
-import { useState } from 'react';
-import { Search, Plus, BookOpen, Filter } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Search, Plus, BookOpen, Filter, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-
-const glossaryTerms = [
-  { id: 1, en: 'Plaintiff', si: 'පැමිණිලිකරු', ta: 'வாதி', category: 'Civil Law' },
-  { id: 2, en: 'Defendant', si: 'විත්තිකරු', ta: 'பிரதிவாதி', category: 'Civil Law' },
-  { id: 3, en: 'District Court', si: 'දිසා අධිකරණය', ta: 'மாவட்ட நீதிமன்றம்', category: 'Courts' },
-  { id: 4, en: 'Supreme Court', si: 'ශ්‍රේෂ්ඨාධිකරණය', ta: 'உச்ச நீதிமன்றம்', category: 'Courts' },
-  { id: 5, en: 'Appeal', si: 'අභියාචනය', ta: 'மேல்முறையீடு', category: 'Civil Law' },
-  { id: 6, en: 'Judgment', si: 'තීන්දුව', ta: 'தீர்ப்பு', category: 'General Legal' },
-  { id: 7, en: 'Contract', si: 'ගිවිසුම', ta: 'ஒப்பந்தம்', category: 'Contract Law' },
-  { id: 8, en: 'Agreement', si: 'එකඟතාවය', ta: 'உடன்படிக்கை', category: 'Contract Law' },
-  { id: 9, en: 'Breach', si: 'කඩකිරීම', ta: 'மீறல்', category: 'Contract Law' },
-  { id: 10, en: 'Damages', si: 'වන්දි', ta: 'சேதங்கள்', category: 'Civil Law' },
-  { id: 11, en: 'Injunction', si: 'විනිවිද බලපත්‍ර', ta: 'தடை உத்தரவு', category: 'Civil Law' },
-  { id: 12, en: 'Affidavit', si: 'දිවුරුම් ප්‍රකාශය', ta: 'சத்தியப் பிரமாணம்', category: 'General Legal' },
-  { id: 13, en: 'Petition', si: 'පෙත්සම', ta: 'மனு', category: 'General Legal' },
-  { id: 14, en: 'Statute', si: 'පනත', ta: 'சட்டம்', category: 'General Legal' },
-  { id: 15, en: 'Liability', si: 'වගකීම', ta: 'பொறுப்பு', category: 'Civil Law' }
-];
-
-const categories = ['All', 'Civil Law', 'Contract Law', 'Courts', 'General Legal'];
+import { toast } from 'sonner';
+import { getGlossary } from '@/config/api';
+import type { GlossaryTerm } from '@/config/api';
 
 interface GlossaryPanelProps {
   onBack: () => void;
@@ -33,9 +16,39 @@ interface GlossaryPanelProps {
 export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [terms, setTerms] = useState<GlossaryTerm[]>([]);
+  const [categories, setCategories] = useState<string[]>(['All']);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
-  const filteredTerms = glossaryTerms.filter(term => {
-    const matchesSearch = 
+  const fetchGlossary = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const category = selectedCategory === 'All' ? undefined : selectedCategory;
+      const search = searchQuery.trim() || undefined;
+      const data = await getGlossary(category, search);
+      setTerms(data.terms || []);
+      // Build category list from data
+      if (data.categories) {
+        setCategories(['All', ...data.categories]);
+      }
+    } catch (err: any) {
+      setError(err?.error || 'Failed to load glossary');
+      toast.error('Failed to load glossary');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCategory, searchQuery]);
+
+  // Fetch on mount
+  useEffect(() => {
+    fetchGlossary();
+  }, [fetchGlossary]);
+
+  // Filter locally for instant feedback (API also filters but this avoids debounce delay)
+  const filteredTerms = terms.filter(term => {
+    const matchesSearch = !searchQuery.trim() ||
       term.en.toLowerCase().includes(searchQuery.toLowerCase()) ||
       term.si.includes(searchQuery) ||
       term.ta.includes(searchQuery);
@@ -45,8 +58,8 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
 
   const categoryCounts = categories.reduce((acc, cat) => {
     acc[cat] = cat === 'All' 
-      ? glossaryTerms.length 
-      : glossaryTerms.filter(t => t.category === cat).length;
+      ? terms.length 
+      : terms.filter(t => t.category === cat).length;
     return acc;
   }, {} as Record<string, number>);
 
@@ -78,7 +91,7 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
       <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-2xl font-bold text-foreground">{glossaryTerms.length}</p>
+            <p className="text-2xl font-bold text-foreground">{terms.length}</p>
             <p className="text-sm text-muted-foreground mt-1">Total Terms</p>
           </CardContent>
         </Card>
@@ -90,13 +103,15 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-2xl font-bold text-foreground">4</p>
+            <p className="text-2xl font-bold text-foreground">{categories.length - 1}</p>
             <p className="text-sm text-muted-foreground mt-1">Categories</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-2xl font-bold text-foreground">98%</p>
+            <p className="text-2xl font-bold text-foreground">
+              {loading ? '—' : '98%'}
+            </p>
             <p className="text-sm text-muted-foreground mt-1">Coverage Rate</p>
           </CardContent>
         </Card>
@@ -141,6 +156,14 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading glossary...</span>
+            </div>
+          )}
+
+          {!loading && (
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -184,8 +207,9 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
               </tbody>
             </table>
           </div>
+          )}
 
-          {filteredTerms.length === 0 && (
+          {!loading && filteredTerms.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
               <p>No terms found matching your criteria</p>
             </div>
