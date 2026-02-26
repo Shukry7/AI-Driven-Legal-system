@@ -125,18 +125,22 @@ CLAUSE_DEFINITIONS = {
             r"(?i)COURT\s+OF\s+APPEAL"
         ],
         "fallback_patterns": [
-            # Relaxed patterns to catch corrupted court titles
-            # Allows any characters (including corruption) between COURT and LANKA
-            r"(?i)IN\s+THE\s+SUPREME\s+COURT[\s\S]{0,150}?LANKA",  # Match across lines with possible corruption
+            # VERY LENIENT patterns to catch heavily corrupted court titles
+            # Catch: "IN #=+HE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA" (corrupted THE)
+            # Catch: "IN THE SUPREME COURT..." (normal)
+            r"(?i)IN\s+[^\n]{0,50}?(?:DEMOCRATIC|SOCIALIST|REPUBLIC)[\s\S]{0,100}?SRI\s+LANKA",  # Democratic/Socialist patterns
+            r"(?i)IN\s+[#*&=@+\-]*(?:THE|HE|T[#*&=@+\-]*HE|TH[#*&=@+\-]*E)[\s\S]{0,150}?(?:SUPREME|HIGH|DISTRICT)[\s\S]{0,100}?COURT",
+            r"(?i)IN\s+[^\n]{0,100}?SUPREME\s+COURT[\s\S]{0,150}?LANKA",  # Match with anything between IN and SUPREME COURT
             r"(?i)IN\s+THE\s+(?:HIGH|DISTRICT)\s+COURT[\s\S]{0,100}?LANKA",
+            r"(?i)SUPREME\s+COURT[\s\S]{0,150}?SRI\s+LANKA",  # Even without "IN THE"
+            r"(?i)IN\s+[^\n]{0,150}?LANKA",  # Most lenient - just IN...LANKA
         ],
         "corruption_indicators": [
-            r"[=@$%!&*]{2,}",  # Multiple special characters
-            r"#{2,}",  # Multiple hashes
-            r"[A-Z]{2,}[=@#$%!&*]+[A-Z]",  # Special chars in middle of words
+            r"[#=@$%!&*+\-]{1,}",  # ANY special characters (even single)
+            r"\b[HE]{1,2}\b(?!\s+(?:WAS|IS|ARE))",  # "HE" not followed by verb (likely corrupted "THE")
+            r"[A-Z][#@=*&+\-]+",  # Letter followed by special chars
+            r"[#@=*&+\-]+[A-Z]",  # Special chars followed by letter
             r"\uFFFD",  # Replacement character
-            r"[A-Z]+[#@=]+[A-Z]+",  # Letters with special chars between
-            r"&{2,}",  # Multiple ampersands
         ],
         "frequency": "🔴 Always Present (99.6%)",
         "detection_rate": 0.996
@@ -164,7 +168,11 @@ CLAUSE_DEFINITIONS = {
             r"(?i)(SC|CA|HC|S\.C\.|C\.A\.|H\.C\.)\s*(CHC\s*)?(?:Appeal|Application|No)?\.?\s*No?\.?\s*\d+[/\-\.]\d{2,4}",
             r"(?i)(?:Case\s+)?(?:No|Νo)[.:]?\s*SC\s+(?:Appeal|Application)\s+\d+[/-]\d{2,4}"
         ],
-        "corruption_indicators": [r"###", r"XXX", r"\[CORRUPTED:", r"SC/###"],
+        "fallback_patterns": [
+            r"(?i)SC[/\s#*&@]*(?:APPEAL|APPLICATION)[/\s#*&@]*\d+",  # Allows corruption markers
+            r"(?i)(SC|CA|HC)[/\s#*&@]*\d+",  # Minimal case number with court prefix
+        ],
+        "corruption_indicators": [r"###", r"XXX", r"\[CORRUPTED:", r"SC/###", r"[#*&@]{2,}"],
         "frequency": "🔴 Must Present (91.2%) ⚠️ Pattern needs work",
         "detection_rate": 0.316  # Low due to strict regex, not position
     },
@@ -203,7 +211,11 @@ CLAUSE_DEFINITIONS = {
             r"(?i)Coram\s*:",
             r"(?i)Before\s*[:\n]"
         ],
-        "corruption_indicators": [],
+        "fallback_patterns": [
+            r"(?i)B[e3][f#]*[o0][r#]*[e3][\s#*&@:]*",  # Allows typos/corruption in "Before"
+            r"(?i)C[o0][r#]*[a@][m#]*\s*:",  # Allows typos/corruption in "Coram"
+        ],
+        "corruption_indicators": [r"[#*&@]{2,}", r"[B][^e]", r"[C][^o]"],
         "frequency": "🔴 Always Present (88.7%)",
         "detection_rate": 0.927
     },
@@ -215,6 +227,11 @@ CLAUSE_DEFINITIONS = {
             r"(?i)Hon\.?\s+Justice\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+",
             r"(?i)(?:Hon\.?\s+)?(?:Justice\s+)?[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\s*,?\s*(?:PC\s*,?\s*)?(?:J\.|CJ\.|PCJ)\b",
             r"[A-Z][a-z]+\s+[A-Z]\.?\s*[A-Z][a-z]+\s*,\s*(?:PC\s*,\s*)?J\."
+        ],
+        "fallback_patterns": [
+            r"(?i)Hon[^a-z]*Justice[\s\S]{0,50}?[A-Z][a-z]+",  # Relaxed Hon. Justice pattern
+            r"(?i)Justice[\s\S]{0,30}?[A-Z][a-z]+",  # Just Justice + name
+            r"[A-Z][a-z]+[\s#*&@]+[A-Z][a-z]+[\s,]*(?:J\.|CJ)",  # Name with corruption + J.
         ],
         "corruption_indicators": [
             r"#{2,}",
@@ -234,7 +251,12 @@ CLAUSE_DEFINITIONS = {
             r"(?i)\bCHIEF\s+JUSTICE\b",
             r"(?m)\bI\s+agree[,.]?\s*$"
         ],
-        "corruption_indicators": [r"\[MISSING:.*Signature", r"Signature required"],
+        "fallback_patterns": [
+            r"(?i)JUDGE[\s#*&@]+OF[\s#*&@]+THE[\s\S]{0,50}?COURT",  # Allows corruption
+            r"(?i)Judge[\s#*&@]+of[\s#*&@]+the[\s\S]{0,30}?Court",
+            r"(?i)I[\s#*&@]+agree",  # "I agree" with possible corruption
+        ],
+        "corruption_indicators": [r"\[MISSING:.*Signature", r"Signature required", r"[#*&@]{2,}"],
         "frequency": "🔴 Always Present (98.9%)",
         "detection_rate": 0.984
     },
@@ -242,12 +264,25 @@ CLAUSE_DEFINITIONS = {
     "ArguedOn": {
         "name": "Argued On",
         "description": "Date case was argued/heard",
+        "requires_value": True,  # This clause needs a date VALUE after the key
         "patterns": [
-            r"(?i)Argued\s+on\s*:\s*\d{2}\.\d{2}\.\d{4}",
+            # STRICT patterns - must have both key AND valid date
             r"(?i)Argued\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
-            r"(?i)(?:Argued|Heard)\s+on\s*:"
+            r"(?i)Heard\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
         ],
-        "corruption_indicators": [r"##\.", r"[Oo][Oo]", r"[Tt][Tt]"],
+        "fallback_patterns": [
+            # Catch corrupted keywords OR missing dates - will be checked separately
+            r"(?i)A[r#*&=@\-]*[g#*&=@\-]*[u#*&=@\-]*[e3][d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",  # Argued on (corrupted)
+            r"(?i)H[e3][a@][r#*&=@\-]*[d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",  # Heard on (corrupted)
+            r"(?i)(?:Argued|Heard)\s+on\s*:",  # Clean keyword (will check for date separately)
+        ],
+        "corruption_indicators": [
+            r"[#*&@=+\-]",  # ANY special characters in key or date
+            r"##\.",  # ## in date
+            r"[Oo][Oo]",  # OO instead of 00
+            r"[Tt][Tt]",  # TT instead of numbers  
+            r"\d[#*&@=+\-]+\d",  # Corruption between digits
+        ],
         "frequency": "🟡 Sometimes Present (86.9%)",
         "detection_rate": 0.864
     },
@@ -255,12 +290,26 @@ CLAUSE_DEFINITIONS = {
     "DecidedOn": {
         "name": "Decided On",
         "description": "Date judgment was delivered",
+        "requires_value": True,  # This clause needs a date VALUE after the key
         "patterns": [
-            r"(?i)Decided\s+on\s*:\s*\d{2}\.\d{2}\.\d{4}",
+            # STRICT patterns - must have both key AND valid date
             r"(?i)Decided\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
-            r"(?i)(?:Decided|Delivered)\s+on\s*:"
+            r"(?i)Delivered\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
         ],
-        "corruption_indicators": [r"##\.", r"[Oo][Oo]", r"[Tt][Tt]"],
+        "fallback_patterns": [
+            # Catch corrupted keywords - like "Decid#-=*&6ed on:"
+            r"(?i)D[e3][c#*&=@\-]*[i1!][d#*&=@\-0-9]*[e3#*&=@\-]*[d#*&=@\-0-9]*\s+[o0][n#*&=@\-]*\s*:",  # Decided on (heavily corrupted)
+            r"(?i)D[e3][l#*&=@\-]*[i1][v#*&=@\-]*[e3][r#*&=@\-]*[e3][d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",  # Delivered on (corrupted)
+            r"(?i)(?:Decided|Delivered)\s+on\s*:",  # Clean keyword (will check for date separately)
+        ],
+        "corruption_indicators": [
+            r"[#*&@=+\-]",  # ANY special characters in key or date
+            r"##\.",  # ## in date  
+            r"[Oo][Oo]",  # OO instead of 00
+            r"[Tt][Tt]",  # TT instead of numbers
+            r"\d[#*&@=+\-]+\d",  # Corruption between digits
+            r"[A-Za-z][#*&@=+\-0-9]+[A-Za-z]",  # Corruption in the middle of words
+        ],
         "frequency": "🟡 Sometimes Present (88.5%)",
         "detection_rate": 0.911
     },
@@ -273,7 +322,12 @@ CLAUSE_DEFINITIONS = {
             r"(?i)Petitioner-Respondent\s*$",
             r"(?i)(?:PETITIONER|APPELLANT|PLAINTIFF)[S]?\s*$"
         ],
-        "corruption_indicators": [],
+        "fallback_patterns": [
+            r"(?i)P[e3][t#]*[i1][t#]*[i1][o0][n#]*[e3][r#]*",  # Allows typos in Petitioner
+            r"(?i)APPELLANT[S]?",
+            r"(?i)PLAINTIFF[S]?",
+        ],
+        "corruption_indicators": [r"[#*&@]{2,}", r"P[^e]"],
         "frequency": "🔴 Always Present (87.9%)",
         "detection_rate": 0.879
     },
@@ -287,7 +341,12 @@ CLAUSE_DEFINITIONS = {
             r"(?i)(?:RESPONDENT|DEFENDANT)[S]?\s*$",
             r"(?i)Vs\."
         ],
-        "corruption_indicators": [],
+        "fallback_patterns": [
+            r"(?i)R[e3][s#]*[p#]*[o0][n#]*[d#]*[e3][n#]*[t#]*",  # Allows typos in Respondent
+            r"(?i)DEFENDANT[S]?",
+            r"(?i)V[s#]*\.",  # Vs. with possible corruption
+        ],
+        "corruption_indicators": [r"[#*&@]{2,}", r"R[^e]"],
         "frequency": "🔴 Always Present (87.7%)",
         "detection_rate": 0.877
     },
@@ -423,7 +482,12 @@ CLAUSE_DEFINITIONS = {
             r"(?i)Act\s+No\.\s*\d+\s+of\s+\d{4}",
             r"(?i)Arbitration\s+Act\s+No\.\s*\d+\s+of\s+\d{4}"
         ],
-        "corruption_indicators": [],
+        "fallback_patterns": [
+            r"(?i)s[e3][c#]*[t#]*[i1][o0][n#]*[\s#*&@]+\d+",  # section with typos
+            r"(?i)A[r#]*[t#]*[i1][c#]*[l#]*[e3][\s#*&@]+\d+",  # Article with typos
+            r"(?i)Act[\s#*&@]+No",  # Act No. with corruption
+        ],
+        "corruption_indicators": [r"[#*&@]{2,}", r"s[^e]", r"A[^r]"],
         "frequency": "🔴 Always Present (88.6%)",
         "detection_rate": 0.911
     },
@@ -634,6 +698,56 @@ def detect_clause(text: str, clause_key: str, use_preprocessing: bool = True) ->
                     start_pos = region_start + match.start()
                     end_pos = region_start + match.end()
                     
+                    # Special handling for clauses that require a VALUE (e.g., dates)
+                    requires_value = clause_def.get("requires_value", False)
+                    
+                    if requires_value:
+                        logger.debug(f"    → Clause requires value (e.g., date), checking KEY and VALUE separately")
+                        
+                        # Check if keyword itself is corrupted
+                        keyword_corrupted = False
+                        if corruption_indicators:
+                            for indicator in corruption_indicators:
+                                if re.search(indicator, matched_text):
+                                    keyword_corrupted = True
+                                    logger.debug(f"    → Keyword corrupted (indicator: {indicator})")
+                                    break
+                        
+                        # Check if a valid date follows the keyword
+                        # Look ahead from the matched position for a date pattern
+                        context_after = text[end_pos:min(end_pos + 100, len(text))]  # Check next 100 chars
+                        date_pattern = r"\\s*\\d{1,2}[./-]\\d{1,2}[./-]\\d{2,4}"
+                        has_valid_date = bool(re.match(date_pattern, context_after))
+                        
+                        logger.debug(f"    → Has valid date after keyword: {has_valid_date}")
+                        logger.debug(f"    → Keyword corrupted: {keyword_corrupted}")
+                        
+                        # Determine status based on KEY and VALUE
+                        if keyword_corrupted:
+                            # Keyword is corrupted - mark as CORRUPTED regardless of date
+                            # Expand to include the date if present
+                            if has_valid_date:
+                                date_match = re.match(date_pattern, context_after)
+                                full_content = matched_text + context_after[:date_match.end()]
+                                full_end_pos = end_pos + date_match.end()
+                                logger.debug(f"    → Marking as CORRUPTED (corrupted keyword)")
+                                return ("Corrupted", full_content, start_pos, full_end_pos)
+                            else:
+                                logger.debug(f"    → Marking as CORRUPTED (corrupted keyword, no date)")
+                                return ("Corrupted", matched_text, start_pos, end_pos)
+                        elif not has_valid_date:
+                            # Keyword is clean but date is missing - mark as MISSING
+                            logger.debug(f"    → Marking as MISSING (keyword found but no valid date)")
+                            return ("Missing", None, None, None)
+                        else:
+                            # Both keyword and date are present and clean - mark as PRESENT
+                            date_match = re.match(date_pattern, context_after)
+                            full_content = matched_text + context_after[:date_match.end()]
+                            full_end_pos = end_pos + date_match.end()
+                            logger.debug(f"    → Marking as PRESENT (both keyword and date valid)")
+                            return ("Present", full_content, start_pos, full_end_pos)
+                    
+                    # Standard corruption checking for non-value clauses
                     # Fallback patterns should always check for corruption
                     is_corrupted = False
                     if corruption_indicators:
@@ -647,8 +761,8 @@ def detect_clause(text: str, clause_key: str, use_preprocessing: bool = True) ->
                     if is_corrupted:
                         if clause_key == "CourtTitle":
                             # For Court Title, get the full line to show complete corruption
-                            line_start = text.rfind('\n', 0, start_pos) + 1
-                            line_end = text.find('\n', end_pos)
+                            line_start = text.rfind('\\n', 0, start_pos) + 1
+                            line_end = text.find('\\n', end_pos)
                             if line_end == -1:
                                 line_end = len(text)
                             full_line = text[line_start:line_end]
