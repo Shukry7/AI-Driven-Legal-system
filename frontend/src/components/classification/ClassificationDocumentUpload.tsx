@@ -64,19 +64,19 @@ export function ClassificationDocumentUpload({
           ← Back
         </Button>
         <h2 className="font-heading text-2xl font-bold text-foreground">
-          Upload Judgment for Risk Analysis
+          Upload & Classify New Document
         </h2>
         <p className="text-muted-foreground mt-2">
-          Upload a Sri Lankan civil court judgment to perform clause
-          segmentation and risk classification
+          Upload a new document to perform OCR extraction, clause segmentation,
+          and risk classification in one workflow
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Document Selection</CardTitle>
+          <CardTitle>Document Upload</CardTitle>
           <CardDescription>
-            Choose a PDF or TXT file containing the judgment text
+            Upload a new document for OCR processing and risk classification
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
