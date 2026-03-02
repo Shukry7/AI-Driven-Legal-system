@@ -655,6 +655,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     if (['case_number', 'case_title', 'court_name', 'judge_names', 'judge_bench'].includes(clauseKey)) {
       return 0;
     }
+    
     // Dates go near the beginning, after case info
     if (['date_of_order', 'hearing_dates'].includes(clauseKey)) {
       const caseMatch = text.search(/Case\s+(?:No\.|Number)|Criminal\s+Appeal|Civil\s+Appeal|Writ\s+Petition/i);
@@ -664,12 +665,91 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       }
       return 0;
     }
-    // Party information goes after case header
-    if (['petitioner_name', 'respondent_name'].includes(clauseKey)) {
-      return 0;
+    
+    // Petitioner name - look for PETITIONER section or insert after case header
+    if (clauseKey === 'petitioner_name') {
+      const petitionerMatch = text.search(/\n\s*PETITIONER[S]?\s*[:|\n]/i);
+      if (petitionerMatch !== -1) {
+        const lineEnd = text.indexOf('\n', petitionerMatch + 1);
+        return lineEnd !== -1 ? lineEnd + 1 : petitionerMatch;
+      }
+      // Insert after first major header or dates
+      const headerEnd = text.search(/={10,}\n/);
+      if (headerEnd !== -1) {
+        const nextLinebreak = text.indexOf('\n', headerEnd + 1);
+        return nextLinebreak !== -1 ? nextLinebreak + 1 : headerEnd;
+      }
+      return Math.min(300, text.length); // Early in document
     }
-    // Default: insert at beginning
-    return 0;
+    
+    // Respondent name - look for RESPONDENT section or insert after petitioner
+    if (clauseKey === 'respondent_name') {
+      const respondentMatch = text.search(/\n\s*RESPONDENT[S]?\s*[:|\n]/i);
+      if (respondentMatch !== -1) {
+        const lineEnd = text.indexOf('\n', respondentMatch + 1);
+        return lineEnd !== -1 ? lineEnd + 1 : respondentMatch;
+      }
+      // Look for petitioner section to insert after it
+      const petitionerMatch = text.search(/\n\s*PETITIONER[S]?\s*[:|\n]/i);
+      if (petitionerMatch !== -1) {
+        // Find end of petitioner section (next empty line or next section)
+        let searchPos = petitionerMatch + 10;
+        const nextSection = text.substring(searchPos).search(/\n\s*[A-Z]{4,}/);
+        if (nextSection !== -1) {
+          return searchPos + nextSection;
+        }
+      }
+      return Math.min(400, text.length); // After petitioner area
+    }
+    
+    // Legal representatives - insert after parties section
+    if (clauseKey === 'legal_representatives') {
+      // Look for existing counsel/advocate section
+      const counselMatch = text.search(/\n\s*(Counsel|Advocate|Attorney|For\s+the\s+Petitioner)/i);
+      if (counselMatch !== -1) {
+        return counselMatch;
+      }
+      // Look for respondent section to insert after
+      const respondentMatch = text.search(/\n\s*RESPONDENT[S]?\s*[:|\n]/i);
+      if (respondentMatch !== -1) {
+        // Find 5 lines after respondent
+        let pos = respondentMatch;
+        for (let i = 0; i < 5; i++) {
+          const nextLine = text.indexOf('\n', pos + 1);
+          if (nextLine === -1) break;
+          pos = nextLine;
+        }
+        return pos;
+      }
+      return Math.min(500, text.length); // After parties
+    }
+    
+    // Subject matter - insert before main judgment/order text
+    if (clauseKey === 'subject_matter') {
+      // Look for ORDER or JUDGMENT keyword
+      const judgmentMatch = text.search(/\n\s*(ORDER|JUDGMENT|DECISION)\s*[:|\n]/i);
+      if (judgmentMatch !== -1) {
+        return judgmentMatch;
+      }
+      // Otherwise insert around 20% into document
+      return Math.floor(text.length * 0.2);
+    }
+    
+    // Referred cases - insert in legal analysis section (middle of document)
+    if (clauseKey === 'referred_cases') {
+      // Look for existing citations
+      const citationMatch = text.search(/(AIR|SCC|\d{4}\s+\(\d+\)|referred to|relied upon|cited)/i);
+      if (citationMatch !== -1) {
+        // Find start of that paragraph
+        const paragraphStart = text.lastIndexOf('\n\n', citationMatch);
+        return paragraphStart !== -1 ? paragraphStart + 2 : citationMatch;
+      }
+      // Insert in middle of document
+      return Math.floor(text.length * 0.5);
+    }
+    
+    // Default: insert early in document but after header
+    return Math.min(200, text.length);
   };
 
 
@@ -1451,17 +1531,17 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             <Button onClick={startAnalysis}>Start AI Analysis</Button>
           )}
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            Back
           </Button>
         </div>
       </div>
 
-      {/* Analysis Progress - shown only when running or after completion */}
-      {(analyzing || analysisComplete) && (
+      {/* Analysis Progress - shown only when analyzing */}
+      {analyzing && (
         <Card className="w-full">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Loader2 className={analyzing ? 'animate-spin text-accent' : 'text-success'} />
+              <Loader2 className="animate-spin text-accent" />
               Analysis Progress
             </CardTitle>
           </CardHeader>
