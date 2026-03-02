@@ -697,15 +697,22 @@ async def call_openai_batch(
     Make a SINGLE batched OpenAI API call for all missing clauses.
     Returns dict: clause_key -> { suggestion, confidence, ... }
     """
+    logger.info(f"call_openai_batch called for {len(missing_clauses)} clauses")
+    logger.info(f"API Key present: {bool(OPENAI_API_KEY)}, Length: {len(OPENAI_API_KEY) if OPENAI_API_KEY else 0}")
+    
     if not OPENAI_API_KEY:
-        logger.warning("OPENAI_API_KEY not set. Returning fallback suggestions.")
+        logger.warning("❌ OPENAI_API_KEY not set. Returning fallback suggestions.")
         return _generate_fallback_suggestions(missing_clauses, contexts)
 
     try:
         from openai import AsyncOpenAI
         client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        logger.info(f"✅ AsyncOpenAI client created successfully with model: {OPENAI_MODEL}")
     except ImportError:
-        logger.error("openai package not installed. Run: pip install openai")
+        logger.error("❌ openai package not installed. Run: pip install openai")
+        return _generate_fallback_suggestions(missing_clauses, contexts)
+    except Exception as e:
+        logger.error(f"❌ Failed to create AsyncOpenAI client: {type(e).__name__}: {str(e)}")
         return _generate_fallback_suggestions(missing_clauses, contexts)
 
     # Build a single prompt with all clauses
@@ -744,6 +751,9 @@ Respond with a JSON object. Each key is the clause key, and each value has:
 JSON Output:"""
 
     try:
+        logger.info(f"Making OpenAI API call with model: {OPENAI_MODEL}")
+        logger.info(f"Requesting suggestions for {len(missing_clauses)} clauses")
+        
         response = await client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
@@ -763,14 +773,17 @@ JSON Output:"""
 
         response_text = response.choices[0].message.content.strip()
         suggestions = json.loads(response_text)
-        logger.info(f"LLM returned suggestions for {len(suggestions)} clauses")
+        logger.info(f"✅ LLM returned suggestions for {len(suggestions)} clauses")
         return suggestions
 
     except json.JSONDecodeError as e:
-        logger.error(f"Failed to parse LLM response as JSON: {e}")
+        logger.error(f"❌ Failed to parse LLM response as JSON: {e}")
+        logger.error(f"Response text was: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
         return _generate_fallback_suggestions(missing_clauses, contexts)
     except Exception as e:
-        logger.error(f"OpenAI API call failed: {e}")
+        logger.error(f"❌ OpenAI API call failed: {type(e).__name__}: {str(e)}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
         return _generate_fallback_suggestions(missing_clauses, contexts)
 
 
