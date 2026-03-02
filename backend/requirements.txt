@@ -17,3 +17,6 @@ transformers==4.36.2
 torch==2.2.0
 safetensors>=0.4.3
 numpy==1.26.4
+
+# LLM Integration (Clause Prediction)
+openai>=1.12.0
