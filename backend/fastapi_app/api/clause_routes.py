@@ -28,6 +28,7 @@ sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
 from app.services.pdf_service import pdf_bytes_to_text
 from app.services.clause_detection_service import analyze_clause_detection
+from app.services.hybrid_clause_detection_service import analyze_with_hybrid_detection
 from app.services.clause_patterns import CLAUSE_DEFINITIONS
 from app.services.corruption_detection_service import detect_corruptions
 from app.services.clause_prediction_service import (
@@ -238,10 +239,10 @@ async def analyze_clauses(
         txt_path = candidate_path
         logger.info(f"analyze-clauses: using existing text file {txt_path} (len={len(extracted_text)})")
     
-    # Analyze clauses
+    # Analyze clauses with hybrid detection (ML + Regex)
     try:
-        logger.info("analyze-clauses: starting clause analysis")
-        clause_analysis = analyze_clause_detection(extracted_text)
+        logger.info("analyze-clauses: starting HYBRID clause analysis (ML + Regex)")
+        clause_analysis = analyze_with_hybrid_detection(extracted_text)
         
         # Run corruption detection
         try:
@@ -250,7 +251,7 @@ async def analyze_clauses(
             logger.exception('Corruption detection failed')
             corruptions = []
             
-        logger.info("analyze-clauses: clause analysis completed")
+        logger.info(f"analyze-clauses: hybrid analysis completed - method={clause_analysis.get('method')}")
     except Exception as e:
         raise HTTPException(
             status_code=500, 

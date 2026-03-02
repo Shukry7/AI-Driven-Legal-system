@@ -21,6 +21,7 @@ sys.path.insert(0, str(backend_path))
 
 from app.services.pdf_service import pdf_bytes_to_text, text_to_pdf, strip_bold_markers
 from app.services.clause_detection_service import analyze_clause_detection
+from app.services.hybrid_clause_detection_service import analyze_with_hybrid_detection
 from app.services.clause_patterns import CLAUSE_DEFINITIONS
 from app.services.corruption_detection_service import detect_corruptions
 
@@ -258,10 +259,10 @@ async def analyze_clauses(
     else:
         raise HTTPException(status_code=400, detail="No file uploaded and no 'filename' provided.")
     
-    # Analyze clauses
+    # Analyze clauses with hybrid detection (ML + Regex)
     try:
-        logger.info("analyze-clauses: starting clause analysis")
-        clause_analysis = analyze_clause_detection(extracted_text)
+        logger.info("analyze-clauses: starting HYBRID clause analysis (ML + Regex)")
+        clause_analysis = analyze_with_hybrid_detection(extracted_text)
         
         # Run corruption detection heuristics
         try:
@@ -270,7 +271,7 @@ async def analyze_clauses(
             logger.exception('corruption detection failed')
             corruptions = []
         
-        logger.info("analyze-clauses: clause analysis completed")
+        logger.info(f"analyze-clauses: hybrid analysis completed - method={clause_analysis.get('method')}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Clause analysis failed: {str(e)}')
     
