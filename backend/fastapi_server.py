@@ -2,6 +2,9 @@
 Main FastAPI application for Legal Risk Classification API.
 """
 import logging
+from dotenv import load_dotenv
+load_dotenv()  # Load .env before any other imports that read env vars
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -49,6 +52,17 @@ async def startup_event():
     logger.info("=" * 60)
     logger.info("✓ PDF processing service ready")
     logger.info("✓ Clause detection service ready")
+    
+    # Log clause prediction configuration
+    import os
+    prediction_mode = os.getenv("CLAUSE_PREDICTION_MODE", "manual")
+    openai_key = os.getenv("OPENAI_API_KEY", "")
+    openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+    llm_configured = bool(openai_key.strip() and openai_key != "your-openai-api-key-here")
+    logger.info(f"✓ Clause prediction mode: {prediction_mode}")
+    logger.info(f"✓ OpenAI model: {openai_model}")
+    logger.info(f"{'✓' if llm_configured else '⚠'} OpenAI API key: {'configured' if llm_configured else 'NOT SET (will use fallback templates)'}")
+    
     try:
         # Models are loaded when importing classifier
         from fastapi_app.services.classifier import classifier

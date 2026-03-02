@@ -138,7 +138,8 @@ def get_llm_suggestions(text: str, missing_clauses: List[str]) -> Dict:
     """
     Query LLM to generate suggestions for missing clauses.
     
-    TODO: Implement in Phase 4
+    Now implemented in clause_prediction_service.py
+    Use: from app.services.clause_prediction_service import predict_missing_clauses
     
     Args:
         text: Full judgment text
@@ -147,4 +148,14 @@ def get_llm_suggestions(text: str, missing_clauses: List[str]) -> Dict:
     Returns:
         Dict: LLM-generated suggestions for each missing clause
     """
-    pass
+    # Delegate to the new prediction service
+    from .clause_prediction_service import predict_missing_clauses
+    import asyncio
+    try:
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            # If already in async context, create a task
+            return None  # Must be called with await from async context
+        return loop.run_until_complete(predict_missing_clauses(text))
+    except RuntimeError:
+        return None

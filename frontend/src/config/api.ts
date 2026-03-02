@@ -202,6 +202,188 @@ export async function checkClassificationHealth(): Promise<{
   return res.json();
 }
 
+// ─── Clause Prediction / AI Suggestions API ───────────────────────────────
+
+export interface PredictionSuggestion {
+  clause_key: string;
+  clause_name: string;
+  predictability: "FULL" | "PARTIAL";
+  frequency: string;
+  suggestion: string;
+  confidence: number;
+  reasoning: string;
+  context_used: Record<string, any>;
+  position: string;
+  status: "pending" | "accepted" | "edited" | "rejected";
+}
+
+export interface PredictionResult {
+  success: boolean;
+  missing_predictable_clauses: Array<{
+    clause_key: string;
+    clause_name: string;
+    predictability: string;
+    frequency: string;
+    position: string;
+  }>;
+  suggestions: Record<string, PredictionSuggestion>;
+  total_predictable: number;
+  total_missing: number;
+  source: "llm" | "cache" | "fallback" | "none";
+  mode: "auto" | "manual";
+}
+
+export interface PredictionConfig {
+  mode: "auto" | "manual";
+  llm_configured: boolean;
+  model: string;
+  predictable_clauses: Array<{
+    key: string;
+    name: string;
+    predictability: string;
+    frequency: string;
+  }>;
+  total_predictable: number;
+}
+
+export async function predictClauses(
+  filename: string,
+  forceRefresh: boolean = false,
+): Promise<PredictionResult> {
+  const url = `${API_BASE}/api/predict-clauses`;
+  const formData = new FormData();
+  formData.append("filename", filename);
+  if (forceRefresh) {
+    formData.append("force_refresh", "true");
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Prediction failed" }));
+    throw new Error(error.detail || "Prediction failed");
+  }
+
+  return res.json();
+}
+
+export async function predictClausesFromFile(
+  file: File,
+  forceRefresh: boolean = false,
+): Promise<PredictionResult> {
+  const url = `${API_BASE}/api/predict-clauses`;
+  const formData = new FormData();
+  formData.append("file", file, file.name);
+  if (forceRefresh) {
+    formData.append("force_refresh", "true");
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Prediction failed" }));
+    throw new Error(error.detail || "Prediction failed");
+  }
+
+  return res.json();
+}
+
+export async function getPredictionConfig(): Promise<PredictionConfig> {
+  const url = `${API_BASE}/api/prediction-config`;
+  const res = await fetch(url);
+  if (!res.ok) {
+    throw new Error("Failed to get prediction config");
+  }
+  return res.json();
+}
+
+export interface SuggestionDecision {
+  filename: string;
+  clause_key: string;
+  suggestion_text: string;
+  status: "accepted" | "rejected" | "edited";
+  confidence?: number;
+  edited_text?: string;
+}
+
+export interface FinalizeResult {
+  success: boolean;
+  original_text: string;
+  modified_text: string;
+  inserted_count: number;
+  inserted_clauses: string[];
+  download_filename: string;
+  finalized_path?: string;
+  message: string;
+}
+
+export async function acceptSuggestion(
+  decision: SuggestionDecision
+): Promise<{ success: boolean; decision: any; message: string }> {
+  const url = `${API_BASE}/api/accept-suggestion`;
+  const formData = new FormData();
+  formData.append("filename", decision.filename);
+  formData.append("clause_key", decision.clause_key);
+  formData.append("suggestion_text", decision.suggestion_text);
+  formData.append("status", decision.status);
+  if (decision.confidence !== undefined) {
+    formData.append("confidence", decision.confidence.toString());
+  }
+  if (decision.edited_text) {
+    formData.append("edited_text", decision.edited_text);
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to save suggestion decision" }));
+    throw new Error(error.detail || "Failed to save suggestion decision");
+  }
+
+  return res.json();
+}
+
+export async function finalizeDocument(
+  filename: string
+): Promise<FinalizeResult> {
+  const url = `${API_BASE}/api/finalize-document`;
+  const formData = new FormData();
+  formData.append("filename", filename);
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to finalize document" }));
+    throw new Error(error.detail || "Failed to finalize document");
+  }
+
+  return res.json();
+}
+
+export async function downloadDocument(filename: string): Promise<Blob> {
+  const url = `${API_BASE}/api/download-document/${encodeURIComponent(filename)}`;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const error = await res.json().catch(() => ({ detail: "Failed to download document" }));
+    throw new Error(error.detail || "Failed to download document");
+  }
+
+  return res.blob();
+}
+
 export default {
   uploadPdf,
   analyzeClauses,
@@ -212,4 +394,10 @@ export default {
   classifyText,
   classifyFile,
   checkClassificationHealth,
+  predictClauses,
+  predictClausesFromFile,
+  getPredictionConfig,
+  acceptSuggestion,
+  finalizeDocument,
+  downloadDocument,
 };
