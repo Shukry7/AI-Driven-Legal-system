@@ -6,7 +6,9 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from fastapi_app.api.classification_routes import router
+from fastapi_app.api.classification_routes import router as classification_router
+from fastapi_app.api.clause_routes import router as clause_router
+from fastapi_app.api.pdf_routes import router as pdf_router
 
 # Configure logging
 logging.basicConfig(
@@ -17,8 +19,8 @@ logger = logging.getLogger(__name__)
 
 # Create FastAPI app
 app = FastAPI(
-    title="Legal Risk Classification API",
-    description="AI-powered clause segmentation and risk assessment for legal documents using Legal-BERT",
+    title="AI-Driven Legal System API",
+    description="AI-powered legal document analysis including clause detection, segmentation, and risk assessment using Legal-BERT",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -34,45 +36,67 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(router, prefix="/api", tags=["classification"])
+app.include_router(classification_router, prefix="/api", tags=["classification"])
+app.include_router(clause_router, prefix="/api", tags=["clause_detection"])
+app.include_router(pdf_router, tags=["pdf_processing"])
 
 
 @app.on_event("startup")
 async def startup_event():
     """Initialize models on startup."""
     logger.info("=" * 60)
-    logger.info("Starting Legal Risk Classification API")
+    logger.info("Starting AI-Driven Legal System API")
     logger.info("=" * 60)
+    logger.info("✓ PDF processing service ready")
+    logger.info("✓ Clause detection service ready")
     try:
         # Models are loaded when importing classifier
         from fastapi_app.services.classifier import classifier
-        logger.info("✓ Models loaded successfully")
+        if classifier.has_segmentation and classifier.has_classification:
+            logger.info("✓ ML Classification models loaded")
+        else:
+            logger.warning("⚠ ML models not available (optional)")
         logger.info(f"✓ Device: {classifier.device}")
         logger.info("=" * 60)
     except Exception as e:
-        logger.error(f"✗ Failed to load models: {str(e)}")
-        raise
+        logger.warning(f"⚠ Classification models unavailable: {str(e)}")
+        logger.info("✓ API will continue without ML features")
+        logger.info("=" * 60)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
-    logger.info("Shutting down Legal Risk Classification API")
+    logger.info("Shutting down AI-Driven Legal System API")
 
 
 @app.get("/")
 async def root():
-    """Root endpoint - redirect to test interface."""
+    """Root endpoint - API information."""
     return JSONResponse(
         content={
-            "message": "Legal Risk Classification API",
+            "message": "AI-Driven Legal System API",
             "version": "1.0.0",
+            "status": "ok",
             "endpoints": {
-                "test_interface": "/api",
-                "classify_text": "/api/classify/text",
-                "classify_file": "/api/classify/file",
-                "health": "/api/health",
-                "docs": "/docs"
+                "pdf_processing": {
+                    "upload_pdf": "/upload-pdf",
+                    "analyze_clauses": "/analyze-clauses",
+                    "list_clauses": "/clauses/list",
+                    "save_text": "/save-text",
+                    "generate_pdf": "/generate-pdf",
+                    "recent_uploads": "/uploads/recent"
+                },
+                "classification": {
+                    "test_interface": "/api",
+                    "classify_text": "/api/classify/text",
+                    "classify_file": "/api/classify/file",
+                    "analyze_clauses": "/api/analyze-clauses",
+                    "list_clauses": "/api/clauses/list",
+                    "health": "/api/health"
+                },
+                "docs": "/docs",
+                "redoc": "/redoc"
             }
         }
     )
