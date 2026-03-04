@@ -88,29 +88,50 @@ class HybridClauseDetectionService:
             Dict: Enriched analysis results with decisions and metadata
         """
         
+        # Strip formatting tags before analysis — tags waste tokens and add noise
+        # Raw .txt file is preserved on disk; model always gets clean text
+        try:
+            import re
+            clean_text = re.sub(r'<<F:[^>]+>>', '', text)
+            clean_text = re.sub(r'<</F>>', '', clean_text)
+            clean_text = re.sub(r' {2,}', ' ', clean_text)
+        except Exception:
+            clean_text = text  # fallback to original if strip fails
+
         # Step 1: Run ML model
         ml_results = None
         if self.enable_ml and self.ml_service:
             try:
-                logger.info("🤖 Running ML model prediction...")
-                ml_results = self.ml_service.predict(text, max_length=max_length)
+                logger.info("\n" + "="*80)
+                logger.info("🤖 HYBRID SERVICE: Calling ML model predict()...")
+                logger.info("="*80)
+                logger.info(f"Text to be sent - Length: {len(clean_text)} chars | Words: {len(clean_text.split())} | Max tokens: {max_length}")
+                logger.info(f"Text preview (first 300 chars): {clean_text[:300]}...")
+                
+                ml_results = self.ml_service.predict(clean_text, max_length=max_length)
+                
                 if ml_results.get('success'):
-                    logger.info(f"✅ ML prediction complete: {ml_results['summary']}")
+                    logger.info("\n" + "="*80)
+                    logger.info("✅ ML PREDICTION RECEIVED IN HYBRID SERVICE")
+                    logger.info("="*80)
+                    logger.info(f"Summary from ML: {ml_results['summary']}")
+                    logger.info(f"Received {len(ml_results.get('clauses', []))} clause predictions")
+                    logger.info("="*80 + "\n")
                 else:
                     logger.warning(f"⚠️ ML prediction failed: {ml_results.get('error')}")
                     ml_results = None
             except Exception as e:
-                logger.error(f"❌ ML prediction error: {e}")
+                logger.error(f"❌ ML prediction error: {e}", exc_info=True)
                 ml_results = None
         
         # Step 2: Run regex detection (always)
         logger.info("📝 Running regex-based detection...")
-        regex_results = regex_detection(text)
+        regex_results = regex_detection(clean_text)
         logger.info(f"✅ Regex detection complete: {regex_results['statistics']}")
         
         # Step 3: Merge and compare results
         if ml_results and ml_results.get('success'):
-            hybrid_results = self._merge_predictions(ml_results, regex_results, text)
+            hybrid_results = self._merge_predictions(ml_results, regex_results, clean_text)
         else:
             # ML not available, return regex results with metadata
             hybrid_results = self._format_regex_only_results(regex_results)
@@ -154,6 +175,11 @@ class HybridClauseDetectionService:
         ml_overrides = 0
         regex_priority = 0
         
+        logger.info("\n" + "="*80)
+        logger.info("📊 MERGING ML AND REGEX PREDICTIONS")
+        logger.info("="*80)
+        logger.debug(f"ML clauses: {len(ml_clauses_map)} | Regex clauses: {len(regex_clauses_map)}")
+        
         # Process each clause (use ML's clause list as reference since it matches our 28 clauses)
         for clause_key in ml_clauses_map.keys():
             ml_clause = ml_clauses_map[clause_key]
@@ -185,6 +211,7 @@ class HybridClauseDetectionService:
                 agreements += 1
             else:
                 disagreements += 1
+                logger.debug(f"  DISAGREEMENT [{clause_key}]: ML={ml_status} (conf={ml_confidence:.3f}) vs Regex={regex_status} -> Final Decision={final_status} from {decision_source}")
                 
             if decision_source == 'ml_override':
                 ml_overrides += 1
@@ -235,6 +262,19 @@ class HybridClauseDetectionService:
         
         total_clauses = len(merged_clauses)
         agreement_rate = agreements / total_clauses if total_clauses > 0 else 0
+        
+        # Log final merge statistics
+        logger.info("\n" + "="*80)
+        logger.info("📊 MERGE STATISTICS")
+        logger.info("="*80)
+        logger.info(f"Total clauses analyzed: {total_clauses}")
+        logger.info(f"Agreements between ML and Regex: {agreements}/{total_clauses} ({agreement_rate:.1%})")
+        logger.info(f"Disagreements: {disagreements}/{total_clauses}")
+        logger.info(f"ML Model overrides (high confidence): {ml_overrides}")
+        logger.info(f"Regex priority decisions: {regex_priority}")
+        logger.info(f"\nFinal Decision - Present: {present_count}, Missing: {missing_count}, Corrupted: {corrupted_count}")
+        logger.info(f"Items requiring review: {review_count}")
+        logger.info("="*80 + "\n")
         
         # Build comprehensive result
         result = {

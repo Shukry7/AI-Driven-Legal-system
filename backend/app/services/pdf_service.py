@@ -108,9 +108,6 @@ def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
                 return False, "PDF has no pages"
             
             for page_num, page in enumerate(pdf.pages, start=1):
-                # Add page marker for reference
-                text_parts.append(f"\n--- Page {page_num} ---\n")
-                
                 # Extract with character-level info to detect bold text
                 try:
                     chars = page.chars

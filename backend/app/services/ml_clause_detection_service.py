@@ -13,6 +13,9 @@ import os
 from typing import Dict, List
 from pathlib import Path
 from transformers import AutoModel, AutoTokenizer
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 # ============================================================================
@@ -105,18 +108,18 @@ class MLClauseDetectionService:
     def load_checkpoint(self):
         """Load the model checkpoint."""
         if not os.path.exists(self.checkpoint_path):
-            print(f"⚠️ Checkpoint not found at: {self.checkpoint_path}")
+            logger.warning(f"Checkpoint not found at: {self.checkpoint_path}")
             return False
         
         try:
-            print(f"📦 Loading checkpoint from: {self.checkpoint_path}")
+            logger.info(f"Loading checkpoint from: {self.checkpoint_path}")
             checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
             
             # Extract config
             self.config = checkpoint.get('config', {'DROPOUT': 0.3, 'NUM_DROPOUT_SAMPLES': 5})
             
             # Build model
-            print(f"🏗️  Building model...")
+            logger.info(f"Building model with config: {self.config}")
             dropout = self.config.get('DROPOUT', 0.3)
             num_dropout_samples = self.config.get('NUM_DROPOUT_SAMPLES', 5)
             
@@ -138,11 +141,11 @@ class MLClauseDetectionService:
             # Load tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             
-            print(f"✅ Model loaded successfully on {self.device}")
+            logger.info(f"Model loaded successfully on {self.device} (model_name={self.model_name})")
             return True
             
         except Exception as e:
-            print(f"❌ Failed to load checkpoint: {e}")
+            logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
             return False
     
     def predict(self, text: str, max_length: int = 512) -> Dict:
@@ -157,11 +160,22 @@ class MLClauseDetectionService:
             Dict: Predictions for each clause
         """
         if self.model is None or self.tokenizer is None:
+            logger.error("Model not loaded - cannot run predictions")
             return {"error": "Model not loaded"}
         
         try:
+            # Log input text info
+            text_preview = text[:500] if len(text) > 500 else text
+            logger.info(f"\n{'='*80}")
+            logger.info(f"📤 SENDING TO ML MODEL (predict)")
+            logger.info(f"{'='*80}")
+            logger.info(f"Text length: {len(text)} chars | Word count: {len(text.split())}")
+            logger.info(f"Max token length: {max_length}")
+            logger.info(f"\nText preview (first 500 chars):\n{text_preview}...")
+            
             with torch.no_grad():
                 # Tokenize
+                logger.debug(f"Tokenizing text with max_length={max_length}...")
                 encoding = self.tokenizer(
                     text,
                     max_length=max_length,
@@ -173,8 +187,16 @@ class MLClauseDetectionService:
                 input_ids = encoding['input_ids'].to(self.device)
                 attention_mask = encoding['attention_mask'].to(self.device)
                 
+                # Log tokenization details
+                num_tokens = input_ids.shape[1]
+                num_actual_tokens = attention_mask.sum().item()
+                logger.info(f"Tokenization complete: {num_actual_tokens} actual tokens out of {num_tokens} padded tokens")
+                logger.debug(f"Input shape: {input_ids.shape} | Device: {self.device}")
+                
                 # Inference
+                logger.info(f"Running model inference...")
                 logits = self.model(input_ids, attention_mask, use_multi_dropout=False)
+                logger.debug(f"Raw logits shape: {logits.shape}")
                 
                 # Extract predictions
                 predictions = logits.argmax(dim=-1)
@@ -184,6 +206,11 @@ class MLClauseDetectionService:
                 # Format results
                 clause_results = []
                 batch_idx = 0
+                
+                # Log detailed predictions
+                logger.info(f"\n{'='*80}")
+                logger.info(f"📥 RECEIVED FROM ML MODEL (predictions)")
+                logger.info(f"{'='*80}")
                 
                 for clause_idx, clause_name in enumerate(CLAUSES):
                     pred_label = predictions[batch_idx, clause_idx].item()
@@ -202,6 +229,14 @@ class MLClauseDetectionService:
                             'corrupted': float(class_probs[2])
                         }
                     })
+                    
+                    # Log high confidence predictions
+                    if confidence >= 0.8:
+                        logger.info(f"  [{clause_name}] = {prediction} (confidence: {confidence:.3f}) ✓ HIGH CONFIDENCE")
+                    elif confidence >= 0.6:
+                        logger.info(f"  [{clause_name}] = {prediction} (confidence: {confidence:.3f})")
+                    else:
+                        logger.info(f"  [{clause_name}] = {prediction} (confidence: {confidence:.3f}) ⚠️ LOW CONFIDENCE")
                 
                 # Calculate summary
                 summary = {
@@ -209,6 +244,9 @@ class MLClauseDetectionService:
                     'missing': sum(1 for c in clause_results if c['status'] == 'Missing'),
                     'corrupted': sum(1 for c in clause_results if c['status'] == 'Corrupted')
                 }
+                
+                logger.info(f"\n📊 Summary: Present={summary['present']}, Missing={summary['missing']}, Corrupted={summary['corrupted']}")
+                logger.info(f"{'='*80}\n")
                 
                 return {
                     'success': True,
@@ -219,6 +257,7 @@ class MLClauseDetectionService:
                 }
                 
         except Exception as e:
+            logger.error(f"ML prediction error: {e}", exc_info=True)
             return {
                 'success': False,
                 'error': str(e),
@@ -325,6 +364,12 @@ if __name__ == '__main__':
     print("ML CLAUSE DETECTION SERVICE - INTEGRATION TEST")
     print("="*80 + "\n")
     
+    # Configure logging for test
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+    
     # Test with sample text
     sample_text = """
     HIGH COURT OF DELHI
@@ -356,12 +401,13 @@ if __name__ == '__main__':
     
     result = analyze_document_with_model(sample_text)
     
-    print("📊 ANALYSIS RESULTS:")
-    print(json.dumps({
+    logger = logging.getLogger(__name__)
+    logger.info("📊 ANALYSIS RESULTS:")
+    logger.info(json.dumps({
         'success': result.get('success'),
         'analysis_method': result.get('analysis_method'),
         'statistics': result.get('statistics'),
         'text_length': result.get('text_length')
     }, indent=2))
     
-    print("\n✅ Test complete!")
+    logger.info("✅ Test complete!")

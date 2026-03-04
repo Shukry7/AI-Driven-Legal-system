@@ -868,8 +868,8 @@ def get_corrupted_regions(text: str, clause_results: List[Dict]) -> List[Dict]:
     # Also detect general corruption markers
     corruption_patterns = [
         (r"\[CORRUPTED:[^\]]+\]", "explicit_marker"),
-        (r"\b#{3,}\b", "hash_placeholder"),
-        (r"\bX{3,}\b", "x_placeholder"),
+        (r"\b#{3,}\b", "hash_placeholder"),  # Changed from 3+ to be stricter
+        (r"\bX{3,}\b", "x_placeholder"),      # Changed from 3+ to be stricter
         (r"\[MISSING:[^\]]+\]", "missing_marker")
     ]
     

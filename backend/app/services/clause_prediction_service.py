@@ -754,6 +754,21 @@ JSON Output:"""
         logger.info(f"Making OpenAI API call with model: {OPENAI_MODEL}")
         logger.info(f"Requesting suggestions for {len(missing_clauses)} clauses")
         
+        # Log the full request being sent to OpenAI
+        logger.info("\n" + "="*80)
+        logger.info("📤 SENDING TO OPENAI LLM")
+        logger.info("="*80)
+        logger.info(f"Model: {OPENAI_MODEL}")
+        logger.info(f"Temperature: 0.3")
+        logger.info(f"Max Tokens: 4000")
+        logger.info(f"Number of clauses: {len(missing_clauses)}")
+        logger.info(f"\nClauses requested: {[mc['clause_key'] for mc in missing_clauses]}")
+        logger.info(f"\n--- FULL PROMPT SENT TO LLM ---")
+        logger.info(f"System message: You are a legal AI specializing in Sri Lankan Supreme Court judgment structure...")
+        logger.info(f"\nUser prompt (length: {len(batch_prompt)} chars):")
+        logger.info(f"\n{batch_prompt}")
+        logger.info("="*80 + "\n")
+        
         response = await client.chat.completions.create(
             model=OPENAI_MODEL,
             messages=[
@@ -772,6 +787,22 @@ JSON Output:"""
         )
 
         response_text = response.choices[0].message.content.strip()
+        
+        # Log the full response received from OpenAI
+        logger.info("\n" + "="*80)
+        logger.info("📥 RECEIVED FROM OPENAI LLM")
+        logger.info("="*80)
+        logger.info(f"Response ID: {response.id}")
+        logger.info(f"Model used: {response.model}")
+        logger.info(f"Finish reason: {response.choices[0].finish_reason}")
+        logger.info(f"Usage - Prompt tokens: {response.usage.prompt_tokens}")
+        logger.info(f"Usage - Completion tokens: {response.usage.completion_tokens}")
+        logger.info(f"Usage - Total tokens: {response.usage.total_tokens}")
+        logger.info(f"\n--- FULL RESPONSE FROM LLM ---")
+        logger.info(f"Response length: {len(response_text)} chars")
+        logger.info(f"\n{response_text}")
+        logger.info("="*80 + "\n")
+        
         suggestions = json.loads(response_text)
         logger.info(f"✅ LLM returned suggestions for {len(suggestions)} clauses")
         return suggestions
