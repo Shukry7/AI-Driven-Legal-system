@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -9,21 +9,35 @@ import { Textarea } from '@/components/ui/textarea';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
+import { ScrollArea } from '@/components/ui/scroll-area';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
+import api from '@/config/api';
+import { predictClauses, getPredictionConfig, acceptSuggestion, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
 
 interface ClauseWorkspaceProps {
   file: File;
   onComplete: (results: AnalysisResults) => void;
   onCancel: () => void;
+  // Optional original document text provided by backend preview
+  originalDocument?: string;
 }
 
 interface AnalysisResults {
   totalClauses: number;
   validClauses: number;
+  presentClauses: number; // New: clauses that are present and valid
   missingClauses: MissingClause[];
   corruptedClauses: CorruptedClause[];
   originalDocument?: string;
   modifiedDocument?: string;
+  statistics?: {
+    total_clauses: number;
+    present: number;
+    missing: number;
+    corrupted: number;
+    completion_percentage: number;
+  };
 }
 
 interface MissingClause {
@@ -68,8 +82,8 @@ interface ProcessStep {
   icon: string;
 }
 
-export function ClauseWorkspace({ file, onComplete, onCancel }: ClauseWorkspaceProps) {
-  const documentText = `IN THE SUPREME COURT OF THE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA
+export function ClauseWorkspace({ file, onComplete, onCancel, originalDocument }: ClauseWorkspaceProps) {
+  const defaultDocumentText = `IN THE SUPREME COURT OF THE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA
 
 In the matter of an application for Leave to Appeal under and in terms of Section 5C (1) of the High Court of the Provinces (Special Provisions) Act No.19 of 1990 as amended by Act, No. 54 of 2006
 
@@ -203,18 +217,37 @@ I agree.
 Judge: [MISSING: Third Judge Signature - Signature required]
   `;
 
+  // Use provided `originalDocument` if available, otherwise fall back to sample
+  const [documentText, setDocumentText] = useState<string>(originalDocument ?? defaultDocumentText);
+
   const [analyzing, setAnalyzing] = useState(false);
   const [analysisComplete, setAnalysisComplete] = useState(false);
+  const [analysisRunning, setAnalysisRunning] = useState(false);
   const [progress, setProgress] = useState(0);
   const [zoom, setZoom] = useState(100);
   const [selectedIssue, setSelectedIssue] = useState<{ type: string; data: any } | null>(null);
   const [results, setResults] = useState<AnalysisResults | null>(null);
+  const [corruptedMatches, setCorruptedMatches] = useState<string[]>([]);
+  const [corruptedRegions, setCorruptedRegions] = useState<Array<{clause_name: string, text: string, start: number, end: number}>>([]);
   const [editingClauseId, setEditingClauseId] = useState<number | null>(null);
   const [editedText, setEditedText] = useState('');
   const [activePopover, setActivePopover] = useState<string | null>(null);
   const [modifiedDocumentText, setModifiedDocumentText] = useState(documentText);
+  const [savedTextFilename, setSavedTextFilename] = useState<string | null>(null);
+  const [isEditingDocument, setIsEditingDocument] = useState(false);
   const [viewMode, setViewMode] = useState<'review' | 'comparison'>('review');
   const [manualInputValues, setManualInputValues] = useState<Record<number, string>>({});
+  const [showClauseDetailsDialog, setShowClauseDetailsDialog] = useState(false);
+
+  // ─── AI Prediction State ─────────────────────────────────────────
+  const [predictionConfig, setPredictionConfig] = useState<PredictionConfig | null>(null);
+  const [predictions, setPredictions] = useState<PredictionResult | null>(null);
+  const [predictionsLoading, setPredictionsLoading] = useState(false);
+  const [predictionsError, setPredictionsError] = useState<string | null>(null);
+  const [suggestionStatuses, setSuggestionStatuses] = useState<Record<string, 'pending' | 'accepted' | 'edited' | 'rejected'>>({});
+  const [editingSuggestionKey, setEditingSuggestionKey] = useState<string | null>(null);
+  const [editedSuggestionText, setEditedSuggestionText] = useState('');
+  const [showPredictionsPanel, setShowPredictionsPanel] = useState(true);
 
   const steps: ProcessStep[] = [
     { id: 1, name: 'Extracting text', status: 'pending', icon: '📄' },
@@ -226,9 +259,38 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   const [processSteps, setProcessSteps] = useState(steps);
 
+  // Helper function to strip formatting markers for display
+  const stripFormattingMarkers = (text: string): string => {
+    // Remove format markers like <<F:size=14,bold=1>>...<</F>>
+    return text
+      .replace(/<<F:[^>]+>>/g, '')
+      .replace(/<<\/F>>/g, '')
+      // Also remove old-style bold markers for backward compatibility
+      .replace(/<<BOLD>>/g, '')
+      .replace(/<<\/BOLD>>/g, '');
+  };
+
+  const updateStepStatus = (stepId: number, status: 'pending' | 'processing' | 'complete') => {
+    setProcessSteps(prev => prev.map(s => s.id === stepId ? { ...s, status } : s));
+  };
+  // store active timeouts so we can clear them on new analysis/run
+  const timeoutsRef = (globalThis as any).__clause_timeouts__ || { ids: [] };
+  (globalThis as any).__clause_timeouts__ = timeoutsRef;
+  const clearScheduledTimeouts = () => {
+    try {
+      timeoutsRef.ids.forEach((id: number) => clearTimeout(id));
+    } catch {}
+    timeoutsRef.ids = [];
+  };
+
+  const resetProcessSteps = () => {
+    setProcessSteps(steps.map(s => ({ ...s, status: 'pending' })));
+  };
+
   const mockResults: AnalysisResults = {
     totalClauses: 18,
     validClauses: 13,
+    presentClauses: 13,
     missingClauses: supremeCourtMissingClauses as any,
     corruptedClauses: [
       {
@@ -258,27 +320,439 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     ]
   };
 
-  useEffect(() => {
-    startAnalysis();
-  }, []);
+  // Analysis will run only when the user explicitly starts it via the UI
 
   const startAnalysis = async () => {
     setAnalyzing(true);
     setAnalysisComplete(false);
+    setProgress(5);
+    // reset UI step state and clear previous timers
+    clearScheduledTimeouts();
+    resetProcessSteps();
+    setAnalysisRunning(true);
 
-    for (let i = 0; i < steps.length; i++) {
-      await new Promise(resolve => setTimeout(resolve, 1200));
-      setProcessSteps(prev => prev.map((step, idx) => ({
-        ...step,
-        status: idx < i + 1 ? 'complete' : idx === i + 1 ? 'processing' : 'pending'
-      })));
-      setProgress(((i + 1) / steps.length) * 100);
+    try {
+      // mark extracting text as started
+      updateStepStatus(1, 'processing');
+      setProgress(8);
+
+      const resp = await api.analyzeClauses(file, (p: number) => setProgress(Math.max(8, Math.round(p * 0.9))));
+      // Expect backend response shape: { success, full_text, clause_analysis }
+      if (resp && resp.success) {
+        // Extraction finished
+        updateStepStatus(1, 'complete');
+        // Begin clause identification
+        updateStepStatus(2, 'processing');
+        setProgress(60);
+        const analysis = resp.clause_analysis || {};
+        const stats = analysis.statistics || {};
+
+        // Map backend clause list into UI's expected missing/corrupted arrays
+        const clauses = Array.isArray(analysis.clauses) ? analysis.clauses : [];
+        const missingClauses = clauses
+          .map((c: any, idx: number) => ({
+            id: idx + 1,
+            name: c.clause_name,
+            severity: 'medium',
+            description: c.content || '',
+            expectedLocation: '',
+            suggestion: c.llm_suggestion || '',
+            predictedText: c.content || '',
+            confidence: c.confidence || undefined,
+            rationale: undefined,
+            alternatives: [],
+            jurisdiction: undefined,
+            status: c.status === 'Missing' ? undefined : c.status === 'Present' ? 'accepted' : undefined,
+            isPredictable: true
+          }))
+          .filter((c: any) => !c.status || c.status !== 'accepted');
+
+        const corruptedClauses = clauses
+          .map((c: any, idx: number) => ({
+            id: idx + 1,
+            name: c.clause_name,
+            issue: c.status === 'Corrupt' ? 'Detected as corrupt' : '',
+            section: c.clause_name,
+            suggestion: c.llm_suggestion || '',
+            predictedText: c.content || '',
+            status: c.status === 'Corrupt' ? undefined : 'accepted',
+            isPredictable: false,
+            requiresManualInput: c.status === 'Corrupt'
+          }))
+          .filter((c: any) => c.requiresManualInput);
+
+        const mappedResults = {
+          totalClauses: stats.total_clauses || clauses.length,
+          validClauses: stats.present || 0,
+          presentClauses: stats.present || 0,
+          missingClauses,
+          corruptedClauses,
+          originalDocument: resp.full_text || documentText,
+          modifiedDocument: resp.full_text || documentText,
+          statistics: stats,
+          __raw_response__: resp // Store raw response for detailed clause access
+        };
+
+        // Save the server-side saved text filename (if provided) so edits can be persisted
+        const savedPath = resp.saved_text_path || resp.full_text_path || resp.full_text_path || '';
+        const filenameOnly = typeof savedPath === 'string' && savedPath ? savedPath.split(/[/\\]/).pop() : null;
+        if (filenameOnly) setSavedTextFilename(filenameOnly);
+
+        setDocumentText(resp.full_text || documentText);
+        setModifiedDocumentText(resp.full_text || documentText);
+        setResults(mappedResults as any);
+        
+        // Set corrupted regions from backend for highlighting
+        if (resp && resp.clause_analysis && Array.isArray(resp.clause_analysis.corrupted_regions)) {
+          setCorruptedRegions(resp.clause_analysis.corrupted_regions);
+        } else {
+          setCorruptedRegions([]);
+        }
+        
+        // set corrupted matches from backend if provided (legacy support)
+        if (resp && Array.isArray(resp.corruptions)) {
+          setCorruptedMatches(resp.corruptions.map((c: any) => c.match));
+        } else {
+          setCorruptedMatches([]);
+        }
+
+        // Stage the remaining steps over ~10 seconds so the progress animation looks smooth
+        // timings: ~2.5s, ~5s, ~7.5s, ~10s from now
+        // schedule staged updates and keep references
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(2, 'complete');
+          updateStepStatus(3, 'processing');
+          setProgress(70);
+        }, 2500) as unknown as number);
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(3, 'complete');
+          updateStepStatus(4, 'processing');
+          setProgress(85);
+        }, 5000) as unknown as number);
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(4, 'complete');
+          updateStepStatus(5, 'processing');
+          setProgress(95);
+        }, 7500) as unknown as number);
+        timeoutsRef.ids.push(setTimeout(() => {
+          updateStepStatus(5, 'complete');
+          setProgress(100);
+          setAnalysisComplete(true);
+          setAnalysisRunning(false);
+          setAnalyzing(false);
+          // clear refs
+          timeoutsRef.ids = [];
+
+          // Auto-mode: if predictions came with the response, load them
+          if (resp.predictions && resp.prediction_mode === 'auto') {
+            setPredictions(resp.predictions);
+            // init statuses
+            const statuses: Record<string, 'pending'> = {};
+            if (resp.predictions.suggestions) {
+              Object.keys(resp.predictions.suggestions).forEach(k => { statuses[k] = 'pending'; });
+            }
+            setSuggestionStatuses(statuses);
+            setShowPredictionsPanel(true);
+          }
+        }, 10000) as unknown as number);
+      } else {
+        console.error('analyzeClauses failed', resp);
+      }
+    } catch (err) {
+      console.error('Analysis error', err);
+      clearScheduledTimeouts();
+      setAnalysisRunning(false);
+      setAnalyzing(false);
     }
-
-    setAnalyzing(false);
-    setAnalysisComplete(true);
-    setResults(mockResults);
   };
+
+  // ─── Fetch prediction config on mount ────────────────────────────────────
+  useEffect(() => {
+    getPredictionConfig()
+      .then(cfg => setPredictionConfig(cfg))
+      .catch(err => console.warn('Failed to fetch prediction config:', err));
+  }, []);
+
+  // ─── AI Prediction Handlers ──────────────────────────────────────────────
+  const handleGetAISuggestions = async (forceRefresh: boolean = false) => {
+    if (!savedTextFilename) {
+      setPredictionsError('No saved text file available. Please run analysis first.');
+      return;
+    }
+    setPredictionsLoading(true);
+    setPredictionsError(null);
+    try {
+      const result = await predictClauses(savedTextFilename, forceRefresh);
+      setPredictions(result);
+      // Initialize statuses
+      const statuses: Record<string, 'pending'> = {};
+      if (result.suggestions) {
+        Object.keys(result.suggestions).forEach(k => { statuses[k] = 'pending'; });
+      }
+      setSuggestionStatuses(statuses);
+      setShowPredictionsPanel(true);
+    } catch (err: any) {
+      console.error('Prediction error:', err);
+      setPredictionsError(err.message || 'Failed to get AI suggestions');
+    } finally {
+      setPredictionsLoading(false);
+    }
+  };
+
+  const handleAcceptSuggestion = async (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (!suggestion || !savedTextFilename) return;
+
+    try {
+      // Save the decision to backend
+      await acceptSuggestion({
+        filename: savedTextFilename,
+        clause_key: clauseKey,
+        suggestion_text: suggestion.suggestion,
+        status: 'accepted',
+        confidence: suggestion.confidence,
+      });
+      
+      // Insert suggestion into document preview immediately
+      const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, suggestion.suggestion);
+      const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
+      const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
+      setModifiedDocumentText(updatedDoc);
+      
+      // Update local state
+      setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'accepted' }));
+    } catch (err: any) {
+      console.error('Error accepting suggestion:', err);
+      alert('Failed to accept suggestion: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleRejectSuggestion = async (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (!suggestion || !savedTextFilename) return;
+
+    try {
+      // Save the decision to backend
+      await acceptSuggestion({
+        filename: savedTextFilename,
+        clause_key: clauseKey,
+        suggestion_text: suggestion.suggestion,
+        status: 'rejected',
+        confidence: suggestion.confidence,
+      });
+      
+      // Update local state
+      setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'rejected' }));
+    } catch (err: any) {
+      console.error('Error rejecting suggestion:', err);
+      alert('Failed to reject suggestion: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleEditSuggestion = (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (suggestion) {
+      setEditingSuggestionKey(clauseKey);
+      setEditedSuggestionText(suggestion.suggestion);
+    }
+  };
+
+  const handleSaveSuggestionEdit = async (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (!suggestion || !savedTextFilename) return;
+
+    try {
+      // Save the edited version to backend
+      await acceptSuggestion({
+        filename: savedTextFilename,
+        clause_key: clauseKey,
+        suggestion_text: suggestion.suggestion,
+        status: 'edited',
+        confidence: suggestion.confidence,
+        edited_text: editedSuggestionText,
+      });
+
+      // Insert edited suggestion into document preview immediately
+      const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, editedSuggestionText);
+      const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
+      const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
+      setModifiedDocumentText(updatedDoc);
+
+      // Update the suggestion text in predictions
+      setPredictions(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          suggestions: {
+            ...prev.suggestions,
+            [clauseKey]: {
+              ...prev.suggestions[clauseKey],
+              suggestion: editedSuggestionText,
+            }
+          }
+        };
+      });
+      setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'edited' }));
+      setEditingSuggestionKey(null);
+      setEditedSuggestionText('');
+    } catch (err: any) {
+      console.error('Error saving edited suggestion:', err);
+      alert('Failed to save edited suggestion: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleCancelSuggestionEdit = () => {
+    setEditingSuggestionKey(null);
+    setEditedSuggestionText('');
+  };
+
+  const getPredictionStats = () => {
+    const total = Object.keys(suggestionStatuses).length;
+    const accepted = Object.values(suggestionStatuses).filter(s => s === 'accepted').length;
+    const rejected = Object.values(suggestionStatuses).filter(s => s === 'rejected').length;
+    const edited = Object.values(suggestionStatuses).filter(s => s === 'edited').length;
+    const pending = Object.values(suggestionStatuses).filter(s => s === 'pending').length;
+    return { total, accepted, rejected, edited, pending };
+  };
+
+  // Helper function to format clause text for insertion
+  const formatClauseForInsertion = (clauseKey: string, clauseName: string, text: string): string => {
+    // Header clauses - insert with emphasis
+    if (['case_number', 'case_title', 'court_name'].includes(clauseKey)) {
+      return `\n${'='.repeat(60)}\n${clauseName.toUpperCase()}\n${'='.repeat(60)}\n${text}\n\n`;
+    }
+    // Judge info - labeled format
+    if (['judge_names', 'judge_bench'].includes(clauseKey)) {
+      return `\n${clauseName}: ${text}\n\n`;
+    }
+    // Parties - section format
+    if (['petitioner_name', 'respondent_name'].includes(clauseKey)) {
+      return `\n\n${clauseName.toUpperCase()}:\n${text}\n`;
+    }
+    // Counsel - section format
+    if (clauseKey === 'legal_representatives') {
+      return `\n\nCOUNSEL:\n${text}\n`;
+    }
+    // Subject - descriptive format
+    if (clauseKey === 'subject_matter') {
+      return `\n\nSUBJECT MATTER:\n${text}\n\n`;
+    }
+    // Dates - simple format
+    if (['date_of_order', 'hearing_dates'].includes(clauseKey)) {
+      return `\n${clauseName}: ${text}\n`;
+    }
+    // Citations - list format
+    if (clauseKey === 'referred_cases') {
+      return `\n\nCASES REFERRED:\n${text}\n\n`;
+    }
+    // Default format
+    return `\n\n${clauseName}:\n${text}\n\n`;
+  };
+
+  // Helper function to find insertion position for a clause
+  const findClauseInsertionPosition = (text: string, clauseKey: string): number => {
+    // Header clauses go at the very beginning
+    if (['case_number', 'case_title', 'court_name', 'judge_names', 'judge_bench'].includes(clauseKey)) {
+      return 0;
+    }
+    
+    // Dates go near the beginning, after case info
+    if (['date_of_order', 'hearing_dates'].includes(clauseKey)) {
+      const caseMatch = text.search(/Case\s+(?:No\.|Number)|Criminal\s+Appeal|Civil\s+Appeal|Writ\s+Petition/i);
+      if (caseMatch !== -1) {
+        const lineEnd = text.indexOf('\n', caseMatch);
+        return lineEnd !== -1 ? lineEnd + 1 : caseMatch;
+      }
+      return 0;
+    }
+    
+    // Petitioner name - look for PETITIONER section or insert after case header
+    if (clauseKey === 'petitioner_name') {
+      const petitionerMatch = text.search(/\n\s*PETITIONER[S]?\s*[:|\n]/i);
+      if (petitionerMatch !== -1) {
+        const lineEnd = text.indexOf('\n', petitionerMatch + 1);
+        return lineEnd !== -1 ? lineEnd + 1 : petitionerMatch;
+      }
+      // Insert after first major header or dates
+      const headerEnd = text.search(/={10,}\n/);
+      if (headerEnd !== -1) {
+        const nextLinebreak = text.indexOf('\n', headerEnd + 1);
+        return nextLinebreak !== -1 ? nextLinebreak + 1 : headerEnd;
+      }
+      return Math.min(300, text.length); // Early in document
+    }
+    
+    // Respondent name - look for RESPONDENT section or insert after petitioner
+    if (clauseKey === 'respondent_name') {
+      const respondentMatch = text.search(/\n\s*RESPONDENT[S]?\s*[:|\n]/i);
+      if (respondentMatch !== -1) {
+        const lineEnd = text.indexOf('\n', respondentMatch + 1);
+        return lineEnd !== -1 ? lineEnd + 1 : respondentMatch;
+      }
+      // Look for petitioner section to insert after it
+      const petitionerMatch = text.search(/\n\s*PETITIONER[S]?\s*[:|\n]/i);
+      if (petitionerMatch !== -1) {
+        // Find end of petitioner section (next empty line or next section)
+        let searchPos = petitionerMatch + 10;
+        const nextSection = text.substring(searchPos).search(/\n\s*[A-Z]{4,}/);
+        if (nextSection !== -1) {
+          return searchPos + nextSection;
+        }
+      }
+      return Math.min(400, text.length); // After petitioner area
+    }
+    
+    // Legal representatives - insert after parties section
+    if (clauseKey === 'legal_representatives') {
+      // Look for existing counsel/advocate section
+      const counselMatch = text.search(/\n\s*(Counsel|Advocate|Attorney|For\s+the\s+Petitioner)/i);
+      if (counselMatch !== -1) {
+        return counselMatch;
+      }
+      // Look for respondent section to insert after
+      const respondentMatch = text.search(/\n\s*RESPONDENT[S]?\s*[:|\n]/i);
+      if (respondentMatch !== -1) {
+        // Find 5 lines after respondent
+        let pos = respondentMatch;
+        for (let i = 0; i < 5; i++) {
+          const nextLine = text.indexOf('\n', pos + 1);
+          if (nextLine === -1) break;
+          pos = nextLine;
+        }
+        return pos;
+      }
+      return Math.min(500, text.length); // After parties
+    }
+    
+    // Subject matter - insert before main judgment/order text
+    if (clauseKey === 'subject_matter') {
+      // Look for ORDER or JUDGMENT keyword
+      const judgmentMatch = text.search(/\n\s*(ORDER|JUDGMENT|DECISION)\s*[:|\n]/i);
+      if (judgmentMatch !== -1) {
+        return judgmentMatch;
+      }
+      // Otherwise insert around 20% into document
+      return Math.floor(text.length * 0.2);
+    }
+    
+    // Referred cases - insert in legal analysis section (middle of document)
+    if (clauseKey === 'referred_cases') {
+      // Look for existing citations
+      const citationMatch = text.search(/(AIR|SCC|\d{4}\s+\(\d+\)|referred to|relied upon|cited)/i);
+      if (citationMatch !== -1) {
+        // Find start of that paragraph
+        const paragraphStart = text.lastIndexOf('\n\n', citationMatch);
+        return paragraphStart !== -1 ? paragraphStart + 2 : citationMatch;
+      }
+      // Insert in middle of document
+      return Math.floor(text.length * 0.5);
+    }
+    
+    // Default: insert early in document but after header
+    return Math.min(200, text.length);
+  };
+
+
 
   const handleAcceptClause = (type: 'missing' | 'corrupted', id: number) => {
     if (!results) return;
@@ -393,6 +867,41 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     setActivePopover(null);
   };
 
+  const handleStartDocumentEdit = () => {
+    setIsEditingDocument(true);
+    setActivePopover(null);
+  };
+
+  const handleCancelDocumentEdit = () => {
+    setIsEditingDocument(false);
+    setModifiedDocumentText(documentText);
+  };
+
+  const handleDoneDocumentEdit = async () => {
+    if (!savedTextFilename) {
+      console.error('No saved filename available to update on server');
+      setIsEditingDocument(false);
+      return;
+    }
+
+    try {
+      setAnalyzing(true);
+      setProgress(75);
+      const resp = await api.saveTextFile(savedTextFilename, modifiedDocumentText);
+      if (resp && resp.success) {
+        setDocumentText(modifiedDocumentText);
+        setIsEditingDocument(false);
+        setProgress(100);
+      } else {
+        console.error('saveTextFile failed', resp);
+      }
+    } catch (err) {
+      console.error('save text error', err);
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
   const handleUseAlternative = (clauseId: number, altText: string) => {
     setEditingClauseId(clauseId);
     setEditedText(altText);
@@ -434,11 +943,28 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   };
 
   const renderDocumentWithHighlights = () => {
-    const lines = documentText.trim().split('\n');
+    // Strip formatting markers for display (but keep them in the actual data)
+    const displayText = stripFormattingMarkers(documentText);
+    const lines = displayText.trim().split('\n');
+    let charOffset = 0;
 
     return lines.map((line, idx) => {
+      const lineStart = charOffset;
+      const lineEnd = charOffset + line.length;
+      charOffset = lineEnd + 1; // +1 for newline
+
       const isCorrupted = line.includes('[CORRUPTED:');
       const isMissing = line.includes('[MISSING:');
+
+      // Check if any corrupted region from backend falls within this line
+      const lineCorruptedRegions = corruptedRegions.filter(region => 
+        (region.start >= lineStart && region.start < lineEnd) ||
+        (region.end > lineStart && region.end <= lineEnd) ||
+        (region.start < lineStart && region.end > lineEnd)
+      );
+
+      // If backend detected corruption matches (heuristics), check those too (legacy)
+      const heuristicMatch = corruptedMatches.find(m => m && line.includes(m));
 
       if (isCorrupted) {
         const match = line.match(/\[CORRUPTED: ([^\]]+)\]/);
@@ -453,12 +979,13 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         ) || results?.corruptedClauses[0];
 
         return (
-          <div key={idx} className="py-1 hover:bg-warning/5 transition-colors">
+          <div key={idx} className="hover:bg-warning/5 transition-colors">
             {beforeText}
             <Popover open={activePopover === `corrupted-${clause?.id}`} onOpenChange={(open) => setActivePopover(open ? `corrupted-${clause?.id}` : null)}>
               <PopoverTrigger asChild>
                 <span
                   className="relative inline-block bg-warning text-warning-foreground px-2 py-0.5 rounded cursor-pointer hover:bg-warning/80 transition-all duration-200"
+                  title={`Corrupted: ${corruptedText}`}
                 >
                   {corruptedText}
                   <span className="absolute -top-1 -right-1 flex h-3 w-3">
@@ -516,7 +1043,55 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         );
       }
 
-      return <div key={idx} className="py-1">{line || '\u00A0'}</div>;
+      // Highlight corrupted regions detected by backend regex patterns
+      if (lineCorruptedRegions.length > 0) {
+        let highlightedLine = line;
+        const sortedRegions = [...lineCorruptedRegions].sort((a, b) => b.start - a.start); // Sort descending to replace from end
+        
+        for (const region of sortedRegions) {
+          const relativeStart = Math.max(0, region.start - lineStart);
+          const relativeEnd = Math.min(line.length, region.end - lineStart);
+          
+          if (relativeStart < relativeEnd && relativeStart >= 0 && relativeEnd <= line.length) {
+            const beforeRegion = highlightedLine.substring(0, relativeStart);
+            const corruptedPart = highlightedLine.substring(relativeStart, relativeEnd);
+            const afterRegion = highlightedLine.substring(relativeEnd);
+            
+            return (
+              <div key={idx} className="hover:bg-warning/5 transition-colors">
+                {beforeRegion}
+                <span 
+                  className="relative inline-block bg-warning/70 text-warning-foreground px-1 py-0.5 rounded cursor-help border border-warning"
+                  title={`Corrupted: ${region.clause_name}`}
+                >
+                  {corruptedPart}
+                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                    <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
+                  </span>
+                </span>
+                {afterRegion}
+              </div>
+            );
+          }
+        }
+      }
+
+      // Highlight heuristic-detected corrupted fragment (legacy support)
+      if (heuristicMatch) {
+        const beforeText = line.substring(0, line.indexOf(heuristicMatch));
+        const afterText = line.substring(line.indexOf(heuristicMatch) + heuristicMatch.length);
+        return (
+          <div key={idx} className="hover:bg-warning/5 transition-colors">
+            {beforeText}
+            <span className="relative inline-block bg-warning/60 text-warning-foreground px-2 py-0.5 rounded cursor-help border border-warning/50" title="Corruption detected by heuristics">
+              {heuristicMatch}
+            </span>
+            {afterText}
+          </div>
+        );
+      }
+
+      return <div key={idx} style={{ whiteSpace: 'pre', wordWrap: 'break-word' }}>{line || '\u00A0'}</div>;
     });
   };
 
@@ -742,21 +1317,156 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     }
   };
 
-  const handleDownloadDocument = () => {
-    const blob = new Blob([modifiedDocumentText], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `${file.name.replace(/\.[^/.]+$/, '')}_completed.txt`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+  const handleDownloadDocument = async () => {
+    try {
+      const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
+      
+      // Call backend to generate PDF
+      const response = await fetch(`${API_BASE}/generate-pdf`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          text: modifiedDocumentText,
+          filename: `${file.name.replace(/\.[^/.]+$/, '')}_completed.pdf`
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to generate PDF');
+      }
+
+      // Get the PDF blob
+      const blob = await response.blob();
+      
+      // Create download link and trigger download
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${file.name.replace(/\.[^/.]+$/, '')}_completed.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error('Error generating PDF:', error);
+      alert('Failed to generate PDF. Please try again.');
+    }
+  };
+
+  // Helper function to get organized clause lists from backend response
+  const getOrganizedClauses = () => {
+    if (!results) return { present: [], missing: [], corrupted: [] };
+    
+    // Get clauses from the actual analysis response if available
+    const resp = (results as any).__raw_response__;
+    if (resp && resp.clause_analysis && Array.isArray(resp.clause_analysis.clauses)) {
+      const clauses = resp.clause_analysis.clauses;
+      return {
+        present: clauses.filter((c: any) => c.status === 'Present').map((c: any) => c.clause_name),
+        missing: clauses.filter((c: any) => c.status === 'Missing').map((c: any) => c.clause_name),
+        corrupted: clauses.filter((c: any) => c.status === 'Corrupted').map((c: any) => c.clause_name)
+      };
+    }
+    
+    // Fallback: use the processed missing/corrupted arrays
+    return {
+      present: [], // Can be calculated: total - missing - corrupted
+      missing: results.missingClauses.map((c: any) => c.name),
+      corrupted: results.corruptedClauses.map((c: any) => c.name)
+    };
+  };
+
+  const renderClauseDetailsDialog = () => {
+    const organized = getOrganizedClauses();
+    const presentCount = results?.statistics?.present || results?.presentClauses || 0;
+    const missingCount = results?.statistics?.missing || results?.missingClauses.length || 0;
+    const corruptedCount = results?.statistics?.corrupted || results?.corruptedClauses.length || 0;
+    
+    return (
+      <DialogContent className="max-w-2xl max-h-[80vh]">
+        <DialogHeader>
+          <DialogTitle className="text-xl font-bold">Clause Detection Details</DialogTitle>
+          <DialogDescription>
+            Complete breakdown of all {results?.statistics?.total_clauses || results?.totalClauses || 0} clauses analyzed in this document
+          </DialogDescription>
+        </DialogHeader>
+        
+        <ScrollArea className="h-[500px] pr-4">
+          <Tabs defaultValue="present" className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="present" className="flex items-center gap-2">
+                <CheckCircle className="w-4 h-4" />
+                Present ({presentCount})
+              </TabsTrigger>
+              <TabsTrigger value="missing" className="flex items-center gap-2">
+                <XCircle className="w-4 h-4" />
+                Missing ({missingCount})
+              </TabsTrigger>
+              <TabsTrigger value="corrupted" className="flex items-center gap-2">
+                <AlertTriangle className="w-4 h-4" />
+                Corrupted ({corruptedCount})
+              </TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="present" className="space-y-2 mt-4">
+              {organized.present.length > 0 ? (
+                organized.present.map((clauseName, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-success/10 border border-success/20 rounded-lg">
+                    <CheckCircle className="w-4 h-4 text-success flex-shrink-0" />
+                    <span className="text-sm font-medium">{clauseName}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No present clauses to display</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="missing" className="space-y-2 mt-4">
+              {organized.missing.length > 0 ? (
+                organized.missing.map((clauseName, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
+                    <XCircle className="w-4 h-4 text-destructive flex-shrink-0" />
+                    <span className="text-sm font-medium">{clauseName}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No missing clauses - document is complete!</p>
+                </div>
+              )}
+            </TabsContent>
+
+            <TabsContent value="corrupted" className="space-y-2 mt-4">
+              {organized.corrupted.length > 0 ? (
+                organized.corrupted.map((clauseName, idx) => (
+                  <div key={idx} className="flex items-center gap-3 p-3 bg-warning/10 border border-warning/20 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-warning flex-shrink-0" />
+                    <span className="text-sm font-medium">{clauseName}</span>
+                  </div>
+                ))
+              ) : (
+                <div className="text-center py-8 text-muted-foreground">
+                  <Info className="w-8 h-8 mx-auto mb-2 opacity-50" />
+                  <p className="text-sm">No corrupted clauses detected</p>
+                </div>
+              )}
+            </TabsContent>
+          </Tabs>
+        </ScrollArea>
+      </DialogContent>
+    );
   };
 
   const renderComparisonView = () => {
-    const originalLines = documentText.trim().split('\n');
-    const modifiedLines = modifiedDocumentText.trim().split('\n');
+    // Strip formatting markers for display
+    const originalLines = stripFormattingMarkers(documentText).trim().split('\n');
+    const modifiedLines = stripFormattingMarkers(modifiedDocumentText).trim().split('\n');
     
     return (
       <div className="grid grid-cols-2 gap-4">
@@ -765,14 +1475,15 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             <FileText className="w-4 h-4" />
             Original Document
           </h3>
-          <div className="font-mono text-xs text-foreground leading-relaxed bg-muted/30 p-4 rounded-lg border border-border h-[600px] overflow-y-auto">
+          <div className="font-mono text-xs text-foreground bg-muted/30 p-2 rounded-lg border border-border h-[600px] overflow-y-auto" style={{ lineHeight: '1.2' }}>
             {originalLines.map((line, idx) => (
               <div 
                 key={idx} 
-                className={`py-0.5 ${
+                className={`${
                   line.includes('[CORRUPTED:') ? 'bg-warning/20 px-1' : 
                   line.includes('[MISSING:') ? 'bg-destructive/10 border-l-2 border-destructive px-2' : ''
                 }`}
+                style={{ whiteSpace: 'pre' }}
               >
                 {line || '\u00A0'}
               </div>
@@ -784,13 +1495,14 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             <CheckCircle className="w-4 h-4" />
             Modified Document
           </h3>
-          <div className="font-mono text-xs text-foreground leading-relaxed bg-success/5 p-4 rounded-lg border border-success h-[600px] overflow-y-auto">
+          <div className="font-mono text-xs text-foreground bg-success/5 p-2 rounded-lg border border-success h-[600px] overflow-y-auto" style={{ lineHeight: '1.2' }}>
             {modifiedLines.map((line, idx) => {
               const isNew = !originalLines.includes(line) && !line.includes('[CORRUPTED:') && !line.includes('[MISSING:');
               return (
                 <div 
                   key={idx} 
-                  className={`py-0.5 ${isNew ? 'bg-success/20 px-1 font-semibold' : ''}`}
+                  className={`${isNew ? 'bg-success/20 px-1 font-semibold' : ''}`}
+                  style={{ whiteSpace: 'pre' }}
                 >
                   {line || '\u00A0'}
                 </div>
@@ -803,7 +1515,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   };
 
   return (
-    <div className="space-y-6">
+    <div className="max-w-7xl mx-auto">
+      <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h2 className="font-heading text-2xl font-bold text-foreground">
@@ -813,14 +1526,394 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             Analyzing: {file.name}
           </p>
         </div>
-        <Button variant="outline" onClick={onCancel}>
-          Cancel
-        </Button>
+        <div className="flex items-center gap-2">
+          {!analysisRunning && !analysisComplete && (
+            <Button onClick={startAnalysis}>Start AI Analysis</Button>
+          )}
+          <Button variant="outline" onClick={onCancel}>
+            Back
+          </Button>
+        </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Left & Center - Document Viewer */}
-        <div className="lg:col-span-2 space-y-6">
+      {/* Analysis Progress - shown only when analyzing */}
+      {analyzing && (
+        <Card className="w-full">
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Loader2 className="animate-spin text-accent" />
+              Analysis Progress
+            </CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <Progress value={progress} className="w-full" />
+            <div className="flex gap-3 py-2 flex-nowrap">
+              {processSteps.map((step) => (
+                <div
+                  key={step.id}
+                  className="p-3 rounded-lg bg-muted/30 border border-border flex items-center gap-3 box-border"
+                  style={{ flex: `1 1 ${100 / processSteps.length}%`, minWidth: 0 }}
+                >
+                  <div className="flex items-center justify-center w-10 h-10 rounded-full bg-muted">
+                    {step.status === 'complete' && (
+                      <CheckCircle className="w-5 h-5 text-success" />
+                    )}
+                    {step.status === 'processing' && (
+                      <Loader2 className="w-5 h-5 text-accent animate-spin" />
+                    )}
+                    {step.status === 'pending' && (
+                      <span className="text-lg">{step.icon}</span>
+                    )}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className={`text-sm font-medium ${step.status === 'complete' ? 'text-foreground' : 'text-muted-foreground'}`}>
+                      {step.name}
+                    </div>
+                    <div className="text-xs text-muted-foreground mt-1">
+                      {step.status === 'complete' ? 'Completed' : step.status === 'processing' ? 'In progress' : 'Pending'}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Analysis Summary - Horizontal Layout */}
+      {analysisComplete && results && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg">Analysis Summary</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
+              <div className="flex flex-col items-center justify-center p-4 bg-muted rounded-lg">
+                <span className="text-3xl font-bold text-foreground">{results.statistics?.total_clauses || results.totalClauses}</span>
+                <span className="text-sm font-semibold text-muted-foreground mt-1">Total Clauses</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-4 bg-success/10 rounded-lg">
+                <span className="text-3xl font-bold text-success">{results.statistics?.present || results.presentClauses}</span>
+                <span className="text-sm font-semibold text-success mt-1">Present</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-4 bg-destructive/10 rounded-lg">
+                <span className="text-3xl font-bold text-destructive">{results.statistics?.missing || results.missingClauses.length}</span>
+                <span className="text-sm font-semibold text-destructive mt-1">Missing</span>
+              </div>
+              <div className="flex flex-col items-center justify-center p-4 bg-warning/10 rounded-lg">
+                <span className="text-3xl font-bold text-warning">{results.statistics?.corrupted || results.corruptedClauses.length}</span>
+                <span className="text-sm font-semibold text-warning mt-1">Corrupted</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Completion Percentage */}
+              {results.statistics?.completion_percentage !== undefined && (
+                <div className="p-4 bg-muted/50 rounded-lg">
+                  <div className="flex justify-between items-center mb-2">
+                    <span className="text-sm font-semibold text-muted-foreground">Completion</span>
+                    <span className="text-sm font-bold text-accent">{results.statistics.completion_percentage.toFixed(1)}%</span>
+                  </div>
+                  <Progress value={results.statistics.completion_percentage} className="h-2" />
+                </div>
+              )}
+
+              {/* Real-time Decision Tracking */}
+              <div className="p-4 bg-muted/50 rounded-lg">
+                <div className="grid grid-cols-2 gap-2">
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Accepted</span>
+                    <Badge variant="default" className="bg-success text-success-foreground">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted').length}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Rejected</span>
+                    <Badge variant="default" className="bg-destructive text-destructive-foreground">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected').length}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Edited</span>
+                    <Badge variant="default" className="bg-accent text-accent-foreground">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited').length}
+                    </Badge>
+                  </div>
+                  <div className="flex justify-between items-center text-sm">
+                    <span className="text-muted-foreground">Pending</span>
+                    <Badge variant="outline">
+                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => !c.status).length}
+                    </Badge>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-4">
+              <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
+                <DialogTrigger asChild>
+                  <Button variant="outline" size="sm">
+                    <List className="w-4 h-4 mr-2" />
+                    View Clause Details
+                  </Button>
+                </DialogTrigger>
+                {renderClauseDetailsDialog()}
+              </Dialog>
+              <Button variant="outline" size="sm" onClick={handleDownloadDocument}>
+                <Download className="w-4 h-4 mr-2" />
+                Download PDF
+              </Button>
+              {/* AI Suggestions Button (Manual mode) */}
+              {!predictions && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => handleGetAISuggestions(false)}
+                  disabled={predictionsLoading}
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                >
+                  {predictionsLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 mr-2" />
+                  )}
+                  {predictionsLoading ? 'Getting AI Suggestions...' : 'Get AI Suggestions'}
+                </Button>
+              )}
+              <Button className="flex-1" onClick={() => onComplete({
+                ...results,
+                originalDocument: documentText,
+                modifiedDocument: modifiedDocumentText
+              })}>
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Continue to Full Review
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ─── AI Suggestions Panel ─────────────────────────────────────────── */}
+      {analysisComplete && predictions && predictions.total_missing > 0 && (
+        <Card className="border-violet-200 dark:border-violet-800">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Brain className="w-5 h-5 text-violet-600" />
+                AI Clause Suggestions
+                <Badge variant="outline" className="ml-2 text-violet-600 border-violet-300">
+                  {predictions.total_missing} suggestions
+                </Badge>
+                {predictions.source && (
+                  <Badge variant="secondary" className="text-xs">
+                    {predictions.source === 'cache' ? 'cached' : predictions.source === 'llm' ? 'AI generated' : predictions.source}
+                  </Badge>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleGetAISuggestions(true)}
+                  disabled={predictionsLoading}
+                  title="Refresh AI suggestions"
+                >
+                  <RefreshCw className={`w-4 h-4 ${predictionsLoading ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPredictionsPanel(!showPredictionsPanel)}
+                >
+                  {showPredictionsPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+            {/* Stats bar */}
+            {(() => {
+              const stats = getPredictionStats();
+              return stats.total > 0 ? (
+                <div className="flex gap-4 mt-2 text-xs">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> {stats.pending} pending</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> {stats.accepted} accepted</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> {stats.edited} edited</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> {stats.rejected} rejected</span>
+                </div>
+              ) : null;
+            })()}
+          </CardHeader>
+          {showPredictionsPanel && (
+            <CardContent className="pt-0">
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                {Object.entries(predictions.suggestions).map(([clauseKey, suggestion]) => {
+                  const status = suggestionStatuses[clauseKey] || 'pending';
+                  const isEditing = editingSuggestionKey === clauseKey;
+                  const confidenceColor = suggestion.confidence >= 80 ? 'text-green-600' : suggestion.confidence >= 50 ? 'text-amber-600' : 'text-red-500';
+                  const confidenceBg = suggestion.confidence >= 80 ? 'bg-green-100 dark:bg-green-900/30' : suggestion.confidence >= 50 ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-red-100 dark:bg-red-900/30';
+
+                  return (
+                    <div
+                      key={clauseKey}
+                      className={`border rounded-lg p-4 transition-all ${
+                        status === 'accepted' ? 'border-green-300 bg-green-50/50 dark:bg-green-950/20' :
+                        status === 'rejected' ? 'border-red-200 bg-red-50/30 dark:bg-red-950/10 opacity-60' :
+                        status === 'edited' ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20' :
+                        'border-violet-200 dark:border-violet-800'
+                      }`}
+                    >
+                      {/* Header */}
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-semibold text-sm">{suggestion.clause_name}</h4>
+                            <Badge
+                              variant={suggestion.predictability === 'FULL' ? 'default' : 'secondary'}
+                              className="text-xs"
+                            >
+                              {suggestion.predictability === 'FULL' ? 'Full Prediction' : 'Partial'}
+                            </Badge>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${confidenceBg} ${confidenceColor}`}>
+                              {suggestion.confidence}% confidence
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Freq: {suggestion.frequency} | Position: {suggestion.position}
+                          </p>
+                        </div>
+                        {status !== 'pending' && (
+                          <Badge
+                            variant={status === 'accepted' ? 'default' : status === 'rejected' ? 'destructive' : 'secondary'}
+                            className={status === 'accepted' ? 'bg-green-600' : status === 'edited' ? 'bg-blue-600 text-white' : ''}
+                          >
+                            {status}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Suggestion Text / Edit Mode */}
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <Textarea
+                            value={editedSuggestionText}
+                            onChange={(e) => setEditedSuggestionText(e.target.value)}
+                            rows={4}
+                            className="text-sm font-mono"
+                          />
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleSaveSuggestionEdit(clauseKey)} className="bg-blue-600 hover:bg-blue-700 text-white">
+                              <Check className="w-3 h-3 mr-1" /> Save Edit
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={handleCancelSuggestionEdit}>
+                              <X className="w-3 h-3 mr-1" /> Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="bg-muted/50 p-3 rounded-lg text-sm font-mono whitespace-pre-wrap border border-muted mb-2">
+                            {suggestion.suggestion}
+                          </div>
+                          {suggestion.reasoning && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mb-3">
+                              <Lightbulb className="w-3 h-3" /> {suggestion.reasoning}
+                            </p>
+                          )}
+                        </>
+                      )}
+
+                      {/* Action buttons */}
+                      {status === 'pending' && !isEditing && (
+                        <div className="flex gap-2 pt-1">
+                          <Button
+                            size="sm"
+                            onClick={() => handleAcceptSuggestion(clauseKey)}
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" /> Accept
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => handleEditSuggestion(clauseKey)}
+                            className="flex-1"
+                          >
+                            <Edit3 className="w-3 h-3 mr-1" /> Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleRejectSuggestion(clauseKey)}
+                            className="flex-1"
+                          >
+                            <XCircle className="w-3 h-3 mr-1" /> Reject
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+
+
+      {/* AI Suggestions Error */}
+      {predictionsError && (
+        <Card className="border-destructive/50">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3 text-destructive">
+              <AlertCircle className="w-5 h-5" />
+              <div>
+                <p className="font-semibold text-sm">AI Suggestion Error</p>
+                <p className="text-xs text-muted-foreground">{predictionsError}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleGetAISuggestions(true)}
+                className="ml-auto"
+              >
+                <RefreshCw className="w-3 h-3 mr-1" /> Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No Missing Predictable Clauses */}
+      {predictions && predictions.total_missing === 0 && (
+        <Card className="border-green-200 dark:border-green-800">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3 text-green-600">
+              <CheckCircle className="w-5 h-5" />
+              <p className="font-semibold text-sm">All predictable clauses are present in this document!</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Predictions Loading */}
+      {predictionsLoading && !predictions && (
+        <Card className="border-violet-200 dark:border-violet-800">
+          <CardContent className="py-6">
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative">
+                <Brain className="w-10 h-10 text-violet-400 animate-pulse" />
+                <Sparkles className="w-4 h-4 text-violet-600 absolute -top-1 -right-1 animate-bounce" />
+              </div>
+              <p className="font-semibold text-sm text-violet-600">AI is analyzing missing clauses...</p>
+              <p className="text-xs text-muted-foreground">Extracting context and generating suggestions</p>
+              <Loader2 className="w-5 h-5 animate-spin text-violet-500" />
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Document Viewer - Full Width */}
+      <div className="space-y-6">
           <Card>
             <CardHeader className="flex flex-row items-center justify-between space-y-0">
               <CardTitle className="flex items-center gap-2">
@@ -829,7 +1922,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               </CardTitle>
               {analysisComplete && (
                 <div className="flex items-center gap-2">
-                  {viewMode === 'review' && (
+                  {viewMode === 'review' && !isEditingDocument && (
                     <>
                       <Button size="icon" variant="outline" onClick={() => setZoom(Math.max(50, zoom - 10))}>
                         <ZoomOut className="w-4 h-4" />
@@ -840,6 +1933,17 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                       </Button>
                     </>
                   )}
+
+                  {/* Edit controls for the document preview */}
+                  {!isEditingDocument ? (
+                    <Button size="sm" onClick={handleStartDocumentEdit}>Edit</Button>
+                  ) : (
+                    <>
+                      <Button size="sm" onClick={handleDoneDocumentEdit} className="bg-success">Done</Button>
+                      <Button size="sm" variant="outline" onClick={handleCancelDocumentEdit}>Cancel</Button>
+                    </>
+                  )}
+
                   <Button 
                     variant={viewMode === 'comparison' ? 'default' : 'outline'}
                     size="sm"
@@ -852,25 +1956,44 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               )}
             </CardHeader>
             <CardContent>
-              <div className="overflow-y-auto bg-muted/30 p-6 rounded-lg" style={{ maxHeight: '600px' }}>
-                {!analysisComplete && analyzing && (
-                  <div className="flex flex-col items-center justify-center h-96">
+              <div className="overflow-y-auto bg-muted/30 rounded-lg" style={{ maxHeight: '600px', position: 'relative' }}>
+                {/* Non-blocking analysis overlay: shows while analyzing but allows preview scrolling */}
+                {analyzing && (
+                  <div className="absolute inset-0 bg-white/70 z-20 flex flex-col items-center justify-center">
                     <Loader2 className="w-16 h-16 animate-spin text-accent mb-4" />
                     <p className="text-lg font-bold text-foreground">Analyzing document...</p>
                     <p className="text-sm text-muted-foreground mt-2">AI is scanning for issues</p>
                   </div>
                 )}
 
-                {analysisComplete && viewMode === 'review' && (
-                  <div
-                    className="font-mono text-sm text-foreground leading-relaxed bg-card p-6 rounded-lg shadow-sm"
-                    style={{ fontSize: `${zoom}%` }}
-                  >
-                    {renderDocumentWithHighlights()}
-                  </div>
+                {viewMode === 'review' && (
+                  isEditingDocument ? (
+                    <div className="font-mono text-sm text-foreground bg-card p-2 rounded-lg shadow-sm">
+                      <Textarea
+                        value={modifiedDocumentText}
+                        onChange={(e) => setModifiedDocumentText(e.target.value)}
+                        rows={24}
+                        className="w-full font-mono text-sm"
+                      />
+                    </div>
+                  ) : analysisRunning ? (
+                    // While analysis is running, do NOT render the document preview content
+                    // Render an empty placeholder box so the overlay fully hides the document
+                    <div
+                      className="font-mono text-sm text-foreground bg-card rounded-lg shadow-sm"
+                      style={{ fontSize: `${zoom}%`, minHeight: '400px', whiteSpace: 'pre', padding: '0.5rem' }}
+                    />
+                  ) : (
+                    <div
+                      className="font-mono text-sm text-foreground bg-card rounded-lg shadow-sm"
+                      style={{ fontSize: `${zoom}%`, whiteSpace: 'pre', padding: '0.5rem', lineHeight: '1.2' }}
+                    >
+                      {renderDocumentWithHighlights()}
+                    </div>
+                  )
                 )}
 
-                {analysisComplete && viewMode === 'comparison' && renderComparisonView()}
+                {viewMode === 'comparison' && renderComparisonView()}
               </div>
 
               {analysisComplete && viewMode === 'review' && (
@@ -894,9 +2017,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             </CardContent>
           </Card>
 
-          {/* Issue Detail Panel */}
-          {selectedIssue && (
-            <Card className="border-accent/50">
+        {/* Issue Detail Panel */}
+        {selectedIssue && (
+          <Card className="border-accent/50">
               <CardHeader>
                 <div className="flex items-start justify-between">
                   <CardTitle className="flex items-center gap-2">
@@ -965,105 +2088,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               </CardContent>
             </Card>
           )}
-        </div>
-
-        {/* Right Panel - Progress & Summary */}
-        <div className="space-y-6">
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Loader2 className={analyzing ? 'animate-spin text-accent' : 'text-success'} />
-                Analysis Progress
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-4">
-              <Progress value={progress} className="w-full" />
-              <div className="space-y-2">
-                {processSteps.map((step) => (
-                  <div key={step.id} className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted/50 transition-colors">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-full bg-muted">
-                      {step.status === 'complete' && (
-                        <CheckCircle className="w-5 h-5 text-success" />
-                      )}
-                      {step.status === 'processing' && (
-                        <Loader2 className="w-5 h-5 text-accent animate-spin" />
-                      )}
-                      {step.status === 'pending' && (
-                        <span className="text-lg">{step.icon}</span>
-                      )}
-                    </div>
-                    <span className={`text-sm font-medium ${step.status === 'complete' ? 'text-foreground' : 'text-muted-foreground'}`}>
-                      {step.name}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-
-          {analysisComplete && results && (
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">Analysis Summary</CardTitle>
-              </CardHeader>
-              <CardContent className="space-y-3">
-                <div className="flex justify-between items-center p-3 bg-muted rounded-lg">
-                  <span className="text-sm font-semibold text-muted-foreground">Total Clauses</span>
-                  <span className="text-2xl font-bold text-foreground">{results.totalClauses}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-success/10 rounded-lg">
-                  <span className="text-sm font-semibold text-success">Valid</span>
-                  <span className="text-2xl font-bold text-success">{results.validClauses}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-warning/10 rounded-lg">
-                  <span className="text-sm font-semibold text-warning">Corrupted</span>
-                  <span className="text-2xl font-bold text-warning">{results.corruptedClauses.length}</span>
-                </div>
-                <div className="flex justify-between items-center p-3 bg-destructive/10 rounded-lg">
-                  <span className="text-sm font-semibold text-destructive">Missing</span>
-                  <span className="text-2xl font-bold text-destructive">{results.missingClauses.length}</span>
-                </div>
-
-                {/* Real-time Decision Tracking */}
-                <div className="mt-4 pt-4 border-t border-border space-y-2">
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Accepted</span>
-                    <Badge variant="default" className="bg-success text-success-foreground">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted').length}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Rejected</span>
-                    <Badge variant="default" className="bg-destructive text-destructive-foreground">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected').length}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Edited</span>
-                    <Badge variant="default" className="bg-accent text-accent-foreground">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited').length}
-                    </Badge>
-                  </div>
-                  <div className="flex justify-between items-center text-sm">
-                    <span className="text-muted-foreground">Pending Review</span>
-                    <Badge variant="outline">
-                      {[...results.missingClauses, ...results.corruptedClauses].filter(c => !c.status).length}
-                    </Badge>
-                  </div>
-                </div>
-
-                <Button className="w-full mt-4" onClick={() => onComplete({
-                  ...results,
-                  originalDocument: documentText,
-                  modifiedDocument: modifiedDocumentText
-                })}>
-                  <Download className="w-4 h-4 mr-2" />
-                  Continue to Full Review
-                </Button>
-              </CardContent>
-            </Card>
-          )}
-        </div>
+      </div>
       </div>
     </div>
   );
