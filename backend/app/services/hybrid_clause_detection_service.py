@@ -88,12 +88,22 @@ class HybridClauseDetectionService:
             Dict: Enriched analysis results with decisions and metadata
         """
         
+        # Strip formatting tags before analysis — tags waste tokens and add noise
+        # Raw .txt file is preserved on disk; model always gets clean text
+        try:
+            import re
+            clean_text = re.sub(r'<<F:[^>]+>>', '', text)
+            clean_text = re.sub(r'<</F>>', '', clean_text)
+            clean_text = re.sub(r' {2,}', ' ', clean_text)
+        except Exception:
+            clean_text = text  # fallback to original if strip fails
+
         # Step 1: Run ML model
         ml_results = None
         if self.enable_ml and self.ml_service:
             try:
                 logger.info("🤖 Running ML model prediction...")
-                ml_results = self.ml_service.predict(text, max_length=max_length)
+                ml_results = self.ml_service.predict(clean_text, max_length=max_length)
                 if ml_results.get('success'):
                     logger.info(f"✅ ML prediction complete: {ml_results['summary']}")
                 else:
@@ -105,12 +115,12 @@ class HybridClauseDetectionService:
         
         # Step 2: Run regex detection (always)
         logger.info("📝 Running regex-based detection...")
-        regex_results = regex_detection(text)
+        regex_results = regex_detection(clean_text)
         logger.info(f"✅ Regex detection complete: {regex_results['statistics']}")
         
         # Step 3: Merge and compare results
         if ml_results and ml_results.get('success'):
-            hybrid_results = self._merge_predictions(ml_results, regex_results, text)
+            hybrid_results = self._merge_predictions(ml_results, regex_results, clean_text)
         else:
             # ML not available, return regex results with metadata
             hybrid_results = self._format_regex_only_results(regex_results)

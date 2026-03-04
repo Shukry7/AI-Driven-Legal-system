@@ -26,7 +26,7 @@ def secure_filename(filename: str) -> str:
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from app.services.pdf_service import pdf_bytes_to_text
+from app.services.pdf_service import pdf_bytes_to_text, strip_bold_markers
 from app.services.clause_detection_service import analyze_clause_detection
 from app.services.hybrid_clause_detection_service import analyze_with_hybrid_detection
 from app.services.clause_patterns import CLAUSE_DEFINITIONS
@@ -264,7 +264,7 @@ async def analyze_clauses(
     if prediction_mode == "auto":
         try:
             logger.info("analyze-clauses: auto-mode — running LLM prediction")
-            predictions = await predict_missing_clauses(extracted_text)
+            predictions = await predict_missing_clauses(strip_bold_markers(extracted_text))
             logger.info(f"analyze-clauses: auto predictions done, source={predictions.get('source')}")
         except Exception as e:
             logger.exception(f"analyze-clauses: auto prediction failed (non-fatal): {e}")
@@ -365,6 +365,9 @@ async def predict_clauses(
 
     if not extracted_text or len(extracted_text.strip()) < 50:
         raise HTTPException(status_code=400, detail="Document text too short for prediction")
+
+    # Strip formatting tags before sending to model (clean text only)
+    extracted_text = strip_bold_markers(extracted_text)
 
     # Run prediction
     try:
