@@ -1,48 +1,21 @@
-import { useState } from 'react';
-import { ArrowLeftRight, Eye, EyeOff, BookOpen } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { ArrowLeftRight, Eye, EyeOff, BookOpen, Loader2, FileX } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { getTranslationHistory, getTranslationJob } from '@/config/api';
+import type { TranslationJobResult } from '@/config/api';
 
-const comparisonData = [
-  {
-    id: 1,
-    source: 'The Plaintiff is a company duly incorporated under the Companies Act No. 07 of 2007.',
-    translated: 'පැමිණිලිකරු 2007 අංක 07 දරන සමාගම් පනත යටතේ නිසි පරිදි සංස්ථාපිත සමාගමක් වේ.',
-    hasChanges: true,
-    terms: ['Plaintiff', 'incorporated', 'Companies Act']
-  },
-  {
-    id: 2,
-    source: 'The Defendant is a corporation registered under the said Act.',
-    translated: 'විත්තිකරු එම පනත යටතේ ලියාපදිංචි සංස්ථාවක් වේ.',
-    hasChanges: true,
-    terms: ['Defendant', 'corporation', 'registered']
-  },
-  {
-    id: 3,
-    source: 'The parties entered into a written agreement on March 15, 2023.',
-    translated: 'පාර්ශවයන් 2023 මාර්තු 15 වන දින ලිඛිත ගිවිසුමකට එළඹියහ.',
-    hasChanges: true,
-    terms: ['parties', 'agreement']
-  },
-  {
-    id: 4,
-    source: 'The agreement was for the supply of goods and services.',
-    translated: 'ගිවිසුම භාණ්ඩ හා සේවා සැපයීම සඳහා විය.',
-    hasChanges: false,
-    terms: ['agreement', 'goods', 'services']
-  },
-  {
-    id: 5,
-    source: 'The Defendant has failed to fulfill the contractual obligations.',
-    translated: 'විත්තිකරු ගිවිසුම්ගත වගකීම් ඉටු කිරීමට අපොහොසත් වී ඇත.',
-    hasChanges: true,
-    terms: ['Defendant', 'contractual obligations']
-  }
-];
+interface ComparisonItem {
+  id: number;
+  source: string;
+  translated: string;
+  confidence: number;
+  hasChanges: boolean;
+  terms: string[];
+}
 
 interface ComparisonViewProps {
   onBack: () => void;
@@ -52,6 +25,57 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
   const [showOnlyChanged, setShowOnlyChanged] = useState(false);
   const [showGlossary, setShowGlossary] = useState(true);
   const [selectedLine, setSelectedLine] = useState<number | null>(null);
+  const [comparisonData, setComparisonData] = useState<ComparisonItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [sourceLang, setSourceLang] = useState('English');
+  const [targetLang, setTargetLang] = useState('Sinhala');
+
+  useEffect(() => {
+    loadLatestComparison();
+  }, []);
+
+  const loadLatestComparison = async () => {
+    setLoading(true);
+    try {
+      // Get lastly completed job from history
+      const history = await getTranslationHistory();
+      const completedJobs = (history.jobs || []).filter((j: any) => j.status === 'completed');
+      
+      if (completedJobs.length === 0) {
+        setComparisonData([]);
+        setLoading(false);
+        return;
+      }
+
+      const latest = completedJobs[0];
+      const job: TranslationJobResult = await getTranslationJob(latest.job_id);
+
+      const langLabels: Record<string, string> = { en: 'English', si: 'Sinhala', ta: 'Tamil' };
+      setSourceLang(langLabels[job.source_language] || job.source_language);
+      setTargetLang(langLabels[job.target_language] || job.target_language);
+
+      // Build comparison items from source + translated sections
+      const items: ComparisonItem[] = (job.source_sections || []).map((src, i) => {
+        const trans = job.translated_sections?.[i];
+        return {
+          id: i + 1,
+          source: src.content,
+          translated: trans?.translated_content || '',
+          confidence: trans?.confidence ?? 0,
+          hasChanges: (trans?.confidence ?? 1) < 0.95,
+          terms: [...(src.keywords || []), ...(trans?.keywords || [])].filter(
+            (v, idx, arr) => arr.indexOf(v) === idx
+          ),
+        };
+      });
+
+      setComparisonData(items);
+    } catch (err) {
+      setComparisonData([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const filteredData = showOnlyChanged 
     ? comparisonData.filter(item => item.hasChanges)
@@ -73,6 +97,19 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
       </div>
 
       {/* Controls */}
+      {loading ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+          <span className="ml-2 text-sm text-muted-foreground">Loading comparison data...</span>
+        </div>
+      ) : comparisonData.length === 0 ? (
+        <div className="text-center py-20 text-muted-foreground">
+          <FileX className="w-12 h-12 mx-auto mb-3 opacity-50" />
+          <p className="text-sm font-medium">No completed translations yet</p>
+          <p className="text-xs mt-1">Complete a translation to see the side-by-side comparison here</p>
+        </div>
+      ) : (
+      <>
       <Card>
         <CardContent className="py-4">
           <div className="flex items-center justify-between">
@@ -115,7 +152,7 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               Source Text
-              <Badge variant="outline">English</Badge>
+              <Badge variant="outline">{sourceLang}</Badge>
             </CardTitle>
           </CardHeader>
         </Card>
@@ -125,7 +162,7 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
           <CardHeader className="pb-3">
             <CardTitle className="text-base flex items-center gap-2">
               Translated Text
-              <Badge variant="outline">Sinhala</Badge>
+              <Badge variant="outline">{targetLang}</Badge>
             </CardTitle>
           </CardHeader>
         </Card>
@@ -219,6 +256,8 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   );
 }

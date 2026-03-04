@@ -4,9 +4,11 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import { uploadPdf } from '@/config/api';
+import { toast } from 'sonner';
 
 interface DocumentUploadProps {
-  onProceed: (data: { file: File; sourceLanguage: string; targetLanguage: string }) => void;
+  onProceed: (data: { file: File; sourceLanguage: string; targetLanguage: string; extractedText: string }) => void;
   onCancel: () => void;
 }
 
@@ -31,6 +33,8 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
   const [isProcessing, setIsProcessing] = useState(false);
   const [processingStep, setProcessingStep] = useState(0);
   const [extractedPreview, setExtractedPreview] = useState<string>('');
+  const [fullExtractedText, setFullExtractedText] = useState<string>('');
+  const [extractionError, setExtractionError] = useState<string>('');
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -41,44 +45,46 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
     }
   }, []);
 
-  const handleFileSelect = (selectedFile: File) => {
+  const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
-    simulatePreprocessing();
-  };
-
-  const simulatePreprocessing = () => {
+    setExtractionError('');
     setIsProcessing(true);
     setProcessingStep(0);
-    
-    const steps = [0, 1, 2, 3];
-    steps.forEach((step, index) => {
-      setTimeout(() => {
-        setProcessingStep(step + 1);
-        if (step === 3) {
-          setIsProcessing(false);
-          setExtractedPreview(`CIVIL CASE NO. 2024/0341
 
-BEFORE THE DISTRICT COURT OF COLOMBO
+    // Step 1: Text extraction (real API call)
+    setProcessingStep(1);
+    try {
+      const result = await uploadPdf(selectedFile, () => {});
 
-IN THE MATTER OF:
-Silva & Partners (Pvt) Ltd.
-                                                    ... Plaintiff
+      if (!result.success) {
+        setExtractionError(result.error || 'Text extraction failed');
+        setIsProcessing(false);
+        toast.error('Failed to extract text from document');
+        return;
+      }
 
-vs.
+      // Step 2: OCR (handled server-side automatically)
+      setProcessingStep(2);
+      await new Promise(r => setTimeout(r, 300));
 
-Perera Holdings Corporation
-                                                    ... Defendant
+      // Step 3: Legal formatting
+      setProcessingStep(3);
+      await new Promise(r => setTimeout(r, 300));
 
-STATEMENT OF CLAIM
+      // Step 4: Clause splitting
+      setProcessingStep(4);
+      await new Promise(r => setTimeout(r, 300));
 
-1. The Plaintiff is a company duly incorporated under the Companies Act No. 07 of 2007...
-
-2. The Defendant is a corporation registered under the said Act and carries on business at No. 45, Galle Road, Colombo 03...
-
-[Document continues with 15 more clauses identified]`);
-        }
-      }, (index + 1) * 800);
-    });
+      const fullText = result.full_text || result.preview || '';
+      setFullExtractedText(fullText);
+      setExtractedPreview(fullText.length > 2000 ? fullText.slice(0, 2000) + '\n\n[... document continues]' : fullText);
+      setIsProcessing(false);
+      toast.success('Document processed successfully');
+    } catch (err: any) {
+      setExtractionError(err?.error || 'Failed to process document');
+      setIsProcessing(false);
+      toast.error('Failed to process document');
+    }
   };
 
   const isValidFile = (file: File) => {
@@ -86,7 +92,7 @@ STATEMENT OF CLAIM
     return validTypes.includes(file.type);
   };
 
-  const canProceed = file && targetLanguage && targetLanguage !== 'en' && !isProcessing;
+  const canProceed = file && targetLanguage && targetLanguage !== 'en' && !isProcessing && fullExtractedText;
 
   return (
     <div className="space-y-6">
@@ -153,7 +159,7 @@ STATEMENT OF CLAIM
                     <Button 
                       variant="ghost" 
                       size="icon"
-                      onClick={() => { setFile(null); setExtractedPreview(''); }}
+                      onClick={() => { setFile(null); setExtractedPreview(''); setFullExtractedText(''); setExtractionError(''); }}
                     >
                       <X className="w-4 h-4" />
                     </Button>
@@ -168,6 +174,14 @@ STATEMENT OF CLAIM
                           {extractedPreview}
                         </pre>
                       </div>
+                    </div>
+                  )}
+
+                  {/* Extraction Error */}
+                  {extractionError && (
+                    <div className="flex items-center gap-2 text-destructive text-sm p-3 bg-destructive/10 rounded-lg">
+                      <AlertCircle className="w-4 h-4" />
+                      {extractionError}
                     </div>
                   )}
                 </div>
@@ -284,7 +298,7 @@ STATEMENT OF CLAIM
           Cancel
         </Button>
         <Button 
-          onClick={() => file && onProceed({ file, sourceLanguage, targetLanguage })}
+          onClick={() => file && onProceed({ file, sourceLanguage, targetLanguage, extractedText: fullExtractedText })}
           disabled={!canProceed}
           className="gap-2"
         >
