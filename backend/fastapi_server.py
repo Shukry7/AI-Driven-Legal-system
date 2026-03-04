@@ -2,12 +2,16 @@
 Main FastAPI application for Legal Risk Classification API.
 """
 import logging
+import os
+import sys
+import subprocess
 from dotenv import load_dotenv
 load_dotenv()  # Load .env before any other imports that read env vars
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from apscheduler.schedulers.background import BackgroundScheduler
 
 from fastapi_app.api.classification_routes import router as classification_router
 from fastapi_app.api.clause_routes import router as clause_router
@@ -43,6 +47,28 @@ app.include_router(classification_router, prefix="/api", tags=["classification"]
 app.include_router(clause_router, prefix="/api", tags=["clause_detection"])
 app.include_router(pdf_router, tags=["pdf_processing"])
 
+# Initialize background scheduler for cleanup tasks
+scheduler = BackgroundScheduler()
+
+def cleanup_old_uploads():
+    """Run the upload cleanup script to delete expired case files."""
+    try:
+        script_path = os.path.join(os.path.dirname(__file__), 'scripts', 'run_one_off_cleanup.py')
+        result = subprocess.run(
+            [sys.executable, script_path],
+            capture_output=True,
+            text=True,
+            timeout=300  # 5 minute timeout
+        )
+        if result.returncode == 0:
+            logger.info(f"✓ Upload cleanup completed: {result.stdout.strip()}")
+        else:
+            logger.error(f"✗ Upload cleanup failed: {result.stderr}")
+    except subprocess.TimeoutExpired:
+        logger.error("✗ Upload cleanup timed out after 5 minutes")
+    except Exception as e:
+        logger.error(f"✗ Upload cleanup error: {str(e)}")
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -54,7 +80,6 @@ async def startup_event():
     logger.info("✓ Clause detection service ready")
     
     # Log clause prediction configuration
-    import os
     prediction_mode = os.getenv("CLAUSE_PREDICTION_MODE", "manual")
     openai_key = os.getenv("OPENAI_API_KEY", "")
     openai_model = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
@@ -71,16 +96,36 @@ async def startup_event():
         else:
             logger.warning("⚠ ML models not available (optional)")
         logger.info(f"✓ Device: {classifier.device}")
-        logger.info("=" * 60)
     except Exception as e:
         logger.warning(f"⚠ Classification models unavailable: {str(e)}")
         logger.info("✓ API will continue without ML features")
-        logger.info("=" * 60)
+    
+    # Start background cleanup scheduler
+    try:
+        cleanup_interval = int(os.getenv('UPLOAD_CLEANUP_INTERVAL_MINUTES', '5'))
+        if not scheduler.running:
+            scheduler.add_job(
+                cleanup_old_uploads,
+                'interval',
+                minutes=cleanup_interval,
+                id='upload_cleanup',
+                name='Cleanup old uploads',
+                replace_existing=True
+            )
+            scheduler.start()
+            logger.info(f"✓ Upload cleanup scheduler started (runs every {cleanup_interval} minutes)")
+    except Exception as e:
+        logger.warning(f"⚠ Failed to start cleanup scheduler: {str(e)}")
+    
+    logger.info("=" * 60)
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Cleanup on shutdown."""
+    if scheduler.running:
+        scheduler.shutdown()
+        logger.info("✓ Cleanup scheduler stopped")
     logger.info("Shutting down AI-Driven Legal System API")
 
 
