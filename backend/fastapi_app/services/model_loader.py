@@ -8,11 +8,13 @@ from pathlib import Path
 from transformers import (
     BertForTokenClassification,
     BertForSequenceClassification,
+    AutoModelForSequenceClassification,
     BertTokenizer,
     AutoTokenizer
 )
 import torch
 
+logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 class ModelLoader:
@@ -35,6 +37,7 @@ class ModelLoader:
             base_path = Path(__file__).parent.parent.parent / "app" / "ml_models"
             self.segmentation_path = base_path / "legalbert_clause_segmentation_model"
             self.classification_path = base_path / "legalbert_risk_classification_model"
+            self.lineage_path = base_path / "act_treatment_classifier"
             
             # Load models
             self.load_models()
@@ -50,6 +53,9 @@ class ModelLoader:
             self.classification_model = None
             self.classification_tokenizer = None
             self.classification_labels = None
+            self.lineage_model = None
+            self.lineage_tokenizer = None
+            self.lineage_labels = None
             
             # Try to load segmentation model from local path
             logger.info("Checking for clause segmentation model...")
@@ -84,6 +90,23 @@ class ModelLoader:
             else:
                 logger.warning(f"Classification model not found at {self.classification_path}")
                 logger.warning("Classification features will be unavailable")
+
+            logger.info("Checking for act treatment lineage model...")
+            if self.lineage_path.exists():
+                logger.info(f"Loading lineage model from {self.lineage_path}")
+                self.lineage_tokenizer = AutoTokenizer.from_pretrained(
+                    str(self.lineage_path)
+                )
+                self.lineage_model = AutoModelForSequenceClassification.from_pretrained(
+                    str(self.lineage_path)
+                ).to(self.device)
+                self.lineage_model.eval()
+                self.lineage_labels = self.lineage_model.config.id2label
+                logger.info("✓ Act treatment lineage model loaded successfully")
+                logger.info(f"  Available treatment labels: {list(self.lineage_labels.values())}")
+            else:
+                logger.warning(f"Lineage model not found at {self.lineage_path}")
+                logger.warning("Lineage features will be unavailable")
             
             # Log final status
             models_loaded = []
@@ -91,6 +114,8 @@ class ModelLoader:
                 models_loaded.append("Segmentation")
             if self.classification_model:
                 models_loaded.append("Classification")
+            if self.lineage_model:
+                models_loaded.append("Lineage")
             
             if models_loaded:
                 logger.info(f"Models loaded: {', '.join(models_loaded)}")
@@ -114,6 +139,12 @@ class ModelLoader:
             raise RuntimeError("Classification model not loaded. Please place model files in app/ml_models/")
         return self.classification_model, self.classification_tokenizer
     
+    def get_lineage_model(self):
+        """Get the act treatment lineage model and tokenizer."""
+        if self.lineage_model is None:
+            raise RuntimeError("Lineage model not loaded. Please place model files in app/ml_models/act_treatment_classifier")
+        return self.lineage_model, self.lineage_tokenizer
+    
     def has_segmentation_model(self):
         """Check if segmentation model is available."""
         return self.segmentation_model is not None
@@ -121,6 +152,10 @@ class ModelLoader:
     def has_classification_model(self):
         """Check if classification model is available."""
         return self.classification_model is not None
+    
+    def has_lineage_model(self):
+        """Check if lineage model is available."""
+        return self.lineage_model is not None
     
     def get_device(self):
         """Get the current device (CPU/GPU)."""
@@ -130,7 +165,8 @@ class ModelLoader:
         """Get label mappings for both models."""
         return {
             "segmentation": self.segmentation_labels,
-            "classification": self.classification_labels
+            "classification": self.classification_labels,
+            "lineage": self.lineage_labels
         }
 
 
