@@ -964,7 +964,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       );
 
       // If backend detected corruption matches (heuristics), check those too (legacy)
-      const heuristicMatch = corruptedMatches.find(m => m && line.includes(m));
+      // Only highlight if the match actually contains special characters (excluding dashes)
+      const heuristicMatch = corruptedMatches.find(m => m && line.includes(m) && /[^\w\s-]/.test(m));
 
       if (isCorrupted) {
         const match = line.match(/\[CORRUPTED: ([^\]]+)\]/);
