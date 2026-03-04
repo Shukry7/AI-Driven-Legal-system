@@ -17,8 +17,26 @@ class LegalRiskClassifier:
     
     def __init__(self):
         self.device = model_loader.get_device()
-        self.segmentation_model, self.segmentation_tokenizer = model_loader.get_segmentation_model()
-        self.classification_model, self.classification_tokenizer = model_loader.get_classification_model()
+        
+        # Check model availability
+        self.has_segmentation = model_loader.has_segmentation_model()
+        self.has_classification = model_loader.has_classification_model()
+        
+        # Load models if available
+        if self.has_segmentation:
+            self.segmentation_model, self.segmentation_tokenizer = model_loader.get_segmentation_model()
+        else:
+            self.segmentation_model = None
+            self.segmentation_tokenizer = None
+            logger.warning("Segmentation model not available")
+        
+        if self.has_classification:
+            self.classification_model, self.classification_tokenizer = model_loader.get_classification_model()
+        else:
+            self.classification_model = None
+            self.classification_tokenizer = None
+            logger.warning("Classification model not available")
+        
         self.labels = model_loader.get_labels()
     
     def _split_into_sentences(self, text: str) -> List[Dict]:
@@ -156,6 +174,9 @@ class LegalRiskClassifier:
         Returns:
             List of dicts: [{"text": str, "start": int, "end": int}, ...]
         """
+        if not self.has_segmentation:
+            raise RuntimeError("Segmentation model not available. Please place model files in app/ml_models/legalbert_clause_segmentation_model/")
+        
         sentence_infos = self._split_into_sentences(text)
         
         all_clauses = []
@@ -361,6 +382,9 @@ class LegalRiskClassifier:
         Returns:
             Tuple of (risk_level, confidence, all_probabilities)
         """
+        if not self.has_classification:
+            raise RuntimeError("Classification model not available. Please place model files in app/ml_models/legalbert_risk_classification_model/")
+        
         inputs = self.classification_tokenizer(
             clause,
             return_tensors="pt",

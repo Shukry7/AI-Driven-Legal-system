@@ -1,13 +1,51 @@
-import { TrendingDown, Zap, Globe, Cpu, Clock, CheckCircle2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { TrendingDown, Zap, Globe, Cpu, Clock, CheckCircle2, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { getModelInfo } from '@/config/api';
+import type { ModelInfo } from '@/config/api';
 
 interface ModelInsightsProps {
   onBack: () => void;
 }
 
 export function ModelInsights({ onBack }: ModelInsightsProps) {
+  const [info, setInfo] = useState<ModelInfo | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    loadModelInfo();
+  }, []);
+
+  const loadModelInfo = async () => {
+    setLoading(true);
+    try {
+      const data = await getModelInfo();
+      setInfo(data);
+    } catch {
+      // Fallback to defaults shown in the UI
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const modelName = info?.model_name || 'mBART Fine-Tuned Legal Model';
+  const baseModel = info?.base_model || 'facebook/mbart-large-50';
+  const languages = info?.supported_languages?.join(', ') || 'English, Sinhala, Tamil';
+  const status = info?.status || 'active';
+  const trainingDataSize = info?.training_data_size || '50,000+ legal documents';
+  const avgSpeed = info?.avg_speed || '~2.5 sec/page';
+  const pairs = info?.language_pairs || [];
+
+  const defaultPairs = [
+    { pair: 'English → Sinhala', bleu_score: 0.847, legal_term_accuracy: 0.982, avg_time: '2.3' },
+    { pair: 'English → Tamil', bleu_score: 0.812, legal_term_accuracy: 0.968, avg_time: '2.5' },
+    { pair: 'Sinhala → English', bleu_score: 0.823, legal_term_accuracy: 0.975, avg_time: '2.4' },
+    { pair: 'Tamil → English', bleu_score: 0.795, legal_term_accuracy: 0.952, avg_time: '2.6' },
+    { pair: 'Sinhala → Tamil', bleu_score: 0.768, legal_term_accuracy: 0.941, avg_time: '2.8' },
+    { pair: 'Tamil → Sinhala', bleu_score: 0.754, legal_term_accuracy: 0.938, avg_time: '2.9' },
+  ];
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -28,10 +66,14 @@ export function ModelInsights({ onBack }: ModelInsightsProps) {
         <CardHeader>
           <div className="flex items-center justify-between">
             <div>
-              <CardTitle className="text-lg">mBART Fine-Tuned Legal Model</CardTitle>
+              <CardTitle className="text-lg">{modelName}</CardTitle>
               <CardDescription>Stage 1 - Sri Lankan Legal Corpus</CardDescription>
             </div>
-            <Badge className="bg-success/10 text-success border-success/20">Active</Badge>
+            <Badge className={status === 'active' || status === 'loaded'
+              ? "bg-success/10 text-success border-success/20"
+              : "bg-warning/10 text-warning border-warning/20"}>
+              {status === 'active' || status === 'loaded' ? 'Active' : status === 'mock' ? 'Mock Mode' : status}
+            </Badge>
           </div>
         </CardHeader>
         <CardContent>
@@ -41,28 +83,28 @@ export function ModelInsights({ onBack }: ModelInsightsProps) {
                 <Globe className="w-4 h-4" />
                 <span className="text-sm">Languages</span>
               </div>
-              <p className="font-medium text-foreground">English, Sinhala, Tamil</p>
+              <p className="font-medium text-foreground">{languages}</p>
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Cpu className="w-4 h-4" />
                 <span className="text-sm">Base Model</span>
               </div>
-              <p className="font-medium text-foreground">facebook/mbart-large-50</p>
+              <p className="font-medium text-foreground">{baseModel}</p>
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <Clock className="w-4 h-4" />
                 <span className="text-sm">Avg. Speed</span>
               </div>
-              <p className="font-medium text-foreground">~2.5 sec/page</p>
+              <p className="font-medium text-foreground">{avgSpeed}</p>
             </div>
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-muted-foreground">
                 <CheckCircle2 className="w-4 h-4" />
                 <span className="text-sm">Training Data</span>
               </div>
-              <p className="font-medium text-foreground">50,000+ legal documents</p>
+              <p className="font-medium text-foreground">{trainingDataSize}</p>
             </div>
           </div>
         </CardContent>
@@ -176,6 +218,12 @@ export function ModelInsights({ onBack }: ModelInsightsProps) {
           <CardTitle className="text-lg">Performance Metrics by Language Pair</CardTitle>
         </CardHeader>
         <CardContent>
+          {loading ? (
+            <div className="flex items-center justify-center py-8">
+              <Loader2 className="w-5 h-5 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading metrics...</span>
+            </div>
+          ) : (
           <table className="w-full">
             <thead>
               <tr className="border-b border-border">
@@ -187,62 +235,25 @@ export function ModelInsights({ onBack }: ModelInsightsProps) {
               </tr>
             </thead>
             <tbody>
-              <tr className="border-b border-border">
-                <td className="py-3 px-4 font-medium">English → Sinhala</td>
-                <td className="py-3 px-4 text-center text-success font-medium">0.847</td>
-                <td className="py-3 px-4 text-center">98.2%</td>
-                <td className="py-3 px-4 text-center">2.3s</td>
-                <td className="py-3 px-4 text-center">
-                  <Badge className="bg-success/10 text-success border-0">Excellent</Badge>
-                </td>
-              </tr>
-              <tr className="border-b border-border">
-                <td className="py-3 px-4 font-medium">English → Tamil</td>
-                <td className="py-3 px-4 text-center text-success font-medium">0.812</td>
-                <td className="py-3 px-4 text-center">96.8%</td>
-                <td className="py-3 px-4 text-center">2.5s</td>
-                <td className="py-3 px-4 text-center">
-                  <Badge className="bg-success/10 text-success border-0">Excellent</Badge>
-                </td>
-              </tr>
-              <tr className="border-b border-border">
-                <td className="py-3 px-4 font-medium">Sinhala → English</td>
-                <td className="py-3 px-4 text-center text-success font-medium">0.823</td>
-                <td className="py-3 px-4 text-center">97.5%</td>
-                <td className="py-3 px-4 text-center">2.4s</td>
-                <td className="py-3 px-4 text-center">
-                  <Badge className="bg-success/10 text-success border-0">Excellent</Badge>
-                </td>
-              </tr>
-              <tr className="border-b border-border">
-                <td className="py-3 px-4 font-medium">Tamil → English</td>
-                <td className="py-3 px-4 text-center text-warning font-medium">0.795</td>
-                <td className="py-3 px-4 text-center">95.2%</td>
-                <td className="py-3 px-4 text-center">2.6s</td>
-                <td className="py-3 px-4 text-center">
-                  <Badge className="bg-warning/10 text-warning border-0">Good</Badge>
-                </td>
-              </tr>
-              <tr className="border-b border-border">
-                <td className="py-3 px-4 font-medium">Sinhala → Tamil</td>
-                <td className="py-3 px-4 text-center text-warning font-medium">0.768</td>
-                <td className="py-3 px-4 text-center">94.1%</td>
-                <td className="py-3 px-4 text-center">2.8s</td>
-                <td className="py-3 px-4 text-center">
-                  <Badge className="bg-warning/10 text-warning border-0">Good</Badge>
-                </td>
-              </tr>
-              <tr>
-                <td className="py-3 px-4 font-medium">Tamil → Sinhala</td>
-                <td className="py-3 px-4 text-center text-warning font-medium">0.754</td>
-                <td className="py-3 px-4 text-center">93.8%</td>
-                <td className="py-3 px-4 text-center">2.9s</td>
-                <td className="py-3 px-4 text-center">
-                  <Badge className="bg-warning/10 text-warning border-0">Good</Badge>
-                </td>
-              </tr>
+              {(pairs.length > 0 ? pairs : defaultPairs).map((pair, i) => {
+                const bleu = pair.bleu_score ?? 0;
+                const statusColor = bleu >= 0.8 ? 'success' : 'warning';
+                const statusLabel = bleu >= 0.8 ? 'Excellent' : 'Good';
+                return (
+                  <tr key={i} className="border-b border-border last:border-0">
+                    <td className="py-3 px-4 font-medium">{pair.pair}</td>
+                    <td className={`py-3 px-4 text-center text-${statusColor} font-medium`}>{bleu.toFixed(3)}</td>
+                    <td className="py-3 px-4 text-center">{((pair.legal_term_accuracy ?? 0) * 100).toFixed(1)}%</td>
+                    <td className="py-3 px-4 text-center">{pair.avg_time ?? '—'}s</td>
+                    <td className="py-3 px-4 text-center">
+                      <Badge className={`bg-${statusColor}/10 text-${statusColor} border-0`}>{statusLabel}</Badge>
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
+          )}
         </CardContent>
       </Card>
 

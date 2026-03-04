@@ -31,7 +31,7 @@ def detect_corruptions(text: str) -> List[Dict]:
         (r"\b#{2,}\b", 'hashes'),
         (r"\bX{2,}\b", 'placeholder_x'),
         (r"\uFFFD+", 'replacement_char'),
-        (r"[^\w\s]{2,}", 'nonword_seq')
+        (r"[^\w\s]{3,}", 'nonword_seq')  # Changed from 2+ to 3+ to be more strict
     ]
 
     matches = []

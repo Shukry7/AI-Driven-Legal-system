@@ -1,56 +1,11 @@
-import { Plus, FileText, Download, Clock, CheckCircle2, Loader2 } from 'lucide-react';
+import { useState, useEffect } from 'react';
+import { Plus, FileText, Download, Clock, CheckCircle2, Loader2, AlertCircle } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-
-interface TranslationJob {
-  id: string;
-  caseId: string;
-  fileName: string;
-  sourceLanguage: string;
-  targetLanguage: string;
-  status: 'completed' | 'processing' | 'pending';
-  createdAt: string;
-}
-
-const mockJobs: TranslationJob[] = [
-  {
-    id: '1',
-    caseId: 'CASE-2024-0341',
-    fileName: 'Plaintiff_Statement.pdf',
-    sourceLanguage: 'English',
-    targetLanguage: 'Sinhala',
-    status: 'completed',
-    createdAt: '2024-01-15'
-  },
-  {
-    id: '2',
-    caseId: 'CASE-2024-0298',
-    fileName: 'Contract_Agreement.docx',
-    sourceLanguage: 'Tamil',
-    targetLanguage: 'English',
-    status: 'processing',
-    createdAt: '2024-01-14'
-  },
-  {
-    id: '3',
-    caseId: 'CASE-2024-0312',
-    fileName: 'Court_Order_Final.pdf',
-    sourceLanguage: 'Sinhala',
-    targetLanguage: 'English',
-    status: 'completed',
-    createdAt: '2024-01-13'
-  },
-  {
-    id: '4',
-    caseId: 'CASE-2024-0355',
-    fileName: 'Witness_Testimony.pdf',
-    sourceLanguage: 'English',
-    targetLanguage: 'Tamil',
-    status: 'pending',
-    createdAt: '2024-01-12'
-  }
-];
+import { toast } from 'sonner';
+import { getTranslationHistory, exportTranslation } from '@/config/api';
+import type { TranslationJobSummary } from '@/config/api';
 
 interface TranslationEntryProps {
   onStartNew: () => void;
@@ -58,6 +13,57 @@ interface TranslationEntryProps {
 }
 
 export function TranslationEntry({ onStartNew, onSelectJob }: TranslationEntryProps) {
+  const [jobs, setJobs] = useState<TranslationJobSummary[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    fetchHistory();
+  }, []);
+
+  const fetchHistory = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const data = await getTranslationHistory();
+      setJobs(data.jobs || []);
+    } catch (err: any) {
+      setError(err?.error || 'Failed to load translation history');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDownload = async (e: React.MouseEvent, jobId: string, fileName: string) => {
+    e.stopPropagation();
+    try {
+      const blob = await exportTranslation(jobId, 'pdf');
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${fileName.replace(/\.[^.]+$/, '')}_translated.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      toast.success('Downloaded successfully');
+    } catch (err: any) {
+      toast.error(err?.error || 'Download failed');
+    }
+  };
+
+  // Compute stats from real data
+  const completedJobs = jobs.filter(j => j.status === 'completed');
+  const totalTranslations = jobs.length;
+  const thisMonth = jobs.filter(j => {
+    const d = new Date(j.created_at);
+    const now = new Date();
+    return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
+  }).length;
+  const avgTime = completedJobs.length > 0
+    ? (completedJobs.reduce((sum, j) => sum + (j.processing_time || 0), 0) / completedJobs.length).toFixed(1) + 's'
+    : '—';
+
   return (
     <div className="space-y-6">
       {/* Header */}
@@ -76,9 +82,9 @@ export function TranslationEntry({ onStartNew, onSelectJob }: TranslationEntryPr
 
       {/* Stats Cards */}
       <div className="grid grid-cols-4 gap-4">
-        <StatsCard label="Total Translations" value="156" />
-        <StatsCard label="This Month" value="24" />
-        <StatsCard label="Avg. Processing Time" value="2.3 min" />
+        <StatsCard label="Total Translations" value={String(totalTranslations)} />
+        <StatsCard label="This Month" value={String(thisMonth)} />
+        <StatsCard label="Avg. Processing Time" value={avgTime} />
         <StatsCard label="Languages Supported" value="3" />
       </div>
 
@@ -89,58 +95,89 @@ export function TranslationEntry({ onStartNew, onSelectJob }: TranslationEntryPr
           <CardDescription>View and manage your translation history</CardDescription>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-border">
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Case ID</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">File Name</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Translation</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
-                  <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
-                  <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
-                </tr>
-              </thead>
-              <tbody>
-                {mockJobs.map((job) => (
-                  <tr 
-                    key={job.id} 
-                    className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
-                    onClick={() => onSelectJob(job.id)}
-                  >
-                    <td className="py-3 px-4">
-                      <span className="text-sm font-medium">{job.caseId}</span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-muted-foreground" />
-                        <span className="text-sm">{job.fileName}</span>
-                      </div>
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-sm">
-                        {job.sourceLanguage} → {job.targetLanguage}
-                      </span>
-                    </td>
-                    <td className="py-3 px-4">
-                      <StatusBadge status={job.status} />
-                    </td>
-                    <td className="py-3 px-4">
-                      <span className="text-sm text-muted-foreground">{job.createdAt}</span>
-                    </td>
-                    <td className="py-3 px-4 text-right">
-                      {job.status === 'completed' && (
-                        <Button variant="ghost" size="sm" className="gap-1">
-                          <Download className="w-3 h-3" />
-                          Download
-                        </Button>
-                      )}
-                    </td>
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading history...</span>
+            </div>
+          )}
+
+          {error && (
+            <div className="flex items-center justify-center py-12 text-muted-foreground gap-2">
+              <AlertCircle className="w-5 h-5" />
+              <span className="text-sm">{error}</span>
+              <Button variant="ghost" size="sm" onClick={fetchHistory}>Retry</Button>
+            </div>
+          )}
+
+          {!loading && !error && jobs.length === 0 && (
+            <div className="text-center py-12 text-muted-foreground">
+              <FileText className="w-10 h-10 mx-auto mb-3 opacity-50" />
+              <p className="text-sm">No translations yet. Start your first one!</p>
+            </div>
+          )}
+
+          {!loading && !error && jobs.length > 0 && (
+            <div className="overflow-x-auto">
+              <table className="w-full">
+                <thead>
+                  <tr className="border-b border-border">
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Job ID</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">File Name</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Translation</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Status</th>
+                    <th className="text-left py-3 px-4 text-sm font-medium text-muted-foreground">Date</th>
+                    <th className="text-right py-3 px-4 text-sm font-medium text-muted-foreground">Actions</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {jobs.map((job) => (
+                    <tr 
+                      key={job.job_id} 
+                      className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors cursor-pointer"
+                      onClick={() => onSelectJob(job.job_id)}
+                    >
+                      <td className="py-3 px-4">
+                        <span className="text-sm font-medium font-mono">{job.job_id.slice(0, 8)}...</span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-muted-foreground" />
+                          <span className="text-sm">{job.filename}</span>
+                        </div>
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-sm">
+                          {job.source_language} → {job.target_language}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4">
+                        <StatusBadge status={job.status} />
+                      </td>
+                      <td className="py-3 px-4">
+                        <span className="text-sm text-muted-foreground">
+                          {new Date(job.created_at).toLocaleDateString()}
+                        </span>
+                      </td>
+                      <td className="py-3 px-4 text-right">
+                        {job.status === 'completed' && (
+                          <Button 
+                            variant="ghost" 
+                            size="sm" 
+                            className="gap-1"
+                            onClick={(e) => handleDownload(e, job.job_id, job.filename)}
+                          >
+                            <Download className="w-3 h-3" />
+                            Download
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </CardContent>
       </Card>
     </div>

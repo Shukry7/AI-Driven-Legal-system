@@ -478,9 +478,10 @@ The Court finds that the Defendant did breach the contract by failing to deliver
 async def health_check():
     """Health check endpoint."""
     try:
+        models_available = classifier.has_segmentation and classifier.has_classification
         return {
-            "status": "healthy",
-            "models_loaded": True,
+            "status": "healthy" if models_available else "partial",
+            "models_loaded": models_available,
             "device": str(classifier.device)
         }
     except Exception as e:

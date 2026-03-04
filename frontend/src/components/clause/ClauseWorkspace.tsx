@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -13,6 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
 import api from '@/config/api';
+import { predictClauses, getPredictionConfig, acceptSuggestion, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
 
 interface ClauseWorkspaceProps {
   file: File;
@@ -238,6 +239,16 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   const [manualInputValues, setManualInputValues] = useState<Record<number, string>>({});
   const [showClauseDetailsDialog, setShowClauseDetailsDialog] = useState(false);
 
+  // ─── AI Prediction State ─────────────────────────────────────────
+  const [predictionConfig, setPredictionConfig] = useState<PredictionConfig | null>(null);
+  const [predictions, setPredictions] = useState<PredictionResult | null>(null);
+  const [predictionsLoading, setPredictionsLoading] = useState(false);
+  const [predictionsError, setPredictionsError] = useState<string | null>(null);
+  const [suggestionStatuses, setSuggestionStatuses] = useState<Record<string, 'pending' | 'accepted' | 'edited' | 'rejected'>>({});
+  const [editingSuggestionKey, setEditingSuggestionKey] = useState<string | null>(null);
+  const [editedSuggestionText, setEditedSuggestionText] = useState('');
+  const [showPredictionsPanel, setShowPredictionsPanel] = useState(true);
+
   const steps: ProcessStep[] = [
     { id: 1, name: 'Extracting text', status: 'pending', icon: '📄' },
     { id: 2, name: 'Identifying clauses', status: 'pending', icon: '🔍' },
@@ -431,6 +442,18 @@ Judge: [MISSING: Third Judge Signature - Signature required]
           setAnalyzing(false);
           // clear refs
           timeoutsRef.ids = [];
+
+          // Auto-mode: if predictions came with the response, load them
+          if (resp.predictions && resp.prediction_mode === 'auto') {
+            setPredictions(resp.predictions);
+            // init statuses
+            const statuses: Record<string, 'pending'> = {};
+            if (resp.predictions.suggestions) {
+              Object.keys(resp.predictions.suggestions).forEach(k => { statuses[k] = 'pending'; });
+            }
+            setSuggestionStatuses(statuses);
+            setShowPredictionsPanel(true);
+          }
         }, 10000) as unknown as number);
       } else {
         console.error('analyzeClauses failed', resp);
@@ -442,6 +465,294 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       setAnalyzing(false);
     }
   };
+
+  // ─── Fetch prediction config on mount ────────────────────────────────────
+  useEffect(() => {
+    getPredictionConfig()
+      .then(cfg => setPredictionConfig(cfg))
+      .catch(err => console.warn('Failed to fetch prediction config:', err));
+  }, []);
+
+  // ─── AI Prediction Handlers ──────────────────────────────────────────────
+  const handleGetAISuggestions = async (forceRefresh: boolean = false) => {
+    if (!savedTextFilename) {
+      setPredictionsError('No saved text file available. Please run analysis first.');
+      return;
+    }
+    setPredictionsLoading(true);
+    setPredictionsError(null);
+    try {
+      const result = await predictClauses(savedTextFilename, forceRefresh);
+      setPredictions(result);
+      // Initialize statuses
+      const statuses: Record<string, 'pending'> = {};
+      if (result.suggestions) {
+        Object.keys(result.suggestions).forEach(k => { statuses[k] = 'pending'; });
+      }
+      setSuggestionStatuses(statuses);
+      setShowPredictionsPanel(true);
+    } catch (err: any) {
+      console.error('Prediction error:', err);
+      setPredictionsError(err.message || 'Failed to get AI suggestions');
+    } finally {
+      setPredictionsLoading(false);
+    }
+  };
+
+  const handleAcceptSuggestion = async (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (!suggestion || !savedTextFilename) return;
+
+    try {
+      // Save the decision to backend
+      await acceptSuggestion({
+        filename: savedTextFilename,
+        clause_key: clauseKey,
+        suggestion_text: suggestion.suggestion,
+        status: 'accepted',
+        confidence: suggestion.confidence,
+      });
+      
+      // Insert suggestion into document preview immediately
+      const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, suggestion.suggestion);
+      const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
+      const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
+      setModifiedDocumentText(updatedDoc);
+      
+      // Update local state
+      setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'accepted' }));
+    } catch (err: any) {
+      console.error('Error accepting suggestion:', err);
+      alert('Failed to accept suggestion: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleRejectSuggestion = async (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (!suggestion || !savedTextFilename) return;
+
+    try {
+      // Save the decision to backend
+      await acceptSuggestion({
+        filename: savedTextFilename,
+        clause_key: clauseKey,
+        suggestion_text: suggestion.suggestion,
+        status: 'rejected',
+        confidence: suggestion.confidence,
+      });
+      
+      // Update local state
+      setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'rejected' }));
+    } catch (err: any) {
+      console.error('Error rejecting suggestion:', err);
+      alert('Failed to reject suggestion: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleEditSuggestion = (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (suggestion) {
+      setEditingSuggestionKey(clauseKey);
+      setEditedSuggestionText(suggestion.suggestion);
+    }
+  };
+
+  const handleSaveSuggestionEdit = async (clauseKey: string) => {
+    const suggestion = predictions?.suggestions?.[clauseKey];
+    if (!suggestion || !savedTextFilename) return;
+
+    try {
+      // Save the edited version to backend
+      await acceptSuggestion({
+        filename: savedTextFilename,
+        clause_key: clauseKey,
+        suggestion_text: suggestion.suggestion,
+        status: 'edited',
+        confidence: suggestion.confidence,
+        edited_text: editedSuggestionText,
+      });
+
+      // Insert edited suggestion into document preview immediately
+      const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, editedSuggestionText);
+      const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
+      const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
+      setModifiedDocumentText(updatedDoc);
+
+      // Update the suggestion text in predictions
+      setPredictions(prev => {
+        if (!prev) return prev;
+        return {
+          ...prev,
+          suggestions: {
+            ...prev.suggestions,
+            [clauseKey]: {
+              ...prev.suggestions[clauseKey],
+              suggestion: editedSuggestionText,
+            }
+          }
+        };
+      });
+      setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'edited' }));
+      setEditingSuggestionKey(null);
+      setEditedSuggestionText('');
+    } catch (err: any) {
+      console.error('Error saving edited suggestion:', err);
+      alert('Failed to save edited suggestion: ' + (err.message || 'Unknown error'));
+    }
+  };
+
+  const handleCancelSuggestionEdit = () => {
+    setEditingSuggestionKey(null);
+    setEditedSuggestionText('');
+  };
+
+  const getPredictionStats = () => {
+    const total = Object.keys(suggestionStatuses).length;
+    const accepted = Object.values(suggestionStatuses).filter(s => s === 'accepted').length;
+    const rejected = Object.values(suggestionStatuses).filter(s => s === 'rejected').length;
+    const edited = Object.values(suggestionStatuses).filter(s => s === 'edited').length;
+    const pending = Object.values(suggestionStatuses).filter(s => s === 'pending').length;
+    return { total, accepted, rejected, edited, pending };
+  };
+
+  // Helper function to format clause text for insertion
+  const formatClauseForInsertion = (clauseKey: string, clauseName: string, text: string): string => {
+    // Header clauses - insert with emphasis
+    if (['case_number', 'case_title', 'court_name'].includes(clauseKey)) {
+      return `\n${'='.repeat(60)}\n${clauseName.toUpperCase()}\n${'='.repeat(60)}\n${text}\n\n`;
+    }
+    // Judge info - labeled format
+    if (['judge_names', 'judge_bench'].includes(clauseKey)) {
+      return `\n${clauseName}: ${text}\n\n`;
+    }
+    // Parties - section format
+    if (['petitioner_name', 'respondent_name'].includes(clauseKey)) {
+      return `\n\n${clauseName.toUpperCase()}:\n${text}\n`;
+    }
+    // Counsel - section format
+    if (clauseKey === 'legal_representatives') {
+      return `\n\nCOUNSEL:\n${text}\n`;
+    }
+    // Subject - descriptive format
+    if (clauseKey === 'subject_matter') {
+      return `\n\nSUBJECT MATTER:\n${text}\n\n`;
+    }
+    // Dates - simple format
+    if (['date_of_order', 'hearing_dates'].includes(clauseKey)) {
+      return `\n${clauseName}: ${text}\n`;
+    }
+    // Citations - list format
+    if (clauseKey === 'referred_cases') {
+      return `\n\nCASES REFERRED:\n${text}\n\n`;
+    }
+    // Default format
+    return `\n\n${clauseName}:\n${text}\n\n`;
+  };
+
+  // Helper function to find insertion position for a clause
+  const findClauseInsertionPosition = (text: string, clauseKey: string): number => {
+    // Header clauses go at the very beginning
+    if (['case_number', 'case_title', 'court_name', 'judge_names', 'judge_bench'].includes(clauseKey)) {
+      return 0;
+    }
+    
+    // Dates go near the beginning, after case info
+    if (['date_of_order', 'hearing_dates'].includes(clauseKey)) {
+      const caseMatch = text.search(/Case\s+(?:No\.|Number)|Criminal\s+Appeal|Civil\s+Appeal|Writ\s+Petition/i);
+      if (caseMatch !== -1) {
+        const lineEnd = text.indexOf('\n', caseMatch);
+        return lineEnd !== -1 ? lineEnd + 1 : caseMatch;
+      }
+      return 0;
+    }
+    
+    // Petitioner name - look for PETITIONER section or insert after case header
+    if (clauseKey === 'petitioner_name') {
+      const petitionerMatch = text.search(/\n\s*PETITIONER[S]?\s*[:|\n]/i);
+      if (petitionerMatch !== -1) {
+        const lineEnd = text.indexOf('\n', petitionerMatch + 1);
+        return lineEnd !== -1 ? lineEnd + 1 : petitionerMatch;
+      }
+      // Insert after first major header or dates
+      const headerEnd = text.search(/={10,}\n/);
+      if (headerEnd !== -1) {
+        const nextLinebreak = text.indexOf('\n', headerEnd + 1);
+        return nextLinebreak !== -1 ? nextLinebreak + 1 : headerEnd;
+      }
+      return Math.min(300, text.length); // Early in document
+    }
+    
+    // Respondent name - look for RESPONDENT section or insert after petitioner
+    if (clauseKey === 'respondent_name') {
+      const respondentMatch = text.search(/\n\s*RESPONDENT[S]?\s*[:|\n]/i);
+      if (respondentMatch !== -1) {
+        const lineEnd = text.indexOf('\n', respondentMatch + 1);
+        return lineEnd !== -1 ? lineEnd + 1 : respondentMatch;
+      }
+      // Look for petitioner section to insert after it
+      const petitionerMatch = text.search(/\n\s*PETITIONER[S]?\s*[:|\n]/i);
+      if (petitionerMatch !== -1) {
+        // Find end of petitioner section (next empty line or next section)
+        let searchPos = petitionerMatch + 10;
+        const nextSection = text.substring(searchPos).search(/\n\s*[A-Z]{4,}/);
+        if (nextSection !== -1) {
+          return searchPos + nextSection;
+        }
+      }
+      return Math.min(400, text.length); // After petitioner area
+    }
+    
+    // Legal representatives - insert after parties section
+    if (clauseKey === 'legal_representatives') {
+      // Look for existing counsel/advocate section
+      const counselMatch = text.search(/\n\s*(Counsel|Advocate|Attorney|For\s+the\s+Petitioner)/i);
+      if (counselMatch !== -1) {
+        return counselMatch;
+      }
+      // Look for respondent section to insert after
+      const respondentMatch = text.search(/\n\s*RESPONDENT[S]?\s*[:|\n]/i);
+      if (respondentMatch !== -1) {
+        // Find 5 lines after respondent
+        let pos = respondentMatch;
+        for (let i = 0; i < 5; i++) {
+          const nextLine = text.indexOf('\n', pos + 1);
+          if (nextLine === -1) break;
+          pos = nextLine;
+        }
+        return pos;
+      }
+      return Math.min(500, text.length); // After parties
+    }
+    
+    // Subject matter - insert before main judgment/order text
+    if (clauseKey === 'subject_matter') {
+      // Look for ORDER or JUDGMENT keyword
+      const judgmentMatch = text.search(/\n\s*(ORDER|JUDGMENT|DECISION)\s*[:|\n]/i);
+      if (judgmentMatch !== -1) {
+        return judgmentMatch;
+      }
+      // Otherwise insert around 20% into document
+      return Math.floor(text.length * 0.2);
+    }
+    
+    // Referred cases - insert in legal analysis section (middle of document)
+    if (clauseKey === 'referred_cases') {
+      // Look for existing citations
+      const citationMatch = text.search(/(AIR|SCC|\d{4}\s+\(\d+\)|referred to|relied upon|cited)/i);
+      if (citationMatch !== -1) {
+        // Find start of that paragraph
+        const paragraphStart = text.lastIndexOf('\n\n', citationMatch);
+        return paragraphStart !== -1 ? paragraphStart + 2 : citationMatch;
+      }
+      // Insert in middle of document
+      return Math.floor(text.length * 0.5);
+    }
+    
+    // Default: insert early in document but after header
+    return Math.min(200, text.length);
+  };
+
+
 
   const handleAcceptClause = (type: 'missing' | 'corrupted', id: number) => {
     if (!results) return;
@@ -653,7 +964,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       );
 
       // If backend detected corruption matches (heuristics), check those too (legacy)
-      const heuristicMatch = corruptedMatches.find(m => m && line.includes(m));
+      // Only highlight if the match actually contains special characters (excluding dashes)
+      const heuristicMatch = corruptedMatches.find(m => m && line.includes(m) && /[^\w\s-]/.test(m));
 
       if (isCorrupted) {
         const match = line.match(/\[CORRUPTED: ([^\]]+)\]/);
@@ -1040,16 +1352,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       document.body.removeChild(a);
     } catch (error) {
       console.error('Error generating PDF:', error);
-      // Fallback to text download
-      const blob = new Blob([modifiedDocumentText], { type: 'text/plain' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${file.name.replace(/\.[^/.]+$/, '')}_completed.txt`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
+      alert('Failed to generate PDF. Please try again.');
     }
   };
 
@@ -1229,17 +1532,17 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             <Button onClick={startAnalysis}>Start AI Analysis</Button>
           )}
           <Button variant="outline" onClick={onCancel}>
-            Cancel
+            Back
           </Button>
         </div>
       </div>
 
-      {/* Analysis Progress - shown only when running or after completion */}
-      {(analyzing || analysisComplete) && (
+      {/* Analysis Progress - shown only when analyzing */}
+      {analyzing && (
         <Card className="w-full">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Loader2 className={analyzing ? 'animate-spin text-accent' : 'text-success'} />
+              <Loader2 className="animate-spin text-accent" />
               Analysis Progress
             </CardTitle>
           </CardHeader>
@@ -1361,6 +1664,23 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                 <Download className="w-4 h-4 mr-2" />
                 Download PDF
               </Button>
+              {/* AI Suggestions Button (Manual mode) */}
+              {!predictions && (
+                <Button
+                  variant="default"
+                  size="sm"
+                  onClick={() => handleGetAISuggestions(false)}
+                  disabled={predictionsLoading}
+                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                >
+                  {predictionsLoading ? (
+                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                  ) : (
+                    <Sparkles className="w-4 h-4 mr-2" />
+                  )}
+                  {predictionsLoading ? 'Getting AI Suggestions...' : 'Get AI Suggestions'}
+                </Button>
+              )}
               <Button className="flex-1" onClick={() => onComplete({
                 ...results,
                 originalDocument: documentText,
@@ -1369,6 +1689,225 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                 <CheckCircle className="w-4 h-4 mr-2" />
                 Continue to Full Review
               </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* ─── AI Suggestions Panel ─────────────────────────────────────────── */}
+      {analysisComplete && predictions && predictions.total_missing > 0 && (
+        <Card className="border-violet-200 dark:border-violet-800">
+          <CardHeader className="pb-3">
+            <div className="flex items-center justify-between">
+              <CardTitle className="text-lg flex items-center gap-2">
+                <Brain className="w-5 h-5 text-violet-600" />
+                AI Clause Suggestions
+                <Badge variant="outline" className="ml-2 text-violet-600 border-violet-300">
+                  {predictions.total_missing} suggestions
+                </Badge>
+                {predictions.source && (
+                  <Badge variant="secondary" className="text-xs">
+                    {predictions.source === 'cache' ? 'cached' : predictions.source === 'llm' ? 'AI generated' : predictions.source}
+                  </Badge>
+                )}
+              </CardTitle>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleGetAISuggestions(true)}
+                  disabled={predictionsLoading}
+                  title="Refresh AI suggestions"
+                >
+                  <RefreshCw className={`w-4 h-4 ${predictionsLoading ? 'animate-spin' : ''}`} />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => setShowPredictionsPanel(!showPredictionsPanel)}
+                >
+                  {showPredictionsPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                </Button>
+              </div>
+            </div>
+            {/* Stats bar */}
+            {(() => {
+              const stats = getPredictionStats();
+              return stats.total > 0 ? (
+                <div className="flex gap-4 mt-2 text-xs">
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> {stats.pending} pending</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> {stats.accepted} accepted</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> {stats.edited} edited</span>
+                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> {stats.rejected} rejected</span>
+                </div>
+              ) : null;
+            })()}
+          </CardHeader>
+          {showPredictionsPanel && (
+            <CardContent className="pt-0">
+              <div className="space-y-3 max-h-[500px] overflow-y-auto pr-1">
+                {Object.entries(predictions.suggestions).map(([clauseKey, suggestion]) => {
+                  const status = suggestionStatuses[clauseKey] || 'pending';
+                  const isEditing = editingSuggestionKey === clauseKey;
+                  const confidenceColor = suggestion.confidence >= 80 ? 'text-green-600' : suggestion.confidence >= 50 ? 'text-amber-600' : 'text-red-500';
+                  const confidenceBg = suggestion.confidence >= 80 ? 'bg-green-100 dark:bg-green-900/30' : suggestion.confidence >= 50 ? 'bg-amber-100 dark:bg-amber-900/30' : 'bg-red-100 dark:bg-red-900/30';
+
+                  return (
+                    <div
+                      key={clauseKey}
+                      className={`border rounded-lg p-4 transition-all ${
+                        status === 'accepted' ? 'border-green-300 bg-green-50/50 dark:bg-green-950/20' :
+                        status === 'rejected' ? 'border-red-200 bg-red-50/30 dark:bg-red-950/10 opacity-60' :
+                        status === 'edited' ? 'border-blue-300 bg-blue-50/50 dark:bg-blue-950/20' :
+                        'border-violet-200 dark:border-violet-800'
+                      }`}
+                    >
+                      {/* Header */}
+                      <div className="flex items-start justify-between mb-2">
+                        <div className="flex-1">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <h4 className="font-semibold text-sm">{suggestion.clause_name}</h4>
+                            <Badge
+                              variant={suggestion.predictability === 'FULL' ? 'default' : 'secondary'}
+                              className="text-xs"
+                            >
+                              {suggestion.predictability === 'FULL' ? 'Full Prediction' : 'Partial'}
+                            </Badge>
+                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${confidenceBg} ${confidenceColor}`}>
+                              {suggestion.confidence}% confidence
+                            </span>
+                          </div>
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Freq: {suggestion.frequency} | Position: {suggestion.position}
+                          </p>
+                        </div>
+                        {status !== 'pending' && (
+                          <Badge
+                            variant={status === 'accepted' ? 'default' : status === 'rejected' ? 'destructive' : 'secondary'}
+                            className={status === 'accepted' ? 'bg-green-600' : status === 'edited' ? 'bg-blue-600 text-white' : ''}
+                          >
+                            {status}
+                          </Badge>
+                        )}
+                      </div>
+
+                      {/* Suggestion Text / Edit Mode */}
+                      {isEditing ? (
+                        <div className="space-y-2">
+                          <Textarea
+                            value={editedSuggestionText}
+                            onChange={(e) => setEditedSuggestionText(e.target.value)}
+                            rows={4}
+                            className="text-sm font-mono"
+                          />
+                          <div className="flex gap-2">
+                            <Button size="sm" onClick={() => handleSaveSuggestionEdit(clauseKey)} className="bg-blue-600 hover:bg-blue-700 text-white">
+                              <Check className="w-3 h-3 mr-1" /> Save Edit
+                            </Button>
+                            <Button size="sm" variant="outline" onClick={handleCancelSuggestionEdit}>
+                              <X className="w-3 h-3 mr-1" /> Cancel
+                            </Button>
+                          </div>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="bg-muted/50 p-3 rounded-lg text-sm font-mono whitespace-pre-wrap border border-muted mb-2">
+                            {suggestion.suggestion}
+                          </div>
+                          {suggestion.reasoning && (
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mb-3">
+                              <Lightbulb className="w-3 h-3" /> {suggestion.reasoning}
+                            </p>
+                          )}
+                        </>
+                      )}
+
+                      {/* Action buttons */}
+                      {status === 'pending' && !isEditing && (
+                        <div className="flex gap-2 pt-1">
+                          <Button
+                            size="sm"
+                            onClick={() => handleAcceptSuggestion(clauseKey)}
+                            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
+                          >
+                            <CheckCircle className="w-3 h-3 mr-1" /> Accept
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="default"
+                            onClick={() => handleEditSuggestion(clauseKey)}
+                            className="flex-1"
+                          >
+                            <Edit3 className="w-3 h-3 mr-1" /> Edit
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="destructive"
+                            onClick={() => handleRejectSuggestion(clauseKey)}
+                            className="flex-1"
+                          >
+                            <XCircle className="w-3 h-3 mr-1" /> Reject
+                          </Button>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </CardContent>
+          )}
+        </Card>
+      )}
+
+
+
+      {/* AI Suggestions Error */}
+      {predictionsError && (
+        <Card className="border-destructive/50">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3 text-destructive">
+              <AlertCircle className="w-5 h-5" />
+              <div>
+                <p className="font-semibold text-sm">AI Suggestion Error</p>
+                <p className="text-xs text-muted-foreground">{predictionsError}</p>
+              </div>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => handleGetAISuggestions(true)}
+                className="ml-auto"
+              >
+                <RefreshCw className="w-3 h-3 mr-1" /> Retry
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* No Missing Predictable Clauses */}
+      {predictions && predictions.total_missing === 0 && (
+        <Card className="border-green-200 dark:border-green-800">
+          <CardContent className="py-4">
+            <div className="flex items-center gap-3 text-green-600">
+              <CheckCircle className="w-5 h-5" />
+              <p className="font-semibold text-sm">All predictable clauses are present in this document!</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Predictions Loading */}
+      {predictionsLoading && !predictions && (
+        <Card className="border-violet-200 dark:border-violet-800">
+          <CardContent className="py-6">
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative">
+                <Brain className="w-10 h-10 text-violet-400 animate-pulse" />
+                <Sparkles className="w-4 h-4 text-violet-600 absolute -top-1 -right-1 animate-bounce" />
+              </div>
+              <p className="font-semibold text-sm text-violet-600">AI is analyzing missing clauses...</p>
+              <p className="text-xs text-muted-foreground">Extracting context and generating suggestions</p>
+              <Loader2 className="w-5 h-5 animate-spin text-violet-500" />
             </div>
           </CardContent>
         </Card>

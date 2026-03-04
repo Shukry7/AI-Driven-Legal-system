@@ -43,44 +43,84 @@ class ModelLoader:
     def load_models(self):
         """Load both segmentation and classification models."""
         try:
-            logger.info("Loading clause segmentation model...")
-            self.segmentation_tokenizer = AutoTokenizer.from_pretrained(
-                str(self.segmentation_path)
-            )
-            self.segmentation_model = BertForTokenClassification.from_pretrained(
-                str(self.segmentation_path)
-            ).to(self.device)
-            self.segmentation_model.eval()
-            logger.info("✓ Clause segmentation model loaded successfully")
+            # Initialize models as None
+            self.segmentation_model = None
+            self.segmentation_tokenizer = None
+            self.segmentation_labels = None
+            self.classification_model = None
+            self.classification_tokenizer = None
+            self.classification_labels = None
             
-            logger.info("Loading risk classification model...")
-            self.classification_tokenizer = AutoTokenizer.from_pretrained(
-                str(self.classification_path)
-            )
-            self.classification_model = BertForSequenceClassification.from_pretrained(
-                str(self.classification_path)
-            ).to(self.device)
-            self.classification_model.eval()
-            logger.info("✓ Risk classification model loaded successfully")
+            # Try to load segmentation model from local path
+            logger.info("Checking for clause segmentation model...")
+            if self.segmentation_path.exists():
+                logger.info(f"Loading segmentation model from {self.segmentation_path}")
+                self.segmentation_tokenizer = AutoTokenizer.from_pretrained(
+                    str(self.segmentation_path)
+                )
+                self.segmentation_model = BertForTokenClassification.from_pretrained(
+                    str(self.segmentation_path)
+                ).to(self.device)
+                self.segmentation_model.eval()
+                self.segmentation_labels = self.segmentation_model.config.id2label
+                logger.info("✓ Clause segmentation model loaded successfully")
+            else:
+                logger.warning(f"Segmentation model not found at {self.segmentation_path}")
+                logger.warning("Segmentation features will be unavailable")
             
-            # Load label mappings
-            self.segmentation_labels = self.segmentation_model.config.id2label
-            self.classification_labels = self.classification_model.config.id2label
+            # Try to load classification model from local path
+            logger.info("Checking for risk classification model...")
+            if self.classification_path.exists():
+                logger.info(f"Loading classification model from {self.classification_path}")
+                self.classification_tokenizer = AutoTokenizer.from_pretrained(
+                    str(self.classification_path)
+                )
+                self.classification_model = BertForSequenceClassification.from_pretrained(
+                    str(self.classification_path)
+                ).to(self.device)
+                self.classification_model.eval()
+                self.classification_labels = self.classification_model.config.id2label
+                logger.info("✓ Risk classification model loaded successfully")
+            else:
+                logger.warning(f"Classification model not found at {self.classification_path}")
+                logger.warning("Classification features will be unavailable")
             
-            logger.info(f"Segmentation labels: {self.segmentation_labels}")
-            logger.info(f"Classification labels: {self.classification_labels}")
+            # Log final status
+            models_loaded = []
+            if self.segmentation_model:
+                models_loaded.append("Segmentation")
+            if self.classification_model:
+                models_loaded.append("Classification")
+            
+            if models_loaded:
+                logger.info(f"Models loaded: {', '.join(models_loaded)}")
+            else:
+                logger.warning("No ML models loaded - API will run without ML features")
             
         except Exception as e:
             logger.error(f"Error loading models: {str(e)}")
-            raise
+            # Don't raise - allow server to start without models
+            logger.warning("Server will continue without ML models")
     
     def get_segmentation_model(self):
         """Get the clause segmentation model and tokenizer."""
+        if self.segmentation_model is None:
+            raise RuntimeError("Segmentation model not loaded. Please place model files in app/ml_models/")
         return self.segmentation_model, self.segmentation_tokenizer
     
     def get_classification_model(self):
         """Get the risk classification model and tokenizer."""
+        if self.classification_model is None:
+            raise RuntimeError("Classification model not loaded. Please place model files in app/ml_models/")
         return self.classification_model, self.classification_tokenizer
+    
+    def has_segmentation_model(self):
+        """Check if segmentation model is available."""
+        return self.segmentation_model is not None
+    
+    def has_classification_model(self):
+        """Check if classification model is available."""
+        return self.classification_model is not None
     
     def get_device(self):
         """Get the current device (CPU/GPU)."""
