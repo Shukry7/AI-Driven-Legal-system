@@ -1,6 +1,13 @@
 import { useState, useEffect } from "react";
-import { FileText, AlertCircle, TrendingUp, Loader2 } from "lucide-react";
+import {
+  FileText,
+  AlertCircle,
+  TrendingUp,
+  Loader2,
+  Download,
+} from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import jsPDF from "jspdf";
 import { Button } from "@/components/ui/button";
 import {
   Select,
@@ -149,6 +156,201 @@ export function ClassificationWorkspace({
       default:
         return "";
     }
+  };
+
+  const downloadPDF = () => {
+    const pdf = new jsPDF();
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const pageHeight = pdf.internal.pageSize.getHeight();
+    const margin = 20;
+    const maxWidth = pageWidth - 2 * margin;
+    let yPosition = margin;
+    const lineHeight = 6;
+    const fontSize = 9;
+
+    // ── HEADER SECTION ──
+    pdf.setFontSize(16);
+    pdf.setFont("helvetica", "bold");
+    pdf.text("Legal Risk Classification Report", margin, yPosition);
+    yPosition += 10;
+
+    // Document info
+    pdf.setFontSize(10);
+    pdf.setFont("helvetica", "normal");
+    pdf.text(`Document: ${fileName}`, margin, yPosition);
+    yPosition += 6;
+    pdf.text(`Date: ${fileDate}`, margin, yPosition);
+    yPosition += 6;
+    pdf.text(
+      `Total Clauses: ${riskStats.total} | High: ${riskStats.high} | Medium: ${riskStats.medium} | Low: ${riskStats.low}`,
+      margin,
+      yPosition,
+    );
+    yPosition += 8;
+
+    // Separator line
+    pdf.setDrawColor(200, 200, 200);
+    pdf.line(margin, yPosition, pageWidth - margin, yPosition);
+    yPosition += 10;
+
+    // ── DOCUMENT SECTION (preserving original structure) ──
+    pdf.setFontSize(fontSize);
+
+    // Sort clauses by position
+    const sorted = [...clauses]
+      .filter((c) => c.start_char !== undefined && c.end_char !== undefined)
+      .sort((a, b) => a.start_char - b.start_char);
+
+    // Build text segments with color information
+    interface TextSegment {
+      text: string;
+      color: number[];
+      isBold: boolean;
+    }
+
+    const segments: TextSegment[] = [];
+    let lastIndex = 0;
+
+    sorted.forEach((clause) => {
+      // Add text before this clause (normal black text)
+      if (clause.start_char > lastIndex) {
+        const beforeText = documentText.substring(lastIndex, clause.start_char);
+        segments.push({
+          text: beforeText,
+          color: [0, 0, 0],
+          isBold: false,
+        });
+      }
+
+      // Add the clause text with risk-based color
+      const clauseText = documentText.substring(
+        clause.start_char,
+        clause.end_char,
+      );
+
+      let color: number[];
+      switch (clause.risk) {
+        case "high":
+          color = [220, 38, 38]; // Red
+          break;
+        case "medium":
+          color = [202, 138, 4]; // Orange/Yellow
+          break;
+        case "low":
+          color = [22, 163, 74]; // Green
+          break;
+        default:
+          color = [0, 0, 0];
+      }
+
+      segments.push({
+        text: clauseText,
+        color: color,
+        isBold: true,
+      });
+
+      lastIndex = clause.end_char;
+    });
+
+    // Add remaining text after last clause
+    if (lastIndex < documentText.length) {
+      const remainingText = documentText.substring(lastIndex);
+      segments.push({
+        text: remainingText,
+        color: [0, 0, 0],
+        isBold: false,
+      });
+    }
+
+    // Render all segments preserving flow
+    // Combine all segments into one string and track where colors change
+    let currentX = margin;
+    const startY = yPosition;
+
+    segments.forEach((segment) => {
+      if (!segment.text) return;
+
+      pdf.setTextColor(segment.color[0], segment.color[1], segment.color[2]);
+      pdf.setFont("helvetica", segment.isBold ? "bold" : "normal");
+
+      // Split text into words to handle wrapping properly
+      const words = segment.text.split(/(\s+)/); // Keep whitespace
+
+      words.forEach((word) => {
+        if (word.includes("\n")) {
+          // Handle newlines - split by newline
+          const lines = word.split("\n");
+          lines.forEach((line, idx) => {
+            if (idx > 0) {
+              // New line
+              yPosition += lineHeight;
+              currentX = margin;
+
+              // Check if we need a new page
+              if (yPosition > pageHeight - margin - 10) {
+                pdf.addPage();
+                yPosition = margin;
+              }
+            }
+
+            if (line) {
+              const wordWidth = pdf.getTextWidth(line);
+              // Check if word fits on current line
+              if (
+                currentX + wordWidth > pageWidth - margin &&
+                currentX > margin
+              ) {
+                yPosition += lineHeight;
+                currentX = margin;
+
+                if (yPosition > pageHeight - margin - 10) {
+                  pdf.addPage();
+                  yPosition = margin;
+                }
+              }
+
+              pdf.text(line, currentX, yPosition);
+              currentX += wordWidth;
+            }
+          });
+        } else {
+          // Regular word or space
+          const wordWidth = pdf.getTextWidth(word);
+
+          // Check if word fits on current line
+          if (
+            currentX + wordWidth > pageWidth - margin &&
+            currentX > margin &&
+            word.trim()
+          ) {
+            yPosition += lineHeight;
+            currentX = margin;
+
+            if (yPosition > pageHeight - margin - 10) {
+              pdf.addPage();
+              yPosition = margin;
+            }
+          }
+
+          pdf.text(word, currentX, yPosition);
+          currentX += wordWidth;
+        }
+      });
+    });
+
+    // Add footer with page numbers
+    const pageCount = pdf.getNumberOfPages();
+    for (let i = 1; i <= pageCount; i++) {
+      pdf.setPage(i);
+      pdf.setFontSize(8);
+      pdf.setTextColor(128, 128, 128);
+      pdf.text(`Page ${i} of ${pageCount}`, pageWidth / 2, pageHeight - 10, {
+        align: "center",
+      });
+    }
+
+    // Save the PDF
+    pdf.save(`${fileName.replace(/\.[^/.]+$/, "")}_risk_analysis.pdf`);
   };
 
   const highlightDocument = () => {
@@ -447,6 +649,14 @@ export function ClassificationWorkspace({
       <div className="flex gap-3">
         <Button variant="outline" onClick={onCancel} className="flex-1">
           Cancel
+        </Button>
+        <Button
+          variant="outline"
+          onClick={downloadPDF}
+          className="flex-1 gap-2"
+        >
+          <Download className="w-4 h-4" />
+          Download PDF
         </Button>
         <Button onClick={onComplete} className="flex-1">
           Save Analysis
