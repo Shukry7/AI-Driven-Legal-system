@@ -1,55 +1,84 @@
-import { useState } from 'react';
-import { TranslationEntry } from './TranslationEntry';
-import { DocumentUpload } from './DocumentUpload';
-import { TranslationWorkspace } from './TranslationWorkspace';
-import { ComparisonView } from './ComparisonView';
-import { GlossaryPanel } from './GlossaryPanel';
-import { TranslationSummary } from './TranslationSummary';
-import { ModelInsights } from './ModelInsights';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { FileText, GitCompare, BookOpen, BarChart3 } from 'lucide-react';
-import type { TranslationJobResult } from '@/config/api';
+import { useState, useEffect } from "react";
+import { TranslationEntry } from "./TranslationEntry";
+import { DocumentUpload } from "./DocumentUpload";
+import { TranslationWorkspace } from "./TranslationWorkspace";
+import { ComparisonView } from "./ComparisonView";
+import { GlossaryPanel } from "./GlossaryPanel";
+import { TranslationSummary } from "./TranslationSummary";
+import { ModelInsights } from "./ModelInsights";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { FileText, GitCompare, BookOpen, BarChart3 } from "lucide-react";
+import { useTranslation } from "./TranslationContext";
+import type { TranslationJobResult } from "@/config/api";
 
-type View = 'entry' | 'upload' | 'workspace' | 'comparison' | 'glossary' | 'summary' | 'insights';
+type View = "entry" | "upload" | "workspace" | "summary";
 
-interface UploadData {
-  file: File;
+export interface UploadData {
+  file?: File;
+  text?: string;
   sourceLanguage: string;
   targetLanguage: string;
   extractedText: string;
+  mode: "document" | "text";
 }
 
 export function TranslationModule() {
-  const [currentView, setCurrentView] = useState<View>('entry');
+  const [currentView, setCurrentView] = useState<View>("entry");
   const [uploadData, setUploadData] = useState<UploadData | null>(null);
-  const [translationResult, setTranslationResult] = useState<TranslationJobResult | null>(null);
-  const [activeTab, setActiveTab] = useState('translate');
+  const [translationResult, setTranslationResult] =
+    useState<TranslationJobResult | null>(null);
+  const [activeTab, setActiveTab] = useState("translate");
+  const { viewingJobId, setViewingJobId, getResult } = useTranslation();
 
-  const handleStartNew = () => setCurrentView('upload');
-  
+  // When the floating widget triggers viewing a completed job
+  useEffect(() => {
+    if (!viewingJobId) return;
+    (async () => {
+      const result = await getResult(viewingJobId);
+      if (result) {
+        setTranslationResult(result);
+        setUploadData({
+          sourceLanguage: result.source_language,
+          targetLanguage: result.target_language,
+          extractedText:
+            result.raw_source_text ||
+            result.source_sections?.map((s) => s.content).join("\n\n") ||
+            "",
+          mode: result.mode as "document" | "text",
+        });
+        setCurrentView("workspace");
+      }
+      setViewingJobId(null);
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewingJobId]);
+
+  const handleStartNew = () => setCurrentView("upload");
+
   const handleProceed = (data: UploadData) => {
     setUploadData(data);
-    setCurrentView('workspace');
+    setTranslationResult(null);
+    setCurrentView("workspace");
   };
 
   const handleTranslationComplete = (result: TranslationJobResult) => {
     setTranslationResult(result);
   };
 
-  const handleComplete = () => setCurrentView('summary');
-  
+  const handleComplete = () => setCurrentView("summary");
+
   const handleFinish = () => {
-    setCurrentView('entry');
+    setCurrentView("entry");
     setUploadData(null);
     setTranslationResult(null);
   };
 
-  // Tab-based navigation for sub-views
-  if (currentView === 'entry') {
+  // ── Entry view with tabs
+  if (currentView === "entry") {
     return (
       <div className="space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList>
+          <TabsList className="w-full grid grid-cols-4">
             <TabsTrigger value="translate" className="gap-2">
               <FileText className="w-4 h-4" />
               Translations
@@ -69,57 +98,64 @@ export function TranslationModule() {
           </TabsList>
 
           <TabsContent value="translate" className="mt-6">
-            <TranslationEntry 
+            <TranslationEntry
               onStartNew={handleStartNew}
-              onSelectJob={(id) => console.log('Selected job:', id)}
+              onSelectJob={async (id) => {
+                const r = await getResult(id);
+                if (r) {
+                  setTranslationResult(r);
+                  setUploadData({
+                    sourceLanguage: r.source_language,
+                    targetLanguage: r.target_language,
+                    extractedText: r.raw_source_text || "",
+                    mode: r.mode as "document" | "text",
+                  });
+                  setCurrentView("workspace");
+                }
+              }}
             />
           </TabsContent>
-
           <TabsContent value="compare" className="mt-6">
-            <ComparisonView onBack={() => setActiveTab('translate')} />
+            <ComparisonView onBack={() => setActiveTab("translate")} />
           </TabsContent>
-
           <TabsContent value="glossary" className="mt-6">
-            <GlossaryPanel onBack={() => setActiveTab('translate')} />
+            <GlossaryPanel onBack={() => setActiveTab("translate")} />
           </TabsContent>
-
           <TabsContent value="insights" className="mt-6">
-            <ModelInsights onBack={() => setActiveTab('translate')} />
+            <ModelInsights onBack={() => setActiveTab("translate")} />
           </TabsContent>
         </Tabs>
       </div>
     );
   }
 
-  if (currentView === 'upload') {
+  if (currentView === "upload") {
     return (
-      <DocumentUpload 
+      <DocumentUpload
         onProceed={handleProceed}
-        onCancel={() => setCurrentView('entry')}
+        onCancel={() => setCurrentView("entry")}
       />
     );
   }
 
-  if (currentView === 'workspace' && uploadData) {
+  if (currentView === "workspace" && uploadData) {
     return (
-      <TranslationWorkspace 
-        file={uploadData.file}
-        sourceLanguage={uploadData.sourceLanguage}
-        targetLanguage={uploadData.targetLanguage}
-        extractedText={uploadData.extractedText}
-        onBack={() => setCurrentView('upload')}
+      <TranslationWorkspace
+        uploadData={uploadData}
+        existingResult={translationResult}
+        onBack={() => setCurrentView("entry")}
         onComplete={handleComplete}
         onTranslationComplete={handleTranslationComplete}
       />
     );
   }
 
-  if (currentView === 'summary') {
+  if (currentView === "summary") {
     return (
-      <TranslationSummary 
+      <TranslationSummary
         translationResult={translationResult}
         onComplete={handleFinish}
-        onBack={() => setCurrentView('workspace')}
+        onBack={() => setCurrentView("workspace")}
       />
     );
   }

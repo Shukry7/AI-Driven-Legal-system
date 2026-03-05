@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { Search, Plus, BookOpen, Filter, Loader2 } from 'lucide-react';
+import { Search, Plus, BookOpen, Filter, Loader2, ChevronLeft, ChevronRight, Home, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
@@ -13,6 +13,8 @@ interface GlossaryPanelProps {
   onBack: () => void;
 }
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
 export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
@@ -20,6 +22,9 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
   const [categories, setCategories] = useState<string[]>(['All']);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [selectedLanguageFilter, setSelectedLanguageFilter] = useState('all');
 
   const fetchGlossary = useCallback(async () => {
     setLoading(true);
@@ -29,7 +34,6 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
       const search = searchQuery.trim() || undefined;
       const data = await getGlossary(category, search);
       setTerms(data.terms || []);
-      // Build category list from data
       if (data.categories) {
         setCategories(['All', ...data.categories]);
       }
@@ -41,20 +45,31 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
     }
   }, [selectedCategory, searchQuery]);
 
-  // Fetch on mount
   useEffect(() => {
     fetchGlossary();
   }, [fetchGlossary]);
 
-  // Filter locally for instant feedback (API also filters but this avoids debounce delay)
+  // Reset page on filter change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategory, selectedLanguageFilter, pageSize]);
+
   const filteredTerms = terms.filter(term => {
     const matchesSearch = !searchQuery.trim() ||
       term.en.toLowerCase().includes(searchQuery.toLowerCase()) ||
       term.si.includes(searchQuery) ||
       term.ta.includes(searchQuery);
     const matchesCategory = selectedCategory === 'All' || term.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    const matchesLang = selectedLanguageFilter === 'all' ||
+      (selectedLanguageFilter === 'has_si' && term.si && term.si.trim() !== '') ||
+      (selectedLanguageFilter === 'has_ta' && term.ta && term.ta.trim() !== '') ||
+      (selectedLanguageFilter === 'missing_si' && (!term.si || term.si.trim() === '')) ||
+      (selectedLanguageFilter === 'missing_ta' && (!term.ta || term.ta.trim() === ''));
+    return matchesSearch && matchesCategory && matchesLang;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredTerms.length / pageSize));
+  const paginatedTerms = filteredTerms.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const categoryCounts = categories.reduce((acc, cat) => {
     acc[cat] = cat === 'All' 
@@ -65,6 +80,16 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+        <button onClick={onBack} className="flex items-center gap-1 hover:text-foreground transition-colors">
+          <Home className="w-3.5 h-3.5" />
+          Translations
+        </button>
+        <span>/</span>
+        <span className="text-foreground font-medium">Legal Glossary</span>
+      </nav>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -77,7 +102,8 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" onClick={onBack} className="gap-2">
+            <ChevronLeft className="w-4 h-4" />
             Back
           </Button>
           <Button className="gap-2">
@@ -143,7 +169,32 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={selectedLanguageFilter} onValueChange={setSelectedLanguageFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Language filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Languages</SelectItem>
+                <SelectItem value="has_si">Has Sinhala</SelectItem>
+                <SelectItem value="has_ta">Has Tamil</SelectItem>
+                <SelectItem value="missing_si">Missing Sinhala</SelectItem>
+                <SelectItem value="missing_ta">Missing Tamil</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+          {(searchQuery || selectedCategory !== 'All' || selectedLanguageFilter !== 'all') && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <span>Showing {filteredTerms.length} of {terms.length} terms</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                onClick={() => { setSearchQuery(''); setSelectedCategory('All'); setSelectedLanguageFilter('all'); }}
+              >
+                Clear filters
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -164,6 +215,7 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
           )}
 
           {!loading && (
+          <>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -183,7 +235,7 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {filteredTerms.map((term) => (
+                {paginatedTerms.map((term) => (
                   <tr 
                     key={term.id} 
                     className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
@@ -207,6 +259,44 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
               </tbody>
             </table>
           </div>
+
+          {/* Pagination Controls */}
+          {filteredTerms.length > 0 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <span>Rows per page:</span>
+                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                  <SelectTrigger className="w-20 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span>
+                  {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredTerms.length)} of {filteredTerms.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>
+                  <ChevronsLeft className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground px-3">Page {currentPage} of {totalPages}</span>
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>
+                  <ChevronsRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
           )}
 
           {!loading && filteredTerms.length === 0 && (
