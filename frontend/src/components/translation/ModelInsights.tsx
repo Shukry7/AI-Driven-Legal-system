@@ -1,10 +1,12 @@
 import { useState, useEffect } from 'react';
-import { TrendingDown, Zap, Globe, Cpu, Clock, CheckCircle2, Loader2 } from 'lucide-react';
+import { TrendingDown, Zap, Globe, Cpu, Clock, CheckCircle2, Loader2, Play, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { getModelInfo } from '@/config/api';
-import type { ModelInfo } from '@/config/api';
+import { Textarea } from '@/components/ui/textarea';
+import { getModelInfo, translateText, getTranslationProgress, getTranslationJob } from '@/config/api';
+import type { ModelInfo, TranslationJobResult } from '@/config/api';
+import { toast } from 'sonner';
 
 interface ModelInsightsProps {
   onBack: () => void;
@@ -53,7 +55,7 @@ export function ModelInsights({ onBack }: ModelInsightsProps) {
         <div>
           <h2 className="font-heading text-2xl font-bold text-foreground">Model Insights</h2>
           <p className="text-muted-foreground mt-1">
-            Performance metrics and research overview for the fine-tuned mBART model
+            Performance metrics and accuracy testing for the fine-tuned mBART model
           </p>
         </div>
         <Button variant="outline" onClick={onBack}>
@@ -257,22 +259,159 @@ export function ModelInsights({ onBack }: ModelInsightsProps) {
         </CardContent>
       </Card>
 
-      {/* Research Info */}
-      <Card className="bg-muted/30">
-        <CardContent className="py-6">
-          <div className="text-center max-w-2xl mx-auto">
-            <h3 className="font-heading text-lg font-bold text-foreground mb-2">
-              Research & Development
-            </h3>
-            <p className="text-sm text-muted-foreground">
-              This model was fine-tuned on a curated corpus of 50,000+ Sri Lankan legal documents, 
-              including court proceedings, contracts, and statutory texts. The training focused on 
-              preserving legal terminology accuracy while maintaining fluent translations across 
-              English, Sinhala, and Tamil.
-            </p>
-          </div>
-        </CardContent>
-      </Card>
+      {/* Accuracy Testing */}
+      <AccuracyTester />
     </div>
+  );
+}
+
+/* ─── Accuracy Tester Component ─────────────────────────────────────────── */
+function AccuracyTester() {
+  const [testText, setTestText] = useState('');
+  const [targetLang, setTargetLang] = useState<'si' | 'ta'>('si');
+  const [testing, setTesting] = useState(false);
+  const [translatedText, setTranslatedText] = useState<string | null>(null);
+  const [confidence, setConfidence] = useState<number | null>(null);
+  const [bleuScore, setBleuScore] = useState<number | null>(null);
+  const [processingTime, setProcessingTime] = useState<number | null>(null);
+
+  const handleTest = async () => {
+    if (testText.trim().length < 30) {
+      toast.error('Enter at least 30 characters to test');
+      return;
+    }
+    setTesting(true);
+    setTranslatedText(null);
+    setConfidence(null);
+    setBleuScore(null);
+    setProcessingTime(null);
+
+    try {
+      const startResult = await translateText(testText, 'en', targetLang);
+      const jobId = startResult.job_id;
+
+      // Poll for completion
+      const poll = async (): Promise<TranslationJobResult> => {
+        const progress = await getTranslationProgress(jobId);
+        if (progress.status === 'completed') {
+          return getTranslationJob(jobId);
+        }
+        if (progress.status === 'failed') {
+          throw new Error(progress.error || 'Translation failed');
+        }
+        await new Promise((r) => setTimeout(r, 1500));
+        return poll();
+      };
+
+      const result = await poll();
+      const sections = result.translated_sections || [];
+      const fullTranslation = sections.map((s) => s.translated_content).join('\n\n') || result.raw_translated_text || '';
+
+      setTranslatedText(fullTranslation);
+      setConfidence(result.overall_confidence);
+      setBleuScore(result.bleu_score ?? null);
+      setProcessingTime(result.processing_time ?? null);
+    } catch (err: unknown) {
+      toast.error((err as Error)?.message || 'Test failed');
+    } finally {
+      setTesting(false);
+    }
+  };
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="text-lg flex items-center gap-2">
+          <Play className="w-5 h-5 text-primary" />
+          Test Model Accuracy
+        </CardTitle>
+        <CardDescription>
+          Enter legal text in English to test translation quality and accuracy metrics
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        <div className="grid grid-cols-2 gap-4">
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Source Text (English)</label>
+            <Textarea
+              placeholder="Enter legal text in English (minimum 30 characters)…"
+              value={testText}
+              onChange={(e) => setTestText(e.target.value)}
+              className="h-40 resize-none"
+            />
+            <div className="flex items-center justify-between">
+              <span className="text-xs text-muted-foreground">
+                {testText.trim().length} / 30 min characters
+              </span>
+              <div className="flex items-center gap-2">
+                <label className="text-sm text-muted-foreground">Target:</label>
+                <select
+                  value={targetLang}
+                  onChange={(e) => setTargetLang(e.target.value as 'si' | 'ta')}
+                  className="text-sm border rounded px-2 py-1 bg-background"
+                >
+                  <option value="si">Sinhala (සිංහල)</option>
+                  <option value="ta">Tamil (தமிழ்)</option>
+                </select>
+              </div>
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">Translation Result</label>
+            <div className="h-40 rounded-md border bg-muted/30 p-3 overflow-y-auto">
+              {testing ? (
+                <div className="flex items-center justify-center h-full gap-2 text-muted-foreground">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span className="text-sm">Translating…</span>
+                </div>
+              ) : translatedText ? (
+                <p className="text-sm whitespace-pre-wrap">{translatedText}</p>
+              ) : (
+                <p className="text-sm text-muted-foreground italic flex items-center justify-center h-full">
+                  Translation output will appear here
+                </p>
+              )}
+            </div>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between">
+          <Button
+            onClick={handleTest}
+            disabled={testing || testText.trim().length < 30}
+            className="gap-2"
+          >
+            {testing ? <Loader2 className="w-4 h-4 animate-spin" /> : <ArrowRight className="w-4 h-4" />}
+            {testing ? 'Testing…' : 'Run Accuracy Test'}
+          </Button>
+
+          {confidence !== null && (
+            <div className="flex items-center gap-4">
+              {processingTime !== null && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">Time: </span>
+                  <span className="font-medium">{processingTime.toFixed(1)}s</span>
+                </div>
+              )}
+              <div className="text-sm">
+                <span className="text-muted-foreground">Confidence: </span>
+                <span className={`font-medium ${confidence >= 0.85 ? 'text-green-500' : confidence >= 0.6 ? 'text-yellow-500' : 'text-red-500'}`}>
+                  {Math.round(confidence * 100)}%
+                </span>
+              </div>
+              {bleuScore !== null && (
+                <div className="text-sm">
+                  <span className="text-muted-foreground">BLEU: </span>
+                  <span className={`font-medium ${bleuScore >= 0.8 ? 'text-green-500' : bleuScore >= 0.5 ? 'text-yellow-500' : 'text-red-500'}`}>
+                    {bleuScore.toFixed(3)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
