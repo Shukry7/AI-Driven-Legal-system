@@ -1056,33 +1056,66 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
       // Highlight corrupted regions detected by backend regex patterns
       if (lineCorruptedRegions.length > 0) {
-        let highlightedLine = line;
-        const sortedRegions = [...lineCorruptedRegions].sort((a, b) => b.start - a.start); // Sort descending to replace from end
+        const sortedRegions = [...lineCorruptedRegions].sort((a, b) => b.start - a.start);
         
         for (const region of sortedRegions) {
           const relativeStart = Math.max(0, region.start - lineStart);
           const relativeEnd = Math.min(line.length, region.end - lineStart);
           
           if (relativeStart < relativeEnd && relativeStart >= 0 && relativeEnd <= line.length) {
-            const beforeRegion = highlightedLine.substring(0, relativeStart);
-            const corruptedPart = highlightedLine.substring(relativeStart, relativeEnd);
-            const afterRegion = highlightedLine.substring(relativeEnd);
+            const beforeSection = line.substring(0, relativeStart);
+            const corruptedSection = line.substring(relativeStart, relativeEnd);
+            const afterSection = line.substring(relativeEnd);
             
-            return (
-              <div key={idx} className="hover:bg-warning/5 transition-colors">
-                {beforeRegion}
-                <span 
-                  className="relative inline-block bg-warning/70 text-warning-foreground px-1 py-0.5 rounded cursor-help border border-warning"
-                  title={`Corrupted: ${region.clause_name}`}
-                >
-                  {corruptedPart}
-                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
-                  </span>
-                </span>
-                {afterRegion}
-              </div>
-            );
+            // Find only the actual corrupted characters within this section
+            // Look for sequences of special corruption characters
+            const corruptionPattern = /([#*%€@£¥§¶†‡°•■□▪▫◊○●◘◙☺☻♀♂♠♣♥♦]{1,}|[^\w\s\-.,/:()'"&]{3,})/g;
+            
+            // Split the section into parts: before corruption, corruption, after corruption
+            let parts: Array<{text: string, isCorrupted: boolean}> = [];
+            let lastIndex = 0;
+            let match;
+            
+            while ((match = corruptionPattern.exec(corruptedSection)) !== null) {
+              // Add text before the corruption
+              if (match.index > lastIndex) {
+                parts.push({text: corruptedSection.substring(lastIndex, match.index), isCorrupted: false});
+              }
+              // Add the corrupted text
+              parts.push({text: match[0], isCorrupted: true});
+              lastIndex = match.index + match[0].length;
+            }
+            
+            // Add remaining text after last corruption
+            if (lastIndex < corruptedSection.length) {
+              parts.push({text: corruptedSection.substring(lastIndex), isCorrupted: false});
+            }
+            
+            // Only render highlighting if we actually found corruption
+            if (parts.some(p => p.isCorrupted)) {
+              return (
+                <div key={idx} className="hover:bg-warning/5 transition-colors">
+                  {beforeSection}
+                  {parts.map((part, partIdx) => 
+                    part.isCorrupted ? (
+                      <span 
+                        key={partIdx}
+                        className="relative inline-block bg-warning/70 text-warning-foreground px-1 py-0.5 rounded cursor-help border border-warning"
+                        title={`Corrupted: ${region.clause_name}`}
+                      >
+                        {part.text}
+                        <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
+                        </span>
+                      </span>
+                    ) : (
+                      <span key={partIdx}>{part.text}</span>
+                    )
+                  )}
+                  {afterSection}
+                </div>
+              );
+            }
           }
         }
       }
