@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi_app.api.classification_routes import router as classification_router
 from fastapi_app.api.clause_routes import router as clause_router
 from fastapi_app.api.pdf_routes import router as pdf_router
+from fastapi_app.api.translation_routes import router as translation_router, preload_models as preload_translation_models
 
 # Configure logging
 logging.basicConfig(
@@ -27,7 +28,7 @@ logger = logging.getLogger(__name__)
 # Create FastAPI app
 app = FastAPI(
     title="AI-Driven Legal System API",
-    description="AI-powered legal document analysis including clause detection, segmentation, and risk assessment using Legal-BERT",
+    description="AI-powered legal document analysis including translation, clause detection, segmentation, and risk assessment using Legal-BERT",
     version="1.0.0",
     docs_url="/docs",
     redoc_url="/redoc"
@@ -46,6 +47,7 @@ app.add_middleware(
 app.include_router(classification_router, prefix="/api", tags=["classification"])
 app.include_router(clause_router, prefix="/api", tags=["clause_detection"])
 app.include_router(pdf_router, tags=["pdf_processing"])
+app.include_router(translation_router, prefix="/api", tags=["translation"])
 
 # Initialize background scheduler for cleanup tasks
 scheduler = BackgroundScheduler()
@@ -78,6 +80,11 @@ async def startup_event():
     logger.info("=" * 60)
     logger.info("✓ PDF processing service ready")
     logger.info("✓ Clause detection service ready")
+
+     # Preload translation models in background thread
+    import threading
+    threading.Thread(target=preload_translation_models, daemon=True).start()
+    logger.info("✓ Translation model loading initiated (background)")
     
     # Log clause prediction configuration
     prediction_mode = os.getenv("CLAUSE_PREDICTION_MODE", "manual")
