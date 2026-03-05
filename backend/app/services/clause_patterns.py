@@ -215,7 +215,7 @@ CLAUSE_DEFINITIONS = {
             r"(?i)B[e3][f#]*[o0][r#]*[e3][\s#*&@:]*",  # Allows typos/corruption in "Before"
             r"(?i)C[o0][r#]*[a@][m#]*\s*:",  # Allows typos/corruption in "Coram"
         ],
-        "corruption_indicators": [r"[#*&@]{2,}", r"[B][^e]", r"[C][^o]"],
+        "corruption_indicators": [r"[#*&@]{2,}", r"[Bb][^eE]", r"[Cc][^oO]"],
         "frequency": "🔴 Always Present (88.7%)",
         "detection_rate": 0.927
     },
