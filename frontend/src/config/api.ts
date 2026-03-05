@@ -384,6 +384,265 @@ export async function downloadDocument(filename: string): Promise<Blob> {
   return res.blob();
 }
 
+// ========== Legal Lineage Types ==========
+export interface CaseNode {
+  id: string;
+  title: string;
+  year?: number;
+  summary?: string;
+  citations?: number;
+  citedBy?: number;
+  isCentral?: boolean;
+  acts?: ActTreatment[];
+}
+
+export interface ActTreatment {
+  act: string;
+  treatment: 'APPLIED' | 'DISTINGUISHED' | 'FOLLOWED' | 'OVERRULED';
+  confidence: number;
+}
+
+export type RelationType = 'cites' | 'followed' | 'distinguished' | 'limited' | 'overruled';
+
+export interface CitationEdge {
+  id?: string;
+  source: string;
+  target: string;
+  relation: RelationType;
+  weight?: number;
+  context?: string;
+  confidence?: number;
+}
+
+export interface LineageAnalysisRequest {
+  filename: string;
+}
+
+export interface LineageAnalysisResponse {
+  filename: string;
+  results: ActTreatmentResult[];
+  message?: string;
+}
+
+export interface ActTreatmentResult {
+  case: string;
+  act: string;
+  treatment: string;
+  confidence: number;
+}
+
+export interface SearchResult {
+  id: string;
+  title: string;
+  year?: number;
+  summary?: string;
+  citations?: number;
+  citedBy?: number;
+}
+
+const createCaseNodesFromTreatments = (
+  filename: string,
+  treatments: ActTreatmentResult[]
+): CaseNode[] => {
+  // Group treatments by act to create nodes
+  const actMap = new Map<string, CaseNode>();
+  
+  treatments.forEach((t, index) => {
+    if (!actMap.has(t.act)) {
+      actMap.set(t.act, {
+        id: `act-${index}-${t.act.replace(/[^a-zA-Z0-9]/g, '-')}`,
+        title: t.act,
+        year: new Date().getFullYear(),
+        summary: `Treatment: ${t.treatment} (Confidence: ${(t.confidence * 100).toFixed(1)}%)`,
+        citations: 0,
+        citedBy: 0,
+        isCentral: index === 0,
+        acts: [{
+          act: t.act,
+          treatment: t.treatment as any,
+          confidence: t.confidence
+        }]
+      });
+    }
+  });
+  
+  return Array.from(actMap.values());
+};
+
+// Create citation edges between acts based on relationships
+const createEdgesFromTreatments = (
+  treatments: ActTreatmentResult[],
+  nodes: CaseNode[]
+): CitationEdge[] => {
+  const edges: CitationEdge[] = [];
+  const nodeMap = new Map(nodes.map(n => [n.title, n]));
+  
+  // Create edges between related acts
+  for (let i = 0; i < treatments.length; i++) {
+    for (let j = i + 1; j < treatments.length; j++) {
+      const sourceNode = nodeMap.get(treatments[i].act);
+      const targetNode = nodeMap.get(treatments[j].act);
+      
+      if (sourceNode && targetNode) {
+        edges.push({
+          id: `edge-${i}-${j}`,
+          source: sourceNode.id,
+          target: targetNode.id,
+          relation: 'cites',
+          weight: (treatments[i].confidence + treatments[j].confidence) / 2,
+          confidence: Math.min(treatments[i].confidence, treatments[j].confidence)
+        });
+      }
+    }
+  }
+  
+  return edges;
+};
+
+export async function analyzeAct(filename: string): Promise<{ 
+  filename: string;
+  results: ActTreatmentResult[];
+  nodes: CaseNode[]; 
+  edges: CitationEdge[] 
+}> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/analyze-lineage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ filename }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to analyze file: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    // Transform backend response to frontend format
+    const nodes = createCaseNodesFromTreatments(data.filename, data.results);
+    const edges = createEdgesFromTreatments(data.results, nodes);
+    
+    return {
+      filename: data.filename,
+      results: data.results,
+      nodes,
+      edges,
+    };
+  } catch (error) {
+    console.error('Error analyzing file:', error);
+    throw error;
+  }
+}
+
+export async function analyzeUploadedFile(filename: string): Promise<{
+  filename: string;
+  results: ActTreatmentResult[];
+  nodes: CaseNode[];
+  edges: CitationEdge[];
+}> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/analyze-lineage`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ filename }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to analyze file: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    // Transform to frontend format
+    const nodes = createCaseNodesFromTreatments(data.filename, data.results);
+    const edges = createEdgesFromTreatments(data.results, nodes);
+    
+    return {
+      filename: data.filename,
+      results: data.results,
+      nodes,
+      edges,
+    };
+  } catch (error) {
+    console.error('Error analyzing file:', error);
+    throw error;
+  }
+}
+
+export async function uploadAndAnalyzeLineage(file: File): Promise<{
+  filename: string;
+  results: ActTreatmentResult[];
+  nodes: CaseNode[];
+  edges: CitationEdge[];
+}> {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/upload-and-analyze`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to upload and analyze: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    
+    // Transform to frontend format
+    const nodes = createCaseNodesFromTreatments(data.filename, data.results);
+    const edges = createEdgesFromTreatments(data.results, nodes);
+    
+    return {
+      filename: data.filename,
+      results: data.results,
+      nodes,
+      edges,
+    };
+  } catch (error) {
+    console.error('Error uploading and analyzing:', error);
+    throw error;
+  }
+}
+
+export async function searchLineageCases(query: string): Promise<SearchResult[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/search?q=${encodeURIComponent(query)}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to search cases: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error searching cases:', error);
+    return [];
+  }
+}
+
+export async function fetchLineageGraph(caseId: string): Promise<{ 
+  nodes: CaseNode[]; 
+  edges: CitationEdge[] 
+}> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/lineage/${caseId}`);
+    
+    if (!response.ok) {
+      throw new Error(`Failed to fetch lineage: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error fetching lineage:', error);
+    return { nodes: [], edges: [] };
+  }
+}
+
 export default {
   uploadPdf,
   analyzeClauses,
@@ -400,4 +659,9 @@ export default {
   acceptSuggestion,
   finalizeDocument,
   downloadDocument,
+  analyzeAct,
+  analyzeUploadedFile,
+  uploadAndAnalyzeLineage,
+  searchLineageCases,
+  fetchLineageGraph,
 };
