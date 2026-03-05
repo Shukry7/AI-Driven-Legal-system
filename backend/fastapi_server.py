@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from fastapi_app.api.classification_routes import router as classification_router
 from fastapi_app.api.clause_routes import router as clause_router
 from fastapi_app.api.pdf_routes import router as pdf_router
+from fastapi_app.api.lineage_routes import router as lineage_router
 
 # Configure logging
 logging.basicConfig(
@@ -42,6 +43,7 @@ app.add_middleware(
 app.include_router(classification_router, prefix="/api", tags=["classification"])
 app.include_router(clause_router, prefix="/api", tags=["clause_detection"])
 app.include_router(pdf_router, tags=["pdf_processing"])
+app.include_router(lineage_router, prefix="/api", tags=["lineage_analysis"])
 
 
 @app.on_event("startup")
@@ -108,6 +110,9 @@ async def root():
                     "analyze_clauses": "/api/analyze-clauses",
                     "list_clauses": "/api/clauses/list",
                     "health": "/api/health"
+                },
+                "lineage_analysis": {
+                    "upload_and_analyze": "/api/lineage/analyze-lineage"
                 },
                 "docs": "/docs",
                 "redoc": "/redoc"
