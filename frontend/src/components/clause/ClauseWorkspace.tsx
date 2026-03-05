@@ -954,7 +954,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   const renderDocumentWithHighlights = () => {
     // Strip formatting markers for display (but keep them in the actual data)
-    const displayText = stripFormattingMarkers(documentText);
+    const displayText = stripFormattingMarkers(modifiedDocumentText);
     const lines = displayText.trim().split('\n');
     let charOffset = 0;
 
