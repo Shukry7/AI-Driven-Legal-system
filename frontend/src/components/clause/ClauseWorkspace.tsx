@@ -651,6 +651,16 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   // Helper function to find insertion position for a clause
   const findClauseInsertionPosition = (text: string, clauseKey: string): number => {
+    // Judge concurrence block goes at the very end of the document (last 5-15 lines)
+    if (clauseKey === 'judge_concurrence') {
+      return text.length;
+    }
+    
+    // Conclusion section and disposition formula go near the end (80-95% through document)
+    if (['conclusion_section', 'disposition_formula'].includes(clauseKey)) {
+      return Math.floor(text.length * 0.9);
+    }
+    
     // Header clauses go at the very beginning
     if (['case_number', 'case_title', 'court_name', 'judge_names', 'judge_bench'].includes(clauseKey)) {
       return 0;
