@@ -1,4 +1,4 @@
-import { AlertCircle, Upload, Clock, CheckCircle } from "lucide-react";
+import { AlertCircle, Upload, FileText, Clock } from "lucide-react";
 import {
   Card,
   CardContent,
@@ -10,40 +10,54 @@ import { Button } from "@/components/ui/button";
 
 interface ClassificationEntryProps {
   onStartNew: () => void;
-  onSelectJob?: (id: string) => void;
+  onSelectFile?: (id: string) => void;
 }
 
 export function ClassificationEntry({
   onStartNew,
-  onSelectJob,
+  onSelectFile,
 }: ClassificationEntryProps) {
-  const recentAnalyses = [
+  // Mock OCR-processed files from Flask backend
+  const ocrProcessedFiles = [
     {
       id: "1",
-      name: "Supreme Court Judgment - Civil Appeal 2023/45",
-      date: "2024-01-15",
-      status: "completed",
-      highRisk: 5,
-      mediumRisk: 8,
-      lowRisk: 12,
+      filename: "Supreme Court Judgment - Civil Appeal 2023-45.pdf",
+      uploadDate: "2024-01-15",
+      pages: 12,
+      extractedText: "Sample extracted text...",
+      status: "ready",
     },
     {
       id: "2",
-      name: "District Court - Contract Dispute Case",
-      date: "2024-01-14",
-      status: "completed",
-      highRisk: 3,
-      mediumRisk: 6,
-      lowRisk: 15,
+      filename: "District Court - Contract Dispute Case.pdf",
+      uploadDate: "2024-01-14",
+      pages: 8,
+      extractedText: "Sample extracted text...",
+      status: "ready",
     },
     {
       id: "3",
-      name: "High Court - Property Rights Matter",
-      date: "2024-01-12",
-      status: "completed",
-      highRisk: 7,
-      mediumRisk: 10,
-      lowRisk: 8,
+      filename: "High Court - Property Rights Matter.pdf",
+      uploadDate: "2024-01-12",
+      pages: 15,
+      extractedText: "Sample extracted text...",
+      status: "ready",
+    },
+    {
+      id: "4",
+      filename: "Commercial Arbitration Award 2024.pdf",
+      uploadDate: "2024-01-10",
+      pages: 20,
+      extractedText: "Sample extracted text...",
+      status: "ready",
+    },
+    {
+      id: "5",
+      filename: "Land Dispute Settlement Order.pdf",
+      uploadDate: "2024-01-08",
+      pages: 6,
+      extractedText: "Sample extracted text...",
+      status: "ready",
     },
   ];
 
@@ -64,62 +78,52 @@ export function ClassificationEntry({
         <CardContent>
           <Button onClick={onStartNew} size="lg" className="w-full sm:w-auto">
             <Upload className="w-4 h-4 mr-2" />
-            Analyze New Judgment
+            Upload & Classify New Document
           </Button>
         </CardContent>
       </Card>
 
-      {/* Recent Analyses */}
+      {/* OCR Processed Files */}
       <Card>
         <CardHeader>
           <CardTitle className="text-lg flex items-center gap-2">
-            <Clock className="w-5 h-5 text-muted-foreground" />
-            Recent Analyses
+            <FileText className="w-5 h-5 text-muted-foreground" />
+            OCR Processed Documents
           </CardTitle>
+          <CardDescription>
+            Select a document to analyze for legal risk classification
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="space-y-3">
-            {recentAnalyses.map((analysis) => (
+            {ocrProcessedFiles.map((file) => (
               <div
-                key={analysis.id}
-                onClick={() => onSelectJob?.(analysis.id)}
-                className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/5 transition-colors cursor-pointer"
+                key={file.id}
+                onClick={() => onSelectFile?.(file.id)}
+                className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/5 transition-colors cursor-pointer group"
               >
                 <div className="flex items-center gap-3 flex-1">
-                  <div className="w-10 h-10 bg-accent/10 rounded-lg flex items-center justify-center">
-                    <AlertCircle className="w-5 h-5 text-accent" />
+                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                    <FileText className="w-5 h-5 text-blue-600" />
                   </div>
-                  <div className="flex-1">
-                    <h3 className="font-medium text-foreground">
-                      {analysis.name}
+                  <div className="flex-1 min-w-0">
+                    <h3 className="font-medium text-foreground truncate">
+                      {file.filename}
                     </h3>
                     <p className="text-sm text-muted-foreground">
-                      {analysis.date}
+                      Uploaded: {file.uploadDate} • {file.pages} pages
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-4">
+                <div className="flex items-center gap-3">
                   <div className="text-right">
-                    <div className="flex items-center gap-2 text-sm mb-1">
-                      <span className="inline-flex items-center gap-1">
-                        <span className="w-2 h-2 bg-red-500 rounded-full"></span>
-                        <span className="font-medium">{analysis.highRisk}</span>
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <span className="w-2 h-2 bg-yellow-500 rounded-full"></span>
-                        <span className="font-medium">
-                          {analysis.mediumRisk}
-                        </span>
-                      </span>
-                      <span className="inline-flex items-center gap-1">
-                        <span className="w-2 h-2 bg-green-500 rounded-full"></span>
-                        <span className="font-medium">{analysis.lowRisk}</span>
-                      </span>
+                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
+                      <Clock className="w-3 h-3" />
+                      {file.status === "ready" ? "Ready" : "Processing"}
                     </div>
-                    <div className="flex items-center gap-1 text-xs text-success">
-                      <CheckCircle className="w-3 h-3" />
-                      Completed
-                    </div>
+                  </div>
+                  <div className="text-accent font-medium text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                    Analyze →
                   </div>
                 </div>
               </div>
