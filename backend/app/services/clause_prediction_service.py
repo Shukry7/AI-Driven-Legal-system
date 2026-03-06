@@ -45,7 +45,7 @@ PREDICTABLE_CLAUSES = {
         "predictability": "FULL",
         "frequency": "95.5%",
         "position": "End of judgment (last 5-15 lines)",
-        "detection_regex": r"I\s+agree[.,]?",
+        "detection_regex": r"(?:I\s+(?:agree|concur|accord)|Agreed)",
         "detection_scope": "last_20_percent",
     },
     "conclusion_section": {
@@ -133,7 +133,7 @@ PREDICTABLE_CLAUSES = {
         "predictability": "FULL",
         "frequency": "64.5%",
         "position": "Last 5% of document",
-        "detection_regex": r"(?:with(?:out)?\s+costs?|[Nn]o\s+costs?|costs?\s+(?:fixed|assessed)\s+at\s+Rs\.|no\s+order\s+(?:as\s+to|for|regarding|with\s+regard\s+to)\s+costs?|(?:I|we)\s+(?:make|do)\s+no[r]?\s+order.*?costs?|bear\s+(?:their\s+own|his|her|its)\s+(?:own\s+)?costs?|entitled\s+to\s+(?:the\s+)?costs?|costs?\s+(?:of|to)\s+(?:this|the)\s+(?:appeal|action|case|petition|application)|(?:pay|paid)\s+Rs\.?\s*[\d,/]+.*?(?:as\s+)?costs?|(?:punitive|nominal|taxed)\s+costs?|subject\s+to\s+costs?)",
+        "detection_regex": r"(?:with(?:out)?\s+costs?|[Nn]o\s+(?:order\s+(?:as\s+to\s+)?)?costs?|costs?\s+(?:fixed|assessed|taxed)\s+at|(?:bear|pay).*?costs?|entitled\s+to.*?costs?|Rs\.?\s*[\d,/]+.*?costs?)",
         "detection_scope": "last_20_percent",
     },
 }
@@ -152,9 +152,10 @@ def extract_judge_names(text: str) -> List[str]:
         names = []
         for line in names_block.strip().split('\n'):
             line = line.strip()
-            # Remove "Hon." prefix
-            line = re.sub(r'^(?:Hon\.?\s*)', '', line)
-            if line and ('J' in line or 'CJ' in line):
+            # Remove "Hon." or "The Honourable" prefix
+            line = re.sub(r'^(?:The\s+)?(?:Hon(?:ou)?rable|Hon)\.?\s*', '', line, flags=re.IGNORECASE)
+            # Check for judge designation including PC, J format
+            if line and re.search(r'(?:PC\s*,\s*)?(?:J|CJ)\b', line):
                 names.append(line)
         return names
     return []
@@ -162,27 +163,27 @@ def extract_judge_names(text: str) -> List[str]:
 
 def extract_judgment_author(text: str) -> Optional[str]:
     """Extract which judge wrote the judgment."""
-    # Look for pattern after Decided/Written Submissions: "Surname, J" or "Surname, PC, J"
-    match = re.search(
-        r'(?:Decided\s+on|Written\s+Submissions|Argued\s+on)[\s\S]*?\n\s*\n([\s\S]*?)(?=\n\s*\n)',
-        text[:5000]
+    header = text[:5000]
+    
+    # Method 1: Find judge name after "Decided on:" or "Written Submissions:" line
+    # Pattern: Date line followed by judge name on next non-empty line
+    date_match = re.search(
+        r'(?:Decided\s+on|Written\s+Submissions)\s*:?\s*[\d./-]+\s*\n+\s*([A-Z][^\n]{10,80}?(?:PC\s*,?\s*)?(?:J|CJ))',
+        header, re.IGNORECASE
     )
-    if match:
-        block = match.group(1)
-        author_match = re.search(
-            r'([A-Z][a-z]+(?:\s+(?:de\s+)?[A-Z][a-z]+)*)\s*,?\s*(?:PC\s*,?\s*)?(?:J|CJ)\b',
-            block
-        )
-        if author_match:
-            return author_match.group(0).strip()
-
-    # Fallback: look in the body text for first judge reference
-    body_match = re.search(
-        r'\n\s*([A-Z][a-z]+(?:\s+(?:de\s+)?[A-Z][a-z]+)*)\s*,?\s*(?:PC\s*,?\s*)?(?:J|CJ)\s*\.?\s*\n',
-        text[2000:6000]
+    if date_match:
+        return date_match.group(1).strip()
+    
+    # Method 2: Find first judge designation after header section (Before/Counsel)
+    # Look for standalone judge name line (not in list)
+    body_start = 1000 if 'DECIDED ON' in header or 'Decided on' in header else 500
+    author_match = re.search(
+        r'^\s*([A-Z][a-z]+(?:\s+(?:de\s+)?[A-Z][a-z]+)*)\s*,\s*(?:PC\s*,\s*)?(?:J|CJ)\s*\.?\s*$',
+        text[body_start:body_start+3000], re.MULTILINE
     )
-    if body_match:
-        return body_match.group(0).strip()
+    if author_match:
+        return author_match.group(1).strip() + ', ' + author_match.group(0).split(',')[-1].strip()
+    
     return None
 
 
@@ -212,24 +213,35 @@ def extract_case_numbers(text: str) -> Dict[str, str]:
 
 
 def extract_party_names(text: str) -> Dict[str, str]:
-    """Extract plaintiff/appellant and respondent/defendant names."""
+    """Extract plaintiff/appellant and respondent/defendant names with roles."""
     header = text[:3000]
     parties = {}
 
     # Look for name blocks before party role labels
     petitioner_match = re.search(
-        r'([A-Z][^\n]{2,50})\n[^\n]*(?:Plaintiff|Appellant|Petitioner)',
-        header
+        r'([A-Z][^\n]{2,80})\s*\n[^\n]*?(Plaintiff-Appellant|Appellant|Petitioner|Plaintiff|Accused-Appellant)',
+        header, re.MULTILINE
     )
     if petitioner_match:
         parties['petitioner'] = petitioner_match.group(1).strip()
+        parties['petitioner_role'] = petitioner_match.group(2).strip()
 
+    # Handle multiple respondents and "AND BETWEEN" structures
     respondent_match = re.search(
-        r'(?:Vs\.?|[Vv]ersus)\s*\n+([A-Z][^\n]{2,50})',
-        header
+        r'(?:Vs?\.?|versus|AND\s+(?:NOW\s+)?BETWEEN)\s*\n+([A-Z][^\n]{2,80})\s*\n[^\n]*?(Respondent-Respondent|Respondent|Defendant)',
+        header, re.IGNORECASE | re.MULTILINE
     )
     if respondent_match:
         parties['respondent'] = respondent_match.group(1).strip()
+        parties['respondent_role'] = respondent_match.group(2).strip()
+    
+    # Additional respondents (if any)
+    additional_respondents = re.findall(
+        r'(?:AND|\n)\s*([A-Z][^\n]{10,80})\s*\n[^\n]*?(\d+(?:st|nd|rd|th)?\s+Respondent)',
+        header, re.IGNORECASE | re.MULTILINE
+    )
+    if additional_respondents:
+        parties['additional_respondents'] = [name.strip() for name, _ in additional_respondents]
 
     return parties
 
@@ -313,23 +325,81 @@ def extract_outcome(text: str) -> str:
         return "dismissed"
     elif re.search(r'leave\s+to\s+appeal\s+(?:is\s+)?(?:refused|dismissed)', last_section, re.IGNORECASE):
         return "refused"
+    elif re.search(r'set\s+aside', last_section, re.IGNORECASE):
+        return "set_aside"
+    elif re.search(r'(?:judgment|order)\s+(?:is\s+)?affirmed', last_section, re.IGNORECASE):
+        return "affirmed"
     return "unknown"
 
 
-def extract_lower_court(text: str) -> str:
-    """Extract lower court name from case numbers or body."""
+def extract_cost_info(text: str) -> Dict[str, Any]:
+    """Extract information about costs from document."""
+    # Increased search window from 2000 to 3000 characters
+    last_section = text[-3000:]
+    cost_info = {
+        "has_costs": False,
+        "cost_type": "no_order",
+        "cost_amount": None
+    }
+    
+    if re.search(r'with\s+costs', last_section, re.IGNORECASE):
+        cost_info["has_costs"] = True
+        cost_info["cost_type"] = "with_costs"
+    elif re.search(r'without\s+costs', last_section, re.IGNORECASE):
+        cost_info["has_costs"] = True
+        cost_info["cost_type"] = "without_costs"
+    elif re.search(r'no\s+(?:order\s+(?:as\s+to\s+)?)?costs?', last_section, re.IGNORECASE):
+        cost_info["has_costs"] = True
+        cost_info["cost_type"] = "no_order"
+    elif re.search(r'(?:each\s+party|parties\s+to)\s+bear.*?costs', last_section, re.IGNORECASE):
+        cost_info["has_costs"] = True
+        cost_info["cost_type"] = "parties_bear_own"
+    
+    # Extract cost amount if mentioned (handle Rs. 21,000/- format)
+    amount_match = re.search(r'Rs\.?\s*([\d,]+)(?:/-)?.{0,30}costs?', last_section, re.IGNORECASE)
+    if amount_match:
+        cost_info["cost_amount"] = amount_match.group(1).replace(',', '')
+    
+    return cost_info
+
+
+def extract_lower_court(text: str) -> Dict[str, Any]:
+    """Extract lower court information from case numbers or body."""
     header = text[:3000]
-    lc_match = re.search(r'(District\s+Court\s+of\s+\w+)', header)
+    lower_court_info = {
+        "name": "lower court",
+        "type": "unknown",
+        "location": ""
+    }
+    
+    # Try to get specific court with location
+    lc_match = re.search(r'(District\s+Court)\s+(?:of\s+)?(\w+)', header, re.IGNORECASE)
     if lc_match:
-        return lc_match.group(1)
-    hc_match = re.search(r'(High\s+Court\s+of\s+(?:the\s+)?[\w\s]+Province)', header)
+        lower_court_info["name"] = lc_match.group(0).strip()
+        lower_court_info["type"] = "District Court"
+        lower_court_info["location"] = lc_match.group(2)
+        return lower_court_info
+    
+    hc_match = re.search(r'((?:Commercial\s+)?High\s+Court)(?:\s+of\s+(?:the\s+)?([\w\s]+Province))?', header, re.IGNORECASE)
     if hc_match:
-        return hc_match.group(1)
-    if re.search(r'District\s+Court', header):
-        return "District Court"
-    if re.search(r'High\s+Court', header):
-        return "High Court"
-    return "lower court"
+        lower_court_info["name"] = hc_match.group(0).strip()
+        lower_court_info["type"] = "High Court"
+        if hc_match.group(2):
+            lower_court_info["location"] = hc_match.group(2)
+        return lower_court_info
+    
+    # Fallback to generic detection
+    if re.search(r'Court\s+of\s+Appeal', header, re.IGNORECASE):
+        lower_court_info["name"] = "Court of Appeal"
+        lower_court_info["type"] = "Court of Appeal"
+    elif re.search(r'High\s+Court', header, re.IGNORECASE):
+        lower_court_info["name"] = "High Court"
+        lower_court_info["type"] = "High Court"
+    elif re.search(r'District\s+Court', header, re.IGNORECASE):
+        lower_court_info["name"] = "District Court"
+        lower_court_info["type"] = "District Court"
+    
+    return lower_court_info
 
 
 def extract_court(text: str) -> str:
@@ -340,6 +410,103 @@ def extract_court(text: str) -> str:
     elif re.search(r'COURT\s+OF\s+APPEAL', header, re.IGNORECASE):
         return "Court of Appeal"
     return "Supreme Court"
+
+
+def calculate_insertion_point(text: str, clause_key: str) -> Dict[str, Any]:
+    """
+    Calculate the best insertion point for a clause in the document.
+    Returns line number estimate and descriptive position.
+    """
+    lines = text.split('\n')
+    total_lines = len(lines)
+    insertion_info = {
+        "line_estimate": 0,
+        "position_description": "",
+        "marker_before": "",
+        "marker_after": ""
+    }
+    
+    if clause_key == "procedural_history":
+        # Insert after header section (BEFORE/COUNSEL), before body text
+        for i, line in enumerate(lines[:min(200, total_lines)]):
+            if re.search(r'DECIDED\\s+ON|WRITTEN\\s+SUBMISSIONS', line, re.IGNORECASE):
+                insertion_info["line_estimate"] = i + 3
+                insertion_info["position_description"] = "After header, before judgment body"
+                insertion_info["marker_before"] = "DECIDED ON / WRITTEN SUBMISSIONS section"
+                insertion_info["marker_after"] = "First paragraph of judgment"
+                return insertion_info
+        # Fallback: 10-15% into document
+        insertion_info["line_estimate"] = int(total_lines * 0.12)
+        insertion_info["position_description"] = "After header section (estimated)"
+        
+    elif clause_key == "disposition_formula":
+        # Insert before judge concurrence or cost order, in last 10%
+        start_idx = int(total_lines * 0.85)
+        for i in range(start_idx, total_lines):
+            if re.search(r'(I\\s+agree|JUDGE\\s+OF\\s+THE)', lines[i], re.IGNORECASE):
+                insertion_info["line_estimate"] = max(0, i - 2)
+                insertion_info["position_description"] = "Before judge concurrence blocks"
+                insertion_info["marker_after"] = "Judge concurrence section"
+                return insertion_info
+        # Fallback: 92% into document
+        insertion_info["line_estimate"] = int(total_lines * 0.92)
+        insertion_info["position_description"] = "Before end of judgment (estimated)"
+        
+    elif clause_key == "cost_order":
+        # Insert right before judge concurrence
+        start_idx = int(total_lines * 0.85)
+        for i in range(start_idx, total_lines):
+            if re.search(r'I\\s+agree', lines[i], re.IGNORECASE):
+                insertion_info["line_estimate"] = max(0, i - 1)
+                insertion_info["position_description"] = "After disposition, before judge concurrence"
+                insertion_info["marker_after"] = "Judge concurrence blocks"
+                return insertion_info
+        # Fallback: 94% into document
+        insertion_info["line_estimate"] = int(total_lines * 0.94)
+        insertion_info["position_description"] = "Before judge concurrence (estimated)"
+        
+    elif clause_key == "judge_concurrence":
+        # Append to very end
+        insertion_info["line_estimate"] = total_lines
+        insertion_info["position_description"] = "At end of document"
+        insertion_info["marker_before"] = "Final disposition/cost order"
+        
+    elif clause_key == "leave_to_appeal":
+        # Insert after procedural history, before facts (15-25%)
+        for i, line in enumerate(lines[:min(300, total_lines)]):
+            if re.search(r'(The\\s+[Ff]acts?|[Ff]actual\\s+[Bb]ackground|BACKGROUND)', line):
+                insertion_info["line_estimate"] = max(0, i - 2)
+                insertion_info["position_description"] = "After procedural history, before facts section"
+                insertion_info["marker_after"] = "Facts section"
+                return insertion_info
+        # Fallback: 20% into document
+        insertion_info["line_estimate"] = int(total_lines * 0.20)
+        insertion_info["position_description"] = "After procedural history (estimated)"
+    
+    return insertion_info
+
+
+def extract_dates(text: str) -> Dict[str, str]:
+    """Extract important dates from the judgment."""
+    dates = {}
+    header = text[:2000]
+    
+    # Argued on date
+    argued_match = re.search(r'ARGUED\\s+ON\\s*:?\\s*([\\d./-]+)', header, re.IGNORECASE)
+    if argued_match:
+        dates['argued_on'] = argued_match.group(1).strip()
+    
+    # Decided on date
+    decided_match = re.search(r'DECIDED\\s+ON\\s*:?\\s*([\\d./-]+)', header, re.IGNORECASE)
+    if decided_match:
+        dates['decided_on'] = decided_match.group(1).strip()
+    
+    # Written submissions date
+    submissions_match = re.search(r'WRITTEN\\s+SUBMISSIONS.*?:?\\s*([\\d./-]+)', header, re.IGNORECASE)
+    if submissions_match:
+        dates['written_submissions'] = submissions_match.group(1).strip()
+    
+    return dates
 
 
 # ─── Detect Missing Predictable Clauses ───────────────────────────────────────
@@ -391,6 +558,9 @@ def detect_missing_predictable_clauses(text: str) -> List[Dict[str, Any]]:
 def extract_context_for_clause(text: str, clause_key: str) -> Dict[str, Any]:
     """Extract relevant context from document for a specific clause type."""
     context = {"clause_type": clause_key}
+    
+    # Add insertion point information for all clauses
+    context["insertion_point"] = calculate_insertion_point(text, clause_key)
 
     if clause_key == "judge_concurrence":
         context["judge_names"] = extract_judge_names(text)
@@ -400,24 +570,36 @@ def extract_context_for_clause(text: str, clause_key: str) -> Dict[str, Any]:
     elif clause_key == "conclusion_section":
         context["case_type"] = extract_case_type(text)
         context["outcome"] = extract_outcome(text)
-        context["lower_court"] = extract_lower_court(text)
+        lower_court_info = extract_lower_court(text)
+        context["lower_court"] = lower_court_info["name"]
+        context["lower_court_type"] = lower_court_info["type"]
 
     elif clause_key == "disposition_formula":
         context["case_type"] = extract_case_type(text)
         context["outcome"] = extract_outcome(text)
+        lower_court_info = extract_lower_court(text)
+        context["lower_court"] = lower_court_info["name"]
+        context["lower_court_type"] = lower_court_info["type"]
+        context["cost_info"] = extract_cost_info(text)
 
     elif clause_key == "procedural_history":
         context["case_numbers"] = extract_case_numbers(text)
         context["parties"] = extract_party_names(text)
         context["case_type"] = extract_case_type(text)
-        context["lower_court"] = extract_lower_court(text)
+        lower_court_info = extract_lower_court(text)
+        context["lower_court"] = lower_court_info["name"]
+        context["lower_court_type"] = lower_court_info["type"]
+        context["dates"] = extract_dates(text)
 
     elif clause_key == "leave_to_appeal":
         context["questions_of_law"] = extract_questions_of_law(text)
         context["case_type"] = extract_case_type(text)
+        context["dates"] = extract_dates(text)
 
     elif clause_key == "lower_court_findings":
-        context["lower_court"] = extract_lower_court(text)
+        lower_court_info = extract_lower_court(text)
+        context["lower_court"] = lower_court_info["name"]
+        context["lower_court_type"] = lower_court_info["type"]
         context["case_type"] = extract_case_type(text)
         context["outcome"] = extract_outcome(text)
 
@@ -445,6 +627,9 @@ def extract_context_for_clause(text: str, clause_key: str) -> Dict[str, Any]:
     elif clause_key == "cost_order":
         context["case_type"] = extract_case_type(text)
         context["outcome"] = extract_outcome(text)
+        context["cost_info"] = extract_cost_info(text)
+        # Check if government party (usually no costs)
+        context["has_government_party"] = bool(re.search(r'Attorney[- ]General', text[:3000], re.IGNORECASE))
 
     return context
 
@@ -458,22 +643,55 @@ def build_clause_prompt(clause_key: str, context: Dict[str, Any]) -> str:
         judge_names = context.get("judge_names", [])
         author = context.get("judgment_author", "Unknown")
         court = context.get("court", "Supreme Court")
+        
         return f"""Generate the judge concurrence block for a Sri Lankan {court} judgment.
 
-The judgment was authored by {author}.
-The bench consists of: {', '.join(judge_names) if judge_names else 'Unknown judges'}
+**Context:**
+- Judgment authored by: {author}
+- Full bench: {', '.join(judge_names) if judge_names else 'Unknown judges'}
+- Court: {court}
 
-For each NON-authoring judge, generate:
-[Judge Full Name]
+**Examples from actual judgments:**
+
+Example 1 (2 concurring judges):
+"K. Sripavan, J.
 I agree.
 
-JUDGE OF THE {court.upper()}
+JUDGE OF THE SUPREME COURT
 
-Rules:
-- The authoring judge does NOT get an "I agree" block
-- Each non-authoring judge gets their own block
-- Use exact names as provided
-- Title is always "JUDGE OF THE {court.upper()}" (or "CHIEF JUSTICE" if applicable)"""
+
+S.I. Imam, J.
+I agree.
+
+JUDGE OF THE SUPREME COURT"
+
+Example 2 (with Chief Justice):
+"N.G. Amaratunga, J.
+I agree.
+
+JUDGE OF THE SUPREME COURT
+
+
+P.A. Ratnayake, PC., J.
+I agree.
+
+JUDGE OF THE SUPREME COURT"
+
+**Rules:**
+1. The authoring judge ({author}) does NOT get an "I agree" block
+2. Each NON-authoring judge gets their own concurrence block
+3. Format for each:
+   [Judge Full Name with designation]
+   I agree.
+   
+   JUDGE OF THE {court.upper()}
+
+4. Separate each judge's block with double line breaks
+5. Use exact names as provided from the bench
+6. Title is always "JUDGE OF THE {court.upper()}" (or "CHIEF JUSTICE OF SRI LANKA" if CJ)
+
+**Your task:**
+Generate the judge concurrence blocks for all non-authoring judges. Use exact formatting from examples."""
 
     elif clause_key == "conclusion_section":
         return f"""Generate a conclusion section for a Sri Lankan Supreme Court judgment.
@@ -492,50 +710,116 @@ Follow with the final order (appeal dismissed/allowed) and reference the lower c
 Keep it concise - 2-4 sentences maximum."""
 
     elif clause_key == "disposition_formula":
+        case_type = context.get('case_type', 'civil_appeal')
+        outcome = context.get('outcome', 'unknown')
+        lower_court = context.get("lower_court", "lower court")
+        lower_court_type = context.get("lower_court_type", "lower court")
+        cost_info = context.get("cost_info", {})
+        
         return f"""Generate the disposition formula for a Sri Lankan Supreme Court judgment.
 
-Case type: {context.get('case_type', 'civil_appeal')}
-Outcome: {context.get('outcome', 'unknown')}
+**Context:**
+- Case type: {case_type}
+- Outcome: {outcome}
+- Lower court: {lower_court} ({lower_court_type})
+- Cost indication: {cost_info.get('cost_type', 'unknown')}
 
-Use one of these standard formulas:
-- "The appeal is dismissed [with/without costs]."
-- "The appeal is allowed. The judgment of the [lower court] is set aside."
-- "The application is dismissed. No costs."
-- "The appeal is partly allowed."
+**Examples from actual judgments:**
 
-Generate ONLY the disposition formula line, nothing else."""
+If appeal DISMISSED:
+"The appeal is dismissed with costs."
+"The appeal is dismissed without costs."
+"I would therefore, dismiss the appeal, but without costs."
+
+If appeal ALLOWED:
+"The appeal is allowed. The judgment of the Court of Appeal dated [date] is set aside."
+"The appeal is allowed. The judgment of the District Court is affirmed."
+"The appeal is allowed with costs."
+
+If appeal PARTLY ALLOWED:
+"The appeal is partly allowed. The order of the High Court is set aside in part."
+
+If SET ASIDE and AFFIRM pattern:
+"The judgment of the Civil Appellate High Court dated 17th January 2011 is hereby set aside. The judgment of the District Court of Mount Lavinia dated 13th December 2007 is affirmed."
+
+**Your task:**
+Generate ONLY the disposition formula (1-3 sentences) based on the outcome. Use formal language matching the examples. Do NOT include cost orders (those come separately)."""
 
     elif clause_key == "procedural_history":
         cases = context.get("case_numbers", {})
         parties = context.get("parties", {})
+        case_type = context.get('case_type', 'civil_appeal')
+        lower_court = context.get("lower_court", "lower court")
+        dates = context.get("dates", {})
+        
+        # Get party roles
+        petitioner = parties.get('petitioner', '[Party Name]')
+        petitioner_role = parties.get('petitioner_role', 'Plaintiff-Appellant')
+        respondent = parties.get('respondent', '[Party Name]')
+        respondent_role = parties.get('respondent_role', 'Respondent')
+        
         return f"""Generate a procedural history paragraph for a Sri Lankan Supreme Court judgment.
 
-Case numbers: {json.dumps(cases)}
-Petitioner/Plaintiff: {parties.get('petitioner', '[Party Name]')}
-Respondent/Defendant: {parties.get('respondent', '[Party Name]')}
-Case type: {context.get('case_type', 'civil_appeal')}
-Lower court: {context.get('lower_court', 'lower court')}
+**Context:**
+- Case numbers: SC: {cases.get('sc', '[SC case no]')}, HCCA: {cases.get('hcca', '[HC case no]')}, DC: {cases.get('dc', '[DC case no]')}
+- Petitioner: {petitioner} ({petitioner_role})
+- Respondent: {respondent} ({respondent_role})
+- Case type: {case_type}
+- Lower court: {lower_court}
 
-Generate a paragraph explaining how the case traveled through the courts using formal judicial language.
-Common patterns: "The [Party] instituted action...", "Being aggrieved by the [judgment]...", "This Court granted leave to appeal..."
-Use placeholders [date] for unknown dates. Keep it concise - 3-5 sentences."""
+**Examples from actual judgments:**
+
+Example 1:
+"The Plaintiff-Appellant instituted action in the District Court of Mount Lavinia bearing No. 1316/00/L seeking partition. Being aggrieved by the judgment of the High Court, the Plaintiff preferred this appeal to the Supreme Court."
+
+Example 2:
+"This is an appeal from the judgment of the Court of Appeal dated 05-09-2002. By that judgment the Court of Appeal had dismissed the application of the petitioner-appellant who had sought Writs of Prohibition and Certiorari. The appellant preferred an application to this Court for special leave to appeal."
+
+Example 3:
+"The appellant is a duly incorporated limited liability company that filed an action in the District Court. The Board of Investment had granted approval to the appellant. At that stage, the respondents took the view that Customs duty was leviable. Being aggrieved, the appellant filed this appeal."
+
+**Your task:**
+Generate a similar procedural history paragraph (3-5 sentences) explaining:
+1. How the case started (which party filed in which court)
+2. What happened in intermediate/lower courts
+3. How it reached the Supreme Court (appeal/leave to appeal)
+
+Use formal Sri Lankan judicial language. Use [date] for unknown dates. Match the style of the examples above."""
 
     elif clause_key == "leave_to_appeal":
         questions = context.get("questions_of_law", [])
-        questions_text = "\n".join([f"({chr(97+i)}) {q}" for i, q in enumerate(questions)]) if questions else "[Questions not extracted]"
+        case_type = context.get("case_type", "civil_appeal")
+        dates = context.get("dates", {})
+        grant_date = dates.get('decided_on', '[date]')
+        
+        questions_text = "\n".join([f"({chr(97+i)}) {q}" for i, q in enumerate(questions[:5])]) if questions else "[Questions not extracted - use placeholders]"
+        
         return f"""Generate a leave to appeal statement for a Sri Lankan Supreme Court judgment.
 
-Questions of law:
+**Context:**
+- Case type: {case_type}
+- Grant date: {grant_date}
+- Questions of law (extracted): 
 {questions_text}
 
-Use this standard format:
-"This Court granted [special] leave to appeal on [date] on the following question(s) of law:
+**Examples from actual judgments:**
 
-(a) [Question 1]
-(b) [Question 2]
-..."
+Example 1 (with extracted questions):
+"This Court granted special leave to appeal on [date] on the following questions of law:
 
-If questions are not available, generate appropriate placeholder structure."""
+(a) Can the Customs interpret the nature of the goods that can be exported under and in terms of the Agreement X8?
+
+(b) Is the power of the Customs restricted to verifying whether the goods exported conform to the goods said to be exported by exporters?"
+
+Example 2 (template when questions not clear):
+"The appellant preferred an application to this Court for special leave to appeal for which this Court had granted special leave to appeal on the following questions:
+
+(a) [Question of law 1]
+
+(b) [Question of law 2]"
+
+**Your task:**
+Generate the leave to appeal section using the standard format. If questions were extracted, use them. If not, create a template with placeholder questions [Question 1], [Question 2], etc. Use proper letter numbering (a), (b), (c)."""
 
     elif clause_key == "lower_court_findings":
         return f"""Generate a lower court findings summary for a Sri Lankan Supreme Court judgment.
@@ -636,17 +920,52 @@ Use formal judicial language. If issues not available, generate template with [p
     elif clause_key == "cost_order":
         outcome = context.get("outcome", "unknown")
         case_type = context.get("case_type", "civil_appeal")
-        return f"""Generate a cost order for a Sri Lankan judgment.
+        cost_info = context.get("cost_info", {})
+        has_government = context.get("has_government_party", False)
+        cost_type = cost_info.get('cost_type', 'none detected')
+        cost_amount = cost_info.get('cost_amount', None)
+        
+        return f"""Generate a cost order for a Sri Lankan Supreme Court judgment.
 
-Case type: {case_type}
-Outcome: {outcome}
+**Context:**
+- Case type: {case_type}
+- Appeal outcome: {outcome}
+- Government party involved: {"Yes" if has_government else "No"}
+- Detected cost type: {cost_type}
+- Detected cost amount: {"Rs. " + cost_amount if cost_amount else "Not specified"}
 
-Common patterns:
-- Appeal dismissed → "without costs" or "with costs"
-- Appeal allowed → "with costs" or "costs fixed at Rs. [amount]"
-- FR Application dismissed → "No costs"
+**Real Examples from Sri Lankan Supreme Court judgments:**
 
-Generate ONLY the cost phrase, nothing else. Example: "with costs" or "without costs" or "No costs"."""
+1. Simple with costs:
+   "The appeal is dismissed with costs."
+
+2. Without costs:
+   "The appeal is dismissed without costs."
+   
+3. No order pattern:
+   "I make no order as to costs."
+   "We make no order as to costs."
+
+4. Specific amount:
+   "The appeal is dismissed with costs fixed at Rs. 25,000/-."
+   "Appellant to pay Rs. 50,000/- as costs to the Respondent."
+
+5. Parties bear own:
+   "Each party to bear their own costs."
+   "Parties to bear their own costs."
+
+6. Government party pattern (common):
+   "The appeal is dismissed. No costs." (when Attorney General is party)
+
+**Guidelines:**
+- Appeal DISMISSED + private parties → usually "with costs"
+- Appeal ALLOWED → usually "with costs" (appellant recovers costs)
+- Government/Attorney-General involved → often "No costs" or "without costs"
+- Constitutional cases → often "No costs"
+- Fundamental Rights cases → varied (depends on merit)
+
+**Your task:**
+Generate ONLY the cost order (1-2 sentences maximum). Match the formal style of the examples. Use the detected cost information when available."""
 
     return f"Generate the {clause_key} clause for a Sri Lankan Supreme Court judgment based on context: {json.dumps(context)}"
 
@@ -939,6 +1258,7 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
     for mc in missing:
         key = mc["clause_key"]
         suggestion_data = suggestions.get(key, {})
+        ctx = contexts.get(key, {})
         
         result["suggestions"][key] = {
             "clause_key": key,
@@ -948,8 +1268,9 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
             "suggestion": suggestion_data.get("suggestion", f"[{mc['clause_name']} - suggestion unavailable]"),
             "confidence": suggestion_data.get("confidence", 0),
             "reasoning": suggestion_data.get("reasoning", ""),
-            "context_used": contexts.get(key, {}),
+            "context_used": ctx,
             "position": mc["position"],
+            "insertion_point": ctx.get("insertion_point", {}),  # NEW: Include insertion point
             "status": "pending",  # pending | accepted | edited | rejected
         }
 
