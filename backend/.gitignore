@@ -20,7 +20,7 @@ ENV/
 # Uploads and temporary files
 uploads/
 *.pdf
-
+*.txt
 
 # ML Models (large files - use Git LFS if needed)
 app/ml_models/*.pkl
