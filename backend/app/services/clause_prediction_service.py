@@ -634,6 +634,70 @@ def extract_context_for_clause(text: str, clause_key: str) -> Dict[str, Any]:
     return context
 
 
+# ─── RAG-Enhanced Prompt Building ────────────────────────────────────────────
+
+def build_clause_prompt_with_rag(clause_key: str, context: Dict[str, Any], 
+                                 similar_examples: List[Dict[str, Any]]) -> str:
+    """
+    Build an enhanced prompt that includes retrieved similar examples from RAG.
+    
+    This provides the LLM with actual examples from existing legal documents,
+    making the predictions more accurate and contextually appropriate.
+    
+    Args:
+        clause_key: Type of clause to generate
+        context: Context information for the clause
+        similar_examples: Retrieved similar clause examples from RAG service
+    
+    Returns:
+        Enhanced prompt string with real examples
+    """
+    clause_info = PREDICTABLE_CLAUSES.get(clause_key, {})
+    clause_name = clause_info.get("name", clause_key)
+    
+    # Start with context info
+    context_lines = [f"**Context for {clause_name}:**"]
+    
+    # Add relevant context fields
+    for key, value in context.items():
+        if key not in ["clause_type", "insertion_point"] and value:
+            if isinstance(value, dict):
+                context_lines.append(f"- {key}: {json.dumps(value, indent=2)}")
+            elif isinstance(value, list) and value:
+                context_lines.append(f"- {key}: {', '.join(map(str, value[:5]))}")
+            else:
+                context_lines.append(f"- {key}: {value}")
+    
+    # Add RAG-retrieved examples
+    examples_section = ["\n**📚 SIMILAR EXAMPLES FROM ACTUAL LEGAL DOCUMENTS:**"]
+    examples_section.append("(Use these as reference for style, format, and language)\n")
+    
+    for i, example in enumerate(similar_examples[:3], 1):
+        source = example.get('metadata', {}).get('document_id', 'Unknown')
+        text = example['text']
+        
+        # Truncate if too long
+        if len(text) > 800:
+            text = text[:800] + "..."
+        
+        examples_section.append(f"\n### Example {i} (from case: {source}):")
+        examples_section.append(f"```\n{text}\n```")
+    
+    # Add instructions
+    instructions = f"""
+
+**INSTRUCTIONS:**
+Generate a {clause_name} for the current case based on:
+1. The context information provided above
+2. The style, format, and language patterns shown in the retrieved examples
+3. Standard Sri Lankan judicial conventions
+
+Adapt the examples to fit the specific context. Use [placeholder] for any details not determinable from context.
+Maintain formal judicial language and proper formatting."""
+    
+    return "\n".join(context_lines) + "\n" + "\n".join(examples_section) + instructions
+
+
 # ─── LLM Prompt Generation ───────────────────────────────────────────────────
 
 def build_clause_prompt(clause_key: str, context: Dict[str, Any]) -> str:
@@ -1005,7 +1069,7 @@ def _save_predictions_cache(text: str, predictions: Dict):
         logger.warning(f"Cache write failed: {e}")
 
 
-# ─── OpenAI LLM Integration ──────────────────────────────────────────────────
+# ─── OpenAI LLM Integration with RAG ─────────────────────────────────────────
 
 async def call_openai_batch(
     missing_clauses: List[Dict],
@@ -1014,6 +1078,9 @@ async def call_openai_batch(
 ) -> Dict[str, Dict]:
     """
     Make a SINGLE batched OpenAI API call for all missing clauses.
+    NOW ENHANCED WITH RAG: Retrieves similar examples from existing legal documents
+    before generating predictions for more accurate and contextually relevant suggestions.
+    
     Returns dict: clause_key -> { suggestion, confidence, ... }
     """
     logger.info(f"call_openai_batch called for {len(missing_clauses)} clauses")
@@ -1034,12 +1101,43 @@ async def call_openai_batch(
         logger.error(f"❌ Failed to create AsyncOpenAI client: {type(e).__name__}: {str(e)}")
         return _generate_fallback_suggestions(missing_clauses, contexts)
 
-    # Build a single prompt with all clauses
+    # ═══ RAG INTEGRATION START ═══
+    # Import RAG service and retrieve similar examples for each clause
+    try:
+        from app.RAG.rag_clause_service import get_rag_service
+        rag_service = get_rag_service()
+        logger.info("🔍 RAG service initialized, retrieving similar examples...")
+        
+        # Retrieve similar examples for each missing clause
+        rag_examples = {}
+        if rag_service.enabled:
+            for mc in missing_clauses:
+                key = mc["clause_key"]
+                ctx = contexts.get(key, {"clause_type": key})
+                similar_examples = rag_service.retrieve_similar_clauses(key, ctx, n_results=3)
+                if similar_examples:
+                    rag_examples[key] = similar_examples
+                    logger.info(f"✅ Retrieved {len(similar_examples)} examples for {key}")
+        else:
+            logger.info("⚠️ RAG service disabled, proceeding with standard prompts")
+    except Exception as e:
+        logger.warning(f"⚠️ RAG retrieval failed: {e}. Proceeding without RAG enhancement.")
+        rag_examples = {}
+    # ═══ RAG INTEGRATION END ═══
+
+    # Build a single prompt with all clauses (now with RAG examples)
     clause_prompts = []
     for mc in missing_clauses:
         key = mc["clause_key"]
         ctx = contexts.get(key, {"clause_type": key})
-        prompt = build_clause_prompt(key, ctx)
+        
+        # Use RAG-enhanced prompt if examples available
+        if key in rag_examples and rag_examples[key]:
+            prompt = build_clause_prompt_with_rag(key, ctx, rag_examples[key])
+            logger.info(f"📚 Using RAG-enhanced prompt for {key}")
+        else:
+            prompt = build_clause_prompt(key, ctx)
+        
         clause_prompts.append(f"""
 --- CLAUSE: {mc['clause_name']} (key: {key}) ---
 Predictability: {mc['predictability']}
