@@ -19,7 +19,7 @@ import sys
 backend_path = Path(__file__).parent.parent.parent
 sys.path.insert(0, str(backend_path))
 
-from app.services.pdf_service import pdf_bytes_to_text, text_to_pdf, strip_bold_markers
+from app.services.pdf_service import pdf_bytes_to_text, pdf_bytes_to_dual_text, text_to_pdf, strip_bold_markers
 from app.services.clause_detection_service import analyze_clause_detection
 from app.services.hybrid_clause_detection_service import analyze_with_hybrid_detection
 from app.services.clause_patterns import CLAUSE_DEFINITIONS
@@ -100,9 +100,8 @@ async def upload_pdf(file: UploadFile = File(...)):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to save uploaded file: {e}')
     
-    # Extract text from PDF
-    ok, result = pdf_bytes_to_text(file_bytes)
-    extracted_text = None
+    # Extract text from PDF (dual version - tagged and clean)
+    ok, result = pdf_bytes_to_dual_text(file_bytes)
     
     if not ok:
         logger.info(f"upload-pdf: initial extraction failed: {result}; attempting OCR fallback")
@@ -118,29 +117,56 @@ async def upload_pdf(file: UploadFile = File(...)):
                 detail=f'Extraction failed: {result}; OCR fallback failed: {ocr_result}'
             )
         
-        extracted_text = ocr_result
-        logger.info(f"upload-pdf: OCR fallback succeeded, extracted length={len(extracted_text)}")
+        # OCR doesn't produce formatting, so use same for both
+        extracted_tagged = ocr_result
+        extracted_clean = strip_bold_markers(ocr_result)
+        logger.info(f"upload-pdf: OCR fallback succeeded, extracted length={len(extracted_clean)}")
     else:
-        extracted_text = result
-        logger.info(f"upload-pdf: completed text extraction length={len(extracted_text)}")
+        extracted_tagged = result['tagged']
+        extracted_clean = result['clean']
+        logger.info(f"upload-pdf: completed text extraction - tagged: {len(extracted_tagged)}, clean: {len(extracted_clean)}")
     
-    # Save extracted text to a .txt file beside the PDF
-    txt_path = str(saved_path) + '.txt'
+    # Save both versions to separate files
+    # Tagged version: filename.pdf.tagged.txt (master version with formatting)
+    # Clean version: filename.pdf.clean.txt (for UI and analysis)
+    
+    tagged_path = str(saved_path) + '.tagged.txt'
+    clean_path = str(saved_path) + '.clean.txt'
+    
     try:
-        with open(txt_path, 'w', encoding='utf-8') as t:
-            t.write(extracted_text)
-        logger.info(f"upload-pdf: saved extracted text to {txt_path}")
+        # Save tagged version
+        with open(tagged_path, 'w', encoding='utf-8') as t:
+            t.write(extracted_tagged)
+        logger.info(f"upload-pdf: saved tagged text to {tagged_path}")
+        
+        # Save clean version
+        with open(clean_path, 'w', encoding='utf-8') as c:
+            c.write(extracted_clean)
+        logger.info(f"upload-pdf: saved clean text to {clean_path}")
+        
+        # Save metadata for both files
+        for path in [tagged_path, clean_path]:
+            try:
+                meta_txt = {
+                    'filename': os.path.basename(path),
+                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
+                }
+                with open(path + '.meta.json', 'w', encoding='utf-8') as m:
+                    json.dump(meta_txt, m)
+            except Exception as e:
+                logger.exception(f'upload-pdf: failed to write metadata for {path}')
     except Exception as e:
         raise HTTPException(status_code=500, detail=f'Failed to save extracted text: {e}')
     
-    # Keep bold markers in the response - frontend will handle display
-    preview = extracted_text[:2000]
+    # Return clean version for preview (user-friendly)
+    preview = extracted_clean[:2000]
     
     return JSONResponse(content={
         'success': True,
         'preview': preview,
-        'full_text': extracted_text,
-        'full_text_path': txt_path
+        'full_text': extracted_clean,  # UI receives clean version
+        'full_text_path': clean_path,  # Point to clean version
+        'tagged_text_path': tagged_path  # Also provide tagged path for reference
     })
 
 
@@ -194,33 +220,46 @@ async def analyze_clauses(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f'Failed to save uploaded PDF: {e}')
         
-        # Extract text from PDF
-        ok, result = pdf_bytes_to_text(file_bytes)
+        # Extract text from PDF (dual version)
+        ok, result = pdf_bytes_to_dual_text(file_bytes)
         if not ok:
             raise HTTPException(status_code=500, detail=f'PDF text extraction failed: {result}')
         
-        extracted_text = result
-        logger.info(f"analyze-clauses: completed text extraction length={len(extracted_text)}")
+        extracted_tagged = result['tagged']
+        extracted_clean = result['clean']
+        logger.info(f"analyze-clauses: completed text extraction - tagged: {len(extracted_tagged)}, clean: {len(extracted_clean)}")
         
-        # Save extracted text
-        txt_path = str(saved_pdf_path) + '.txt'
+        # Save both versions
+        tagged_path = str(saved_pdf_path) + '.tagged.txt'
+        clean_path = str(saved_pdf_path) + '.clean.txt'
+        
         try:
-            with open(txt_path, 'w', encoding='utf-8') as t:
-                t.write(extracted_text)
-            logger.info(f"analyze-clauses: saved extracted text to {txt_path}")
+            # Save tagged version (master with formatting)
+            with open(tagged_path, 'w', encoding='utf-8') as t:
+                t.write(extracted_tagged)
+            logger.info(f"analyze-clauses: saved tagged text to {tagged_path}")
             
-            # Write metadata for text file
-            try:
-                meta_txt = {
-                    'filename': os.path.basename(txt_path),
-                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                }
-                with open(txt_path + '.meta.json', 'w', encoding='utf-8') as m:
-                    json.dump(meta_txt, m)
-            except Exception:
-                logger.exception(f'analyze-clauses: failed to write metadata for {txt_path}')
+            # Save clean version (for analysis and UI)
+            with open(clean_path, 'w', encoding='utf-8') as c:
+                c.write(extracted_clean)
+            logger.info(f"analyze-clauses: saved clean text to {clean_path}")
+            
+            # Write metadata for both text files
+            for path in [tagged_path, clean_path]:
+                try:
+                    meta_txt = {
+                        'filename': os.path.basename(path),
+                        'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
+                    }
+                    with open(path + '.meta.json', 'w', encoding='utf-8') as m:
+                        json.dump(meta_txt, m)
+                except Exception:
+                    logger.exception(f'analyze-clauses: failed to write metadata for {path}')
         except Exception as e:
             raise HTTPException(status_code=500, detail=f'Failed to save extracted text: {str(e)}')
+        
+        txt_path = clean_path  # Use clean path for analysis
+        extracted_text = extracted_clean  # Use clean text for analysis
     
     # Mode 2: Reference to existing file
     elif filename:
@@ -239,22 +278,36 @@ async def analyze_clauses(
         if not candidate_path.exists():
             raise HTTPException(status_code=404, detail=f'File not found: {file_name}')
         
-        # Expect a .txt file previously produced by /upload-pdf
-        if not file_name.lower().endswith('.txt'):
+        # Expect a .clean.txt file (or legacy .txt) previously produced by /upload-pdf
+        # We use the clean version for analysis
+        if file_name.lower().endswith('.clean.txt'):
+            # New dual-file system
+            clean_path = candidate_path
+            tagged_path = UPLOADS_DIR / file_name.replace('.clean.txt', '.tagged.txt')
+        elif file_name.lower().endswith('.txt'):
+            # Legacy single file or explicitly requesting analysis on any .txt
+            clean_path = candidate_path
+            # Try to find tagged version if it exists
+            base_name = str(candidate_path)[:-4]  # Remove .txt
+            tagged_path = Path(base_name + '.tagged.txt')
+            if not tagged_path.exists():
+                # Legacy single file - treat as clean
+                tagged_path = None
+        else:
             raise HTTPException(
                 status_code=400, 
-                detail='analyze-clauses expects a .txt filename previously generated by /upload-pdf'
+                detail='analyze-clauses expects a .clean.txt or .txt filename'
             )
         
         try:
-            with open(candidate_path, 'r', encoding='utf-8') as t:
+            with open(clean_path, 'r', encoding='utf-8') as t:
                 extracted_text = t.read()
         except Exception as e:
             raise HTTPException(status_code=500, detail=f'Failed to read text file: {e}')
         
         saved_pdf_path = None
-        txt_path = str(candidate_path)
-        logger.info(f"analyze-clauses: using existing text file {txt_path} (len={len(extracted_text)})")
+        txt_path = str(clean_path)
+        logger.info(f"analyze-clauses: using existing clean text file {txt_path} (len={len(extracted_text)})")
     
     else:
         raise HTTPException(status_code=400, detail="No file uploaded and no 'filename' provided.")
@@ -326,7 +379,11 @@ async def save_text(data: TextSaveRequest):
     """
     Save/overwrite an extracted .txt file in the uploads directory.
     
-    Expects JSON body: { "filename": "somefile.pdf.txt", "content": "...text..." }
+    Note: In the dual-file system, users edit the CLEAN version.
+    This endpoint saves the clean version. The tagged version remains unchanged
+    until document finalization, where changes are merged back.
+    
+    Expects JSON body: { "filename": "somefile.pdf.clean.txt", "content": "...text..." }
     Returns { success: true } on success
     """
     filename = data.filename
@@ -338,7 +395,7 @@ async def save_text(data: TextSaveRequest):
     if not content or not isinstance(content, str):
         raise HTTPException(status_code=400, detail='content is required')
     
-    # Only allow .txt files
+    # Only allow .txt files (including .clean.txt and .tagged.txt)
     if not filename.lower().endswith('.txt'):
         raise HTTPException(status_code=400, detail='Only .txt files may be saved via this endpoint')
     
@@ -363,7 +420,10 @@ async def save_text(data: TextSaveRequest):
 @router.post("/generate-pdf")
 async def generate_pdf(data: PDFGenerateRequest):
     """
-    Generate a PDF from modified text content.
+    Generate a PDF from text content.
+    
+    IMPORTANT: For formatted PDF with preserved bold/font sizes, pass the TAGGED version text.
+    For plain text PDF, pass the clean version.
     
     Expects JSON: { "text": "...", "filename": "..." }
     Returns: PDF file as binary download
@@ -372,7 +432,7 @@ async def generate_pdf(data: PDFGenerateRequest):
         text = data.text
         filename = data.filename
         
-        # Generate PDF from text
+        # Generate PDF from text (supports formatting markers <<F:...>>)
         pdf_bytes = text_to_pdf(text)
         
         logger.info(f"generate-pdf: created PDF, size={len(pdf_bytes)} bytes for filename={filename}")
@@ -387,6 +447,123 @@ async def generate_pdf(data: PDFGenerateRequest):
         )
     except Exception as e:
         logger.exception('generate-pdf failed')
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/download-formatted-pdf")
+async def download_formatted_pdf(filename: str = Form(...)):
+    """
+    Download PDF from the TAGGED version (preserves formatting).
+    
+    Use this for downloading the original document as PDF with formatting preserved.
+    Does NOT apply any edits - just converts the tagged text to PDF.
+    
+    Args:
+        filename: The uploaded file identifier (e.g., "case.pdf" or "case.pdf.clean.txt")
+        
+    Returns:
+        PDF file with preserved formatting (bold, font sizes, etc.)
+    """
+    try:
+        # Determine the tagged file path
+        base_name = filename.replace('.clean.txt', '').replace('.txt', '')
+        tagged_filename = base_name + '.tagged.txt'
+        tagged_path = UPLOADS_DIR / tagged_filename
+        
+        # Check if tagged file exists
+        if not tagged_path.exists():
+            # Try without .tagged suffix (legacy)
+            alt_path = UPLOADS_DIR / (base_name + '.txt')
+            if alt_path.exists():
+                tagged_path = alt_path
+            else:
+                raise HTTPException(status_code=404, detail=f"Tagged text file not found: {tagged_filename}")
+        
+        # Read tagged text
+        with open(tagged_path, 'r', encoding='utf-8') as f:
+            tagged_text = f.read()
+        
+        logger.info(f"download-formatted-pdf: read tagged file {tagged_path}, length={len(tagged_text)}")
+        
+        # Generate PDF from tagged text (preserves formatting)
+        pdf_bytes = text_to_pdf(tagged_text)
+        
+        # Create output filename
+        output_filename = f"{base_name}.pdf"
+        
+        logger.info(f"download-formatted-pdf: generated PDF, size={len(pdf_bytes)} bytes")
+        
+        # Return PDF as download
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{output_filename}"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f'download-formatted-pdf failed for {filename}')
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/finalize-and-download-pdf")
+async def finalize_and_download_pdf(filename: str = Form(...)):
+    """
+    ONE-STEP convenience endpoint: Finalize document + Generate formatted PDF.
+    
+    This endpoint:
+    1. Finalizes the document (merges clean edits into tagged version)
+    2. Generates PDF from the finalized TAGGED version (preserves formatting)
+    3. Returns the formatted PDF for download
+    
+    Perfect for the "Download PDF" button in the UI.
+    
+    Args:
+        filename: Document filename (e.g., "case.pdf.clean.txt")
+        
+    Returns:
+        PDF file with preserved formatting (bold, font sizes, etc.)
+    """
+    try:
+        from app.services.document_finalization_service import finalize_document_with_suggestions
+        
+        # Step 1: Finalize document (merge clean changes into tagged version)
+        result = await finalize_document_with_suggestions(filename)
+        
+        if not result.get('success'):
+            raise HTTPException(status_code=500, detail="Document finalization failed")
+        
+        # Step 2: Get the finalized TAGGED text (with formatting preserved)
+        finalized_tagged_text = result.get('finalized_tagged_text')
+        
+        if not finalized_tagged_text:
+            # Fallback to clean text if tagged not available
+            logger.warning(f"No tagged version available for {filename}, using clean text")
+            finalized_tagged_text = result.get('modified_text', '')
+        
+        # Step 3: Generate PDF from tagged version (preserves formatting)
+        pdf_bytes = text_to_pdf(finalized_tagged_text)
+        
+        # Create output filename
+        base_filename = filename.replace('.clean.txt', '').replace('.txt', '')
+        output_filename = f"{base_filename}_final.pdf"
+        
+        logger.info(f"finalize-and-download-pdf: generated formatted PDF for {filename}, size={len(pdf_bytes)} bytes")
+        
+        # Return PDF as download
+        return StreamingResponse(
+            BytesIO(pdf_bytes),
+            media_type='application/pdf',
+            headers={
+                'Content-Disposition': f'attachment; filename="{output_filename}"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.exception(f'finalize-and-download-pdf failed for {filename}')
         raise HTTPException(status_code=500, detail=str(e))
 
 

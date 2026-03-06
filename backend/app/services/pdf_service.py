@@ -88,6 +88,53 @@ def pdf_bytes_to_text(pdf_bytes: bytes) -> Tuple[bool, str]:
         return False, f"PDF extraction failed: {str(e)}"
 
 
+def pdf_bytes_to_dual_text(pdf_bytes: bytes) -> Tuple[bool, any]:
+    """
+    Extract text from PDF bytes and generate both tagged and clean versions.
+    
+    Args:
+        pdf_bytes: Raw bytes of a PDF file
+        
+    Returns:
+        Tuple[bool, dict|str]: 
+        - If successful: (True, {'tagged': text_with_formatting, 'clean': text_without_tags})
+        - If failed: (False, error_message_string)
+    """
+    if PDF_LIBRARY is None:
+        return False, "No PDF library installed. Install pdfplumber or PyPDF2."
+    
+    try:
+        if PDF_LIBRARY == 'pdfplumber':
+            ok, result = _extract_with_pdfplumber(pdf_bytes)
+        else:
+            ok, result = _extract_with_pypdf2(pdf_bytes)
+
+        if ok:
+            tagged_text = result
+            clean_text = strip_bold_markers(tagged_text)
+            return True, {
+                'tagged': tagged_text,
+                'clean': clean_text
+            }
+
+        # If PDF libraries couldn't extract text, try OCR fallback for scanned PDFs
+        if isinstance(result, str) and 'no text could be extracted' in result.lower():
+            ocr_ok, ocr_result = _ocr_fallback(pdf_bytes)
+            if not ocr_ok:
+                return False, f"PDF extraction failed: {result}; OCR fallback failed: {ocr_result}"
+            
+            tagged_text = ocr_result
+            clean_text = strip_bold_markers(tagged_text)
+            return True, {
+                'tagged': tagged_text,
+                'clean': clean_text
+            }
+
+        return False, result
+    except Exception as e:
+        return False, f"PDF extraction failed: {str(e)}"
+
+
 def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
     """
     Extract text using pdfplumber (preferred method - better formatting).

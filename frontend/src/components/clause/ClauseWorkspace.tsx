@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
 import api from '@/config/api';
-import { predictClauses, getPredictionConfig, acceptSuggestion, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
+import { predictClauses, getPredictionConfig, acceptSuggestion, saveTextFile, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
 
 interface ClauseWorkspaceProps {
   file: File;
@@ -519,6 +519,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
       
+      // IMPORTANT: Save the modified text back to backend so it's in sync
+      await saveTextFile(savedTextFilename, updatedDoc);
+      
       // Update local state
       setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'accepted' }));
     } catch (err: any) {
@@ -577,6 +580,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
+
+      // IMPORTANT: Save the modified text back to backend so it's in sync
+      await saveTextFile(savedTextFilename, updatedDoc);
 
       // Update the suggestion text in predictions
       setPredictions(prev => {
@@ -1365,16 +1371,20 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     try {
       const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
       
-      // Call backend to generate PDF
-      const response = await fetch(`${API_BASE}/generate-pdf`, {
+      if (!savedTextFilename) {
+        alert('No file available for download. Please upload a document first.');
+        return;
+      }
+      
+      // Use the finalize-and-download-pdf endpoint which:
+      // 1. Merges any edits from clean version into tagged version
+      // 2. Generates PDF from tagged version (preserves formatting)
+      const formData = new FormData();
+      formData.append('filename', savedTextFilename);
+      
+      const response = await fetch(`${API_BASE}/finalize-and-download-pdf`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: modifiedDocumentText,
-          filename: `${file.name.replace(/\.[^/.]+$/, '')}_completed.pdf`
-        })
+        body: formData
       });
 
       if (!response.ok) {

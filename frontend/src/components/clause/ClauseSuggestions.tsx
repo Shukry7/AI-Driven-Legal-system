@@ -423,7 +423,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                       <div
                         key={idx}
                         className={`py-1 px-2 rounded ${
-                          isNew || isReplaced ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium' : ''
+                          isNew || isReplaced ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : ''
                         }`}
                       >
                         {line || '\u00A0'}
