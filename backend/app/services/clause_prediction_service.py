@@ -7,8 +7,7 @@ This service:
 3. Extracts relevant context from the document for each missing clause
 4. Sends batch request to OpenAI GPT for AI suggestions
 5. Returns structured suggestions with confidence scores
-6. Supports caching to avoid redundant LLM calls
-7. Graceful fallback if LLM fails
+6. Graceful fallback if LLM fails
 
 Configurable via environment variables:
 - OPENAI_API_KEY: API key for OpenAI
@@ -33,8 +32,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 CLAUSE_PREDICTION_MODE = os.getenv("CLAUSE_PREDICTION_MODE", "manual")  # "auto" or "manual"
 
-# Cache directory
-CACHE_DIR = Path(__file__).parent.parent.parent / "uploads" / ".prediction_cache"
+# Maximum number of suggestions to show to user (to avoid overwhelming them)
+MAX_SUGGESTIONS_TO_SHOW = int(os.getenv("MAX_AI_SUGGESTIONS", "3"))  # Default: 3 suggestions
 
 
 # ─── 12 Selected LLM-Predictable Clauses ─────────────────────────────────────
@@ -1034,41 +1033,6 @@ Generate ONLY the cost order (1-2 sentences maximum). Match the formal style of 
     return f"Generate the {clause_key} clause for a Sri Lankan Supreme Court judgment based on context: {json.dumps(context)}"
 
 
-# ─── Caching ──────────────────────────────────────────────────────────────────
-
-def _get_cache_key(text: str) -> str:
-    """Generate a cache key from document text hash."""
-    return hashlib.md5(text.encode('utf-8')).hexdigest()
-
-
-def _get_cached_predictions(text: str) -> Optional[Dict]:
-    """Check if predictions are cached for this document."""
-    try:
-        cache_key = _get_cache_key(text)
-        cache_file = CACHE_DIR / f"{cache_key}.json"
-        if cache_file.exists():
-            with open(cache_file, 'r', encoding='utf-8') as f:
-                cached = json.load(f)
-            logger.info(f"Cache hit for document {cache_key[:8]}...")
-            return cached
-    except Exception as e:
-        logger.warning(f"Cache read failed: {e}")
-    return None
-
-
-def _save_predictions_cache(text: str, predictions: Dict):
-    """Save predictions to cache."""
-    try:
-        CACHE_DIR.mkdir(parents=True, exist_ok=True)
-        cache_key = _get_cache_key(text)
-        cache_file = CACHE_DIR / f"{cache_key}.json"
-        with open(cache_file, 'w', encoding='utf-8') as f:
-            json.dump(predictions, f, ensure_ascii=False, indent=2)
-        logger.info(f"Predictions cached for document {cache_key[:8]}...")
-    except Exception as e:
-        logger.warning(f"Cache write failed: {e}")
-
-
 # ─── OpenAI LLM Integration with RAG ─────────────────────────────────────────
 
 async def call_openai_batch(
@@ -1309,16 +1273,10 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
         Dict with:
         - missing_predictable_clauses: list of detected missing clause info
         - suggestions: dict of clause_key -> suggestion data
-        - source: "llm" | "cache" | "fallback"
+        - source: "llm" | "fallback"
         - mode: current prediction mode setting
     """
-    # 1. Check cache first (unless force refresh)
-    if not force_refresh:
-        cached = _get_cached_predictions(text)
-        if cached:
-            return {**cached, "source": "cache"}
-
-    # 2. Detect missing predictable clauses using prediction regexes
+    # 1. Detect missing predictable clauses using prediction regexes
     missing = detect_missing_predictable_clauses(text)
     logger.info(f"Found {len(missing)} missing predictable clauses")
 
@@ -1328,11 +1286,24 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
             "suggestions": {},
             "total_predictable": len(PREDICTABLE_CLAUSES),
             "total_missing": 0,
+            "total_detected": 0,
             "source": "none",
             "mode": CLAUSE_PREDICTION_MODE,
         }
-        _save_predictions_cache(text, result)
         return result
+
+    # 2. Prioritize and limit suggestions (show only top 2-3 most important)
+    total_missing = len(missing)
+    if len(missing) > MAX_SUGGESTIONS_TO_SHOW:
+        # Prioritize by frequency (higher frequency = more commonly needed)
+        missing_sorted = sorted(
+            missing,
+            key=lambda x: float(x['frequency'].rstrip('%')),
+            reverse=True
+        )
+        missing = missing_sorted[:MAX_SUGGESTIONS_TO_SHOW]
+        logger.info(f"Limiting suggestions to top {MAX_SUGGESTIONS_TO_SHOW} most important clauses")
+        logger.info(f"Selected clauses: {[m['clause_name'] for m in missing]}")
 
     # 3. Extract context for each missing clause
     contexts = {}
@@ -1348,7 +1319,8 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
         "missing_predictable_clauses": missing,
         "suggestions": {},
         "total_predictable": len(PREDICTABLE_CLAUSES),
-        "total_missing": len(missing),
+        "total_missing": total_missing,  # Total number detected
+        "total_shown": len(missing),  # Number of suggestions shown (limited)
         "source": "llm" if OPENAI_API_KEY else "fallback",
         "mode": CLAUSE_PREDICTION_MODE,
     }
@@ -1369,11 +1341,7 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
             "context_used": ctx,
             "position": mc["position"],
             "insertion_point": ctx.get("insertion_point", {}),  # NEW: Include insertion point
-            "status": "pending",  # pending | accepted | edited | rejected
         }
-
-    # 6. Cache the result
-    _save_predictions_cache(text, result)
 
     return result
 
