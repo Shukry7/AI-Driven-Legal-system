@@ -2,13 +2,15 @@
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import Dict, List, Optional
 import logging
 from pathlib import Path
 
+from traitlets import Any
+
 # Import your own PDF extraction function
 from app.services.precedent_preprocessing_service import preprocess_judgment_for_lineage
-from fastapi_app.services.lineage_analysis_service import analyze_judgment_lineage, is_model_loaded
+from fastapi_app.services.lineage_analysis_service import analyze_judgment_lineage, is_model_loaded, load_processed_acts_data
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
@@ -29,6 +31,30 @@ class ActTreatmentResult(BaseModel):
 class LineageAnalysisResponse(BaseModel):
     filename: str
     results: List[ActTreatmentResult]
+    message: Optional[str] = None
+
+class ActSearchRequest(BaseModel):
+    act_name: str
+    min_similarity: Optional[float] = 0.6
+    search_type: Optional[str] = "similar"  # "similar", "exact", "treatment", "year"
+
+class ActSearchResult(BaseModel):
+    file_id: str
+    filename: str
+    case_title: str
+    year: Optional[int]
+    act_name: str
+    act_id: str
+    treatment: str
+    confidence: float
+    similarity_score: Optional[float] = None
+    context_preview: Optional[str] = None
+
+class ActSearchResponse(BaseModel):
+    query: str
+    search_type: str
+    total_results: int
+    results: List[ActSearchResult]
     message: Optional[str] = None
 
 def extract_text_from_pdf_like_notebook(pdf_path: Path) -> str:
@@ -190,3 +216,114 @@ async def upload_and_analyze(file: UploadFile = File(...)):
         results=[ActTreatmentResult(**res) for res in analysis_results],
         message="Analysis completed successfully."
     )
+
+@router.post("/lineage/search-act", response_model=ActSearchResponse)
+async def search_act(request: ActSearchRequest):
+    """
+    Search for acts similar to the given act name in the processed acts database.
+    Returns all matching acts with their metadata.
+    """
+    logger.info(f"🔍 Received act search request: '{request.act_name}' (type: {request.search_type})")
+    
+    try:
+        # Import the search functions
+        from fastapi_app.services.lineage_analysis_service import (
+            search_similar_acts,
+            get_act_by_exact_name,
+            get_acts_by_treatment
+        )
+        
+        results = []
+        
+        # Perform search based on type
+        if request.search_type == "exact":
+            results = get_act_by_exact_name(request.act_name)
+            # Convert to the same format as similar search
+            formatted_results = []
+            for r in results:
+                formatted_results.append({
+                    "file_id": r.get('file_id', ''),
+                    "filename": r.get('filename', ''),
+                    "case_title": r.get('case_title', ''),
+                    "year": r.get('year'),
+                    "act_name": r.get('act_name', ''),
+                    "act_id": r.get('act_id', ''),
+                    "treatment": r.get('treatment', ''),
+                    "confidence": r.get('confidence', 0),
+                    "similarity_score": 1.0  # Exact match
+                })
+            results = formatted_results
+            
+        elif request.search_type == "treatment":
+            treatment_results = get_acts_by_treatment(request.act_name)
+            results = []
+            for r in treatment_results:
+                results.append({
+                    "file_id": r.get('file_id', ''),
+                    "filename": r.get('filename', ''),
+                    "case_title": r.get('case_title', ''),
+                    "year": r.get('year'),
+                    "act_name": r.get('act_name', ''),
+                    "act_id": r.get('act_id', ''),
+                    "treatment": r.get('treatment', ''),
+                    "confidence": r.get('confidence', 0)
+                })
+                
+        else:  # default to similar search
+            similar_results = search_similar_acts(request.act_name, request.min_similarity)
+            results = similar_results
+        
+        logger.info(f"✅ Search complete. Found {len(results)} matches")
+        
+        return ActSearchResponse(
+            query=request.act_name,
+            search_type=request.search_type,
+            total_results=len(results),
+            results=[ActSearchResult(**r) for r in results],
+            message=f"Found {len(results)} matching acts"
+        )
+        
+    except Exception as e:
+        logger.error(f"❌ Error searching acts: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to search acts: {str(e)}")
+
+# Optional: Add a route to get statistics about the processed data
+class StatsResponse(BaseModel):
+    total_files: int
+    files_with_acts: int
+    total_acts: int
+    treatment_distribution: Dict[str, int]
+
+@router.get("/lineage/stats", response_model=StatsResponse)
+async def get_lineage_stats():
+    """
+    Get statistics about the processed acts data.
+    """
+    try:
+        from fastapi_app.services.lineage_analysis_service import load_processed_acts_data
+        
+        data = load_processed_acts_data()
+        if not data:
+            raise HTTPException(status_code=404, detail="Processed acts data not found")
+        
+        metadata = data.get('metadata', {})
+        
+        # Get treatment distribution
+        treatment_counts = {}
+        for file_data in data.get('files', []):
+            for act_data in file_data.get('acts', []):
+                treatment = act_data.get('treatment', 'UNKNOWN')
+                treatment_counts[treatment] = treatment_counts.get(treatment, 0) + 1
+        
+        return StatsResponse(
+            total_files=metadata.get('total_files_processed', 0),
+            files_with_acts=metadata.get('files_with_acts', 0),
+            total_acts=metadata.get('total_acts_found', 0),
+            treatment_distribution=treatment_counts
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting stats: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
