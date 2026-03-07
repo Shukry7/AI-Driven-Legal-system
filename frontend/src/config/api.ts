@@ -394,12 +394,21 @@ export interface CaseNode {
   citedBy?: number;
   isCentral?: boolean;
   acts?: ActTreatment[];
+  source?: 'current' | 'database';
+  file_id?: string;
+  filename?: string;
+  case_title?: string;
 }
 
 export interface ActTreatment {
   act: string;
   treatment: 'APPLIED' | 'DISTINGUISHED' | 'FOLLOWED' | 'OVERRULED';
   confidence: number;
+  act_id?: string;
+  context_preview?: string;
+  case_title?: string;
+  filename?: string;
+  file_id?: string;
 }
 
 export type RelationType = 'cites' | 'followed' | 'distinguished' | 'limited' | 'overruled';
@@ -438,6 +447,33 @@ export interface SearchResult {
   summary?: string;
   citations?: number;
   citedBy?: number;
+}
+
+export interface ActSearchRequest {
+  act_name: string;
+  min_similarity?: number;
+  search_type?: 'similar' | 'exact' | 'treatment';
+}
+
+export interface ActSearchResultItem {
+  file_id: string;
+  filename: string;
+  case_title: string;
+  year?: number;
+  act_name: string;
+  act_id: string;
+  treatment: string;
+  confidence: number;
+  similarity_score?: number;
+  context_preview?: string;
+}
+
+export interface ActSearchResponse {
+  query: string;
+  search_type: string;
+  total_results: number;
+  results: ActSearchResultItem[];
+  message?: string;
 }
 
 const createCaseNodesFromTreatments = (
@@ -643,6 +679,136 @@ export async function fetchLineageGraph(caseId: string): Promise<{
   }
 }
 
+export async function searchSimilarActs(
+  actName: string, 
+  minSimilarity: number = 0.6,
+  searchType: 'similar' | 'exact' | 'treatment' = 'similar'
+): Promise<ActSearchResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/search-act`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        act_name: actName,
+        min_similarity: minSimilarity,
+        search_type: searchType
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to search acts: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error searching acts:', error);
+    throw error;
+  }
+}
+
+export function convertSearchResultsToCaseNodes(
+  searchResults: ActSearchResultItem[],
+  mainActName: string
+): CaseNode[] {
+  const nodes: CaseNode[] = [];
+  
+  // Create main node (the act we searched for)
+  const mainNode: CaseNode = {
+    id: `main-${mainActName.replace(/[^a-zA-Z0-9]/g, '-')}`,
+    title: mainActName,
+    year: undefined,
+    summary: `Main act being analyzed`,
+    citations: 0,
+    citedBy: 0,
+    isCentral: true,
+    source: 'current',
+    acts: []
+  };
+  nodes.push(mainNode);
+  
+  // Create nodes for each similar act found - preserve ALL rich data
+  searchResults.forEach((result, index) => {
+    const node: CaseNode = {
+      id: result.file_id || `result-${index}`,
+      title: result.act_name,
+      year: result.year,
+      summary: `Found in case: ${result.case_title}`,
+      citations: 0,
+      citedBy: 0,
+      isCentral: false,
+      source: 'database',
+      file_id: result.file_id,
+      filename: result.filename,
+      case_title: result.case_title,
+      acts: [{
+        act: result.act_name,
+        treatment: result.treatment as any,
+        confidence: result.confidence,
+        act_id: result.act_id,
+        context_preview: result.context_preview,
+        case_title: result.case_title,
+        filename: result.filename,
+        file_id: result.file_id
+      }]
+    };
+    nodes.push(node);
+  });
+  
+  return nodes;
+}
+
+// Helper function to create edges between main act and similar acts
+export function createEdgesFromSearchResults(
+  mainActName: string,
+  searchResults: ActSearchResultItem[],
+  nodes: CaseNode[]
+): CitationEdge[] {
+  const edges: CitationEdge[] = [];
+  const mainNodeId = `main-${mainActName.replace(/[^a-zA-Z0-9]/g, '-')}`;
+  
+  searchResults.forEach((result, index) => {
+    const targetNode = nodes.find(n => n.id === (result.file_id || `result-${index}`));
+    if (targetNode) {
+      edges.push({
+        id: `edge-main-to-${index}`,
+        source: mainNodeId,
+        target: targetNode.id,
+        relation: result.treatment.toLowerCase() as any,
+        weight: result.confidence,
+        confidence: result.confidence
+      });
+    }
+  });
+  
+  return edges;
+}
+
+export async function searchExactAct(actName: string): Promise<ActSearchResponse> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/search-act`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        act_name: actName,
+        search_type: 'exact'  // Force exact match using the index
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to search acts: ${response.statusText}`);
+    }
+
+    return await response.json();
+  } catch (error) {
+    console.error('Error searching acts:', error);
+    throw error;
+  }
+}
+
 export default {
   uploadPdf,
   analyzeClauses,
@@ -664,4 +830,8 @@ export default {
   uploadAndAnalyzeLineage,
   searchLineageCases,
   fetchLineageGraph,
+  searchSimilarActs,
+  convertSearchResultsToCaseNodes,
+  createEdgesFromSearchResults,
+  searchExactAct
 };
