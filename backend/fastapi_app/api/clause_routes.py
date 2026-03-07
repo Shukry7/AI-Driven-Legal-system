@@ -155,16 +155,7 @@ async def analyze_clauses(
             
             logger.info(f"analyze-clauses: saved uploaded PDF to {saved_pdf_path}")
             
-            # Write metadata
-            try:
-                meta = {
-                    'filename': save_name,
-                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                }
-                with open(saved_pdf_path + '.meta.json', 'w', encoding='utf-8') as m:
-                    json.dump(meta, m)
-            except Exception as e:
-                logger.exception(f'Failed to write metadata: {e}')
+            # Metadata will be created after text extraction (see below)
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save uploaded PDF: {e}")
@@ -195,17 +186,29 @@ async def analyze_clauses(
                 c.write(extracted_clean)
             logger.info(f"analyze-clauses: saved clean text to {clean_path}")
             
-            # Write metadata for both text files
-            for path in [tagged_path, clean_path]:
-                try:
-                    meta_txt = {
-                        'filename': os.path.basename(path),
-                        'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                    }
-                    with open(path + '.meta.json', 'w', encoding='utf-8') as m:
-                        json.dump(meta_txt, m)
-                except Exception:
-                    logger.exception(f'Failed to write text metadata for {path}')
+            # Create .original backup if it doesn't exist
+            original_clean_path = clean_path + '.original'
+            if not os.path.exists(original_clean_path):
+                with open(original_clean_path, 'w', encoding='utf-8') as o:
+                    o.write(extracted_clean)
+            
+            # Create ONE consolidated metadata file for the PDF
+            meta = {
+                'filename': save_name,
+                'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z',
+                'artifacts': [
+                    os.path.basename(clean_path),
+                    os.path.basename(original_clean_path),
+                    os.path.basename(tagged_path)
+                ]
+            }
+            meta_path = str(saved_pdf_path) + '.meta.json'
+            try:
+                with open(meta_path, 'w', encoding='utf-8') as m:
+                    json.dump(meta, m)
+                logger.info(f"analyze-clauses: created consolidated metadata at {meta_path}")
+            except Exception:
+                logger.exception(f'Failed to write metadata')
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save extracted text: {e}")
 
