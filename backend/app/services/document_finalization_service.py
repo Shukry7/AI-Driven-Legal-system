@@ -220,7 +220,12 @@ async def finalize_document_with_suggestions(filename: str) -> Dict:
     modified_clean_text = current_clean_text
     inserted_clauses = []
     
+    import logging
+    logger = logging.getLogger(__name__)
+    
     if accepted:
+        logger.info(f"Processing {len(accepted)} accepted suggestions for {filename}")
+        
         # Sort suggestions by insertion position (insert from end to beginning)
         suggestions_with_positions = []
         for suggestion in accepted:
@@ -229,30 +234,45 @@ async def finalize_document_with_suggestions(filename: str) -> Dict:
             clause_name = clause_info.get("name", clause_key.replace("_", " ").title())
             
             # SAFETY CHECK: Skip if suggestion already inserted by frontend
-            # Frontend adds formatted headers like "CASE NUMBER:" or "PETITIONER NAME:"
-            suggestion_text = suggestion["text"]
+            suggestion_text = suggestion["text"].strip()
             
-            # Check 1: Exact suggestion text match
+            # Check 1: Exact suggestion content match (most reliable)
             if suggestion_text in modified_clean_text:
-                inserted_clauses.append(f"{clause_key} (skipped - already present)")
+                logger.info(f"  {clause_key}: SKIPPED (exact content match)")
+                inserted_clauses.append(f"{clause_key} (skipped - content already present)")
                 continue
             
-            # Check 2: Look for formatted clause headers that frontend adds
-            # Frontend formats like "CASE NUMBER:\n========" or "PETITIONER NAME:\n"
+            # Check 2: Check for first 50 characters of suggestion (handles slight variations)
+            if len(suggestion_text) > 50:
+                suggestion_prefix = suggestion_text[:50]
+                if suggestion_prefix in modified_clean_text:
+                    logger.info(f"  {clause_key}: SKIPPED (partial content match)")
+                    inserted_clauses.append(f"{clause_key} (skipped - partial content match)")
+                    continue
+            
+            # Check 3: Look for formatted clause headers that frontend adds
+            # Frontend formats like:
+            # "============================================================\nCASE NUMBER\n============================================================"
+            # or "PETITIONER NAME:\n" or "COUNSEL:\n"
             clause_header_patterns = [
-                clause_name.upper() + ":",
-                clause_name.upper() + "\n",
-                "=" * 60 + "\n" + clause_name.upper(),  # Header with separator
+                f"{'=' * 60}\n{clause_name.upper()}\n{'=' * 60}",  # Header with separators
+                f"{clause_name.upper()}:\n",  # Simple header
+                f"{clause_name.upper()}\n",  # Just uppercase name
+                f"{clause_name}:",  # Title case with colon
             ]
             
             already_inserted = any(pattern in modified_clean_text for pattern in clause_header_patterns)
             if already_inserted:
-                inserted_clauses.append(f"{clause_key} (skipped - already inserted by client)")
+                logger.info(f"  {clause_key}: SKIPPED (header found)")
+                inserted_clauses.append(f"{clause_key} (skipped - header found)")
                 continue
             
+            logger.info(f"  {clause_key}: Will insert at position {find_insertion_position(modified_clean_text, clause_key, clause_info)}")
             position = find_insertion_position(modified_clean_text, clause_key, clause_info)
             if position is not None:
                 suggestions_with_positions.append((position, clause_key, suggestion))
+        
+        logger.info(f"Found {len(suggestions_with_positions)} suggestions to actually insert")
         
         # Sort by position (descending) to insert from end first
         suggestions_with_positions.sort(key=lambda x: x[0], reverse=True)

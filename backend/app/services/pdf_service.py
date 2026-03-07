@@ -281,13 +281,19 @@ def _process_line_chars(line_chars, page_width, min_x_global):
     for char in line_chars:
         char_text = char.get('text', '')
         font_name = char.get('fontname', '').lower()
-        font_size = round(char.get('size', 10))
+        font_size = round(char.get('size', 8))  # Default to 8pt
+        
+        # Normalize font sizes: headings (>=11) = 12pt, regular text (<11) = 8pt
+        if font_size >= 11:
+            normalized_size = 12
+        else:
+            normalized_size = 8
         
         # Detect formatting
         is_bold = 'bold' in font_name
         
         current_format = {
-            'size': font_size,
+            'size': normalized_size,
             'bold': 1 if is_bold else 0,
         }
         
@@ -527,6 +533,31 @@ def text_to_pdf(text: str) -> bytes:
     """
     if not REPORTLAB_AVAILABLE:
         raise ImportError("reportlab is required for PDF generation. Install with: pip install reportlab")
+    
+    import re
+    
+    # CRITICAL: Clean up any malformed or duplicate format markers
+    # This handles cases where tags appear as literal text from editing
+    
+    # Step 1: Remove any standalone/malformed opening tags without matching closing tags
+    text = re.sub(r'<<F:[^>]*>>\s*(?!.*?<</F>>)', '', text)
+    
+    # Step 2: Remove any standalone closing tags without opening tags  
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Count opening and closing tags
+        opening_count = len(re.findall(r'<<F:[^>]*>>', line))
+        closing_count = len(re.findall(r'<</F>>', line))
+        
+        # If mismatched, strip all format tags from this line
+        if opening_count != closing_count:
+            line = re.sub(r'<<F:[^>]*>>', '', line)
+            line = re.sub(r'<</F>>', '', line)
+        
+        cleaned_lines.append(line)
+    
+    text = '\n'.join(cleaned_lines)
     
     buffer = BytesIO()
     
