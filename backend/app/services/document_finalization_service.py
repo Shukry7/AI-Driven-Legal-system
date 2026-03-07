@@ -148,7 +148,7 @@ def insert_clause_text(text: str, clause_key: str, suggestion_text: str, positio
     return text[:position] + formatted + text[position:]
 
 
-async def finalize_document_with_suggestions(filename: str) -> Dict:
+async def finalize_document_with_suggestions(filename: str, skip_suggestions: bool = False) -> Dict:
     """
     Generate final document with all accepted suggestions inserted.
     
@@ -161,6 +161,7 @@ async def finalize_document_with_suggestions(filename: str) -> Dict:
     
     Args:
         filename: The document filename (should be .clean.txt)
+        skip_suggestions: If True, skip inserting accepted AI suggestions (just merge user edits)
     
     Returns:
         Dict with:
@@ -214,8 +215,8 @@ async def finalize_document_with_suggestions(filename: str) -> Dict:
         with open(original_clean_path, 'w', encoding='utf-8') as f:
             f.write(original_clean_text)
     
-    # Get accepted suggestions to insert
-    accepted = get_accepted_suggestions(filename)
+    # Get accepted suggestions to insert (unless skipping)
+    accepted = [] if skip_suggestions else get_accepted_suggestions(filename)
     
     modified_clean_text = current_clean_text
     inserted_clauses = []
@@ -223,7 +224,7 @@ async def finalize_document_with_suggestions(filename: str) -> Dict:
     import logging
     logger = logging.getLogger(__name__)
     
-    if accepted:
+    if accepted and not skip_suggestions:
         logger.info(f"Processing {len(accepted)} accepted suggestions for {filename}")
         
         # Sort suggestions by insertion position (insert from end to beginning)
