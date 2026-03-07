@@ -387,7 +387,7 @@ export async function downloadDocument(filename: string): Promise<Blob> {
 // ========== Legal Lineage Types ==========
 export interface CaseNode {
   id: string;
-  title: string;
+  title: string;  // This will be case_title for display in graph
   year?: number;
   summary?: string;
   citations?: number;
@@ -409,6 +409,11 @@ export interface ActTreatment {
   case_title?: string;
   filename?: string;
   file_id?: string;
+  all_predictions?: Array<{
+    treatment: string;
+    confidence: number;
+    context: string;
+  }>;
 }
 
 export type RelationType = 'cites' | 'followed' | 'distinguished' | 'limited' | 'overruled';
@@ -486,13 +491,16 @@ const createCaseNodesFromTreatments = (
   treatments.forEach((t, index) => {
     if (!actMap.has(t.act)) {
       actMap.set(t.act, {
-        id: `act-${index}-${t.act.replace(/[^a-zA-Z0-9]/g, '-')}`,
-        title: t.act,
+        id: `act-${index}`,
+        title: t.act,  // For initial processing, just show the act name
         year: new Date().getFullYear(),
         summary: `Treatment: ${t.treatment} (Confidence: ${(t.confidence * 100).toFixed(1)}%)`,
         citations: 0,
         citedBy: 0,
         isCentral: index === 0,
+        source: 'current',
+        filename: filename,
+        case_title: filename.replace('.pdf', '').replace(/_/g, ' '),
         acts: [{
           act: t.act,
           treatment: t.treatment as any,
@@ -716,7 +724,8 @@ export function convertSearchResultsToCaseNodes(
   
   // Create main node (the act we searched for)
   const mainNode: CaseNode = {
-    id: `main-${mainActName.replace(/[^a-zA-Z0-9]/g, '-')}`,
+    id: `act-0`,
+    // For main node, use the act name as the title
     title: mainActName,
     year: undefined,
     summary: `Main act being analyzed`,
@@ -728,13 +737,19 @@ export function convertSearchResultsToCaseNodes(
   };
   nodes.push(mainNode);
   
-  // Create nodes for each similar act found - preserve ALL rich data
+  // Create nodes for each similar act found
   searchResults.forEach((result, index) => {
+    const nodeId = `act-${index + 1}`;
+    
+    // IMPORTANT: Use file_id as the node title (this is what shows in the graph)
+    // file_id contains values like "SC_CHC APPEAL_09_2009"
+    const nodeTitle = result.file_id || result.filename || result.case_title || result.act_name;
+    
     const node: CaseNode = {
-      id: result.file_id || `result-${index}`,
-      title: result.act_name,
+      id: nodeId,  // This is the internal ID (act-1, act-2, etc.)
+      title: nodeTitle,  // This is what displays in the graph node
       year: result.year,
-      summary: `Found in case: ${result.case_title}`,
+      summary: `Act: ${result.act_name}\nTreatment: ${result.treatment} (Confidence: ${(result.confidence * 100).toFixed(1)}%)`,
       citations: 0,
       citedBy: 0,
       isCentral: false,
@@ -766,10 +781,11 @@ export function createEdgesFromSearchResults(
   nodes: CaseNode[]
 ): CitationEdge[] {
   const edges: CitationEdge[] = [];
-  const mainNodeId = `main-${mainActName.replace(/[^a-zA-Z0-9]/g, '-')}`;
+  const mainNodeId = `act-0`;
   
   searchResults.forEach((result, index) => {
-    const targetNode = nodes.find(n => n.id === (result.file_id || `result-${index}`));
+    const targetNodeId = `act-${index + 1}`;
+    const targetNode = nodes.find(n => n.id === targetNodeId);
     if (targetNode) {
       edges.push({
         id: `edge-main-to-${index}`,
@@ -794,7 +810,7 @@ export async function searchExactAct(actName: string): Promise<ActSearchResponse
       },
       body: JSON.stringify({
         act_name: actName,
-        search_type: 'exact'  // Force exact match using the index
+        search_type: 'exact'
       }),
     });
 
