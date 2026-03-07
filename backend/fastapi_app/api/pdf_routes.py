@@ -509,19 +509,22 @@ async def download_formatted_pdf(filename: str = Form(...)):
 
 
 @router.post("/finalize-and-download-pdf")
-async def finalize_and_download_pdf(filename: str = Form(...)):
+async def finalize_and_download_pdf(
+    filename: str = Form(...),
+    apply_suggestions: bool = Form(False)
+):
     """
     ONE-STEP convenience endpoint: Finalize document + Generate formatted PDF.
     
     This endpoint:
     1. Finalizes the document (merges clean edits into tagged version)
-    2. Generates PDF from the finalized TAGGED version (preserves formatting)
-    3. Returns the formatted PDF for download
-    
-    Perfect for the "Download PDF" button in the UI.
+    2. Optionally applies AI suggestions if apply_suggestions=True
+    3. Generates PDF from the finalized TAGGED version (preserves formatting)
+    4. Returns the formatted PDF for download
     
     Args:
         filename: Document filename (e.g., "case.pdf.clean.txt")
+        apply_suggestions: If True, include accepted AI suggestions; if False, skip them (default: False)
         
     Returns:
         PDF file with preserved formatting (bold, font sizes, etc.)
@@ -530,7 +533,9 @@ async def finalize_and_download_pdf(filename: str = Form(...)):
         from app.services.document_finalization_service import finalize_document_with_suggestions
         
         # Step 1: Finalize document (merge clean changes into tagged version)
-        result = await finalize_document_with_suggestions(filename)
+        # IMPORTANT: By default, do NOT auto-insert AI suggestions unless explicitly requested
+        # The document should only have user's manual edits, not AI suggestions (unless apply_suggestions=True)
+        result = await finalize_document_with_suggestions(filename, skip_suggestions=(not apply_suggestions))
         
         if not result.get('success'):
             raise HTTPException(status_code=500, detail="Document finalization failed")

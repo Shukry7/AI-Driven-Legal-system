@@ -507,15 +507,23 @@ async def get_suggestion_decisions(filename: str):
 
 
 @router.post("/finalize-document")
-async def finalize_document(filename: str = Form(...)):
+async def finalize_document(
+    filename: str = Form(...),
+    skip_suggestions: bool = Form(False)
+):
     """
     Generate final document with all accepted clause suggestions inserted.
+    
+    Args:
+        filename: The document filename
+        skip_suggestions: If True, skip inserting AI suggestions (just merge edits)
+    
     Returns the modified text content.
     """
     try:
         from app.services.document_finalization_service import finalize_document_with_suggestions
         
-        result = await finalize_document_with_suggestions(filename)
+        result = await finalize_document_with_suggestions(filename, skip_suggestions=skip_suggestions)
         
         logger.info(f"Finalized document {filename} with {result['inserted_count']} suggestions")
         
