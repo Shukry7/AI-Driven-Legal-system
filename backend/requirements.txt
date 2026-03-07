@@ -32,6 +32,9 @@ apscheduler==3.10.4
 # Environment variables
 python-dotenv==1.0.0
 
+# MongoDB and GridFS
+pymongo==4.6.1
+
 # Data processing
 pandas==2.1.4
 numpy==1.26.2

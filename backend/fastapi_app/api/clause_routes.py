@@ -155,16 +155,7 @@ async def analyze_clauses(
             
             logger.info(f"analyze-clauses: saved uploaded PDF to {saved_pdf_path}")
             
-            # Write metadata
-            try:
-                meta = {
-                    'filename': save_name,
-                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                }
-                with open(saved_pdf_path + '.meta.json', 'w', encoding='utf-8') as m:
-                    json.dump(meta, m)
-            except Exception as e:
-                logger.exception(f'Failed to write metadata: {e}')
+            # Metadata will be created after text extraction (see below)
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save uploaded PDF: {e}")
@@ -195,17 +186,29 @@ async def analyze_clauses(
                 c.write(extracted_clean)
             logger.info(f"analyze-clauses: saved clean text to {clean_path}")
             
-            # Write metadata for both text files
-            for path in [tagged_path, clean_path]:
-                try:
-                    meta_txt = {
-                        'filename': os.path.basename(path),
-                        'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                    }
-                    with open(path + '.meta.json', 'w', encoding='utf-8') as m:
-                        json.dump(meta_txt, m)
-                except Exception:
-                    logger.exception(f'Failed to write text metadata for {path}')
+            # Create .original backup if it doesn't exist
+            original_clean_path = clean_path + '.original'
+            if not os.path.exists(original_clean_path):
+                with open(original_clean_path, 'w', encoding='utf-8') as o:
+                    o.write(extracted_clean)
+            
+            # Create ONE consolidated metadata file for the PDF
+            meta = {
+                'filename': save_name,
+                'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z',
+                'artifacts': [
+                    os.path.basename(clean_path),
+                    os.path.basename(original_clean_path),
+                    os.path.basename(tagged_path)
+                ]
+            }
+            meta_path = str(saved_pdf_path) + '.meta.json'
+            try:
+                with open(meta_path, 'w', encoding='utf-8') as m:
+                    json.dump(meta, m)
+                logger.info(f"analyze-clauses: created consolidated metadata at {meta_path}")
+            except Exception:
+                logger.exception(f'Failed to write metadata')
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save extracted text: {e}")
 
@@ -578,3 +581,161 @@ async def health_check():
         "prediction_mode": get_prediction_mode(),
         "predictable_clauses": len(PREDICTABLE_CLAUSES),
     }
+
+
+@router.post("/save-to-database")
+async def save_to_database(
+    filename: str = Form(...),
+    analysis_data: Optional[str] = Form(None),
+):
+    """
+    Save the finalized document to MongoDB GridFS.
+    
+    Args:
+        filename: The finalized document filename (e.g., "document.pdf_finalized.clean.txt")
+        analysis_data: Optional JSON string with analysis metadata
+        
+    Returns:
+        JSON with success status and the GridFS file ID
+    """
+    try:
+        from pathlib import Path
+        from app.services.mongodb_service import get_mongodb_service
+        
+        # Parse analysis metadata if provided
+        metadata = None
+        if analysis_data:
+            try:
+                metadata = json.loads(analysis_data)
+            except json.JSONDecodeError:
+                logger.warning("Invalid JSON in analysis_data, ignoring metadata")
+        
+        # Get the file path
+        upload_folder = Path(__file__).parent.parent.parent / "uploads"
+        file_path = upload_folder / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read file content
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Save to MongoDB GridFS
+        mongo_service = get_mongodb_service()
+        
+        if not mongo_service.is_connected():
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB is not connected. Please check your MongoDB connection."
+            )
+        
+        file_id = mongo_service.save_finalized_document(
+            filename=filename,
+            file_content=content,
+            metadata=metadata
+        )
+        
+        if not file_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save document to MongoDB"
+            )
+        
+        logger.info(f"Successfully saved document to MongoDB: {filename} (ID: {file_id})")
+        
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": filename,
+            "message": "Document successfully saved to database"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving to database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/database-documents")
+async def list_database_documents(
+    limit: int = 50,
+    skip: int = 0
+):
+    """
+    List documents stored in MongoDB GridFS.
+    
+    Args:
+        limit: Maximum number of documents to return (default: 50)
+        skip: Number of documents to skip for pagination (default: 0)
+        
+    Returns:
+        JSON with list of documents and their metadata
+    """
+    try:
+        from app.services.mongodb_service import get_mongodb_service
+        
+        mongo_service = get_mongodb_service()
+        
+        if not mongo_service.is_connected():
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB is not connected"
+            )
+        
+        documents = mongo_service.list_documents(limit=limit, skip=skip)
+        
+        return {
+            "success": True,
+            "documents": documents,
+            "count": len(documents)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing database documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/database-document/{file_id}")
+async def get_database_document(file_id: str):
+    """
+    Retrieve a document from MongoDB GridFS by its ID.
+    
+    Args:
+        file_id: The ObjectId of the document
+        
+    Returns:
+        JSON with document content and metadata
+    """
+    try:
+        from app.services.mongodb_service import get_mongodb_service
+        
+        mongo_service = get_mongodb_service()
+        
+        if not mongo_service.is_connected():
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB is not connected"
+            )
+        
+        document = mongo_service.get_document_by_id(file_id)
+        
+        if not document:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Document not found with ID: {file_id}"
+            )
+        
+        return {
+            "success": True,
+            "document": document
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving database document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
