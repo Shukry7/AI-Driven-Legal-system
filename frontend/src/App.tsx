@@ -41,6 +41,7 @@ const App = () => (
             </Routes>
           </BrowserRouter>
         </ClauseProvider>
+        <TranslationFloatingWidget />
       </TranslationProvider>
     </TooltipProvider>
   </QueryClientProvider>

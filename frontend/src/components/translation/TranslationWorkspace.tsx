@@ -23,6 +23,7 @@ import {
   Home,
   StopCircle,
   FileDown,
+  SkipForward,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -136,16 +137,48 @@ export function TranslationWorkspace({
       toast.success("Translation completed!");
     }
     if (tracked.status === "failed") {
-      setError(tracked.error || "Translation failed");
-      toast.error("Translation failed");
+      // If we have partial sections, build a partial result instead of just showing error
+      const partialSections = tracked.partialSections || [];
+      if (partialSections.length > 0) {
+        const partialResult: TranslationJobResult = {
+          job_id: tracked.jobId,
+          filename: tracked.filename,
+          source_language: tracked.sourceLang,
+          target_language: tracked.targetLang,
+          mode: tracked.mode,
+          status: "partial",
+          progress: tracked.progress,
+          total_sections: tracked.totalSections,
+          completed_sections: partialSections.length,
+          created_at: new Date(tracked.startedAt).toISOString(),
+          source_sections: tracked.sourceSections || [],
+          translated_sections: partialSections,
+          raw_source_text: "",
+          raw_translated_text: partialSections.map(s => s.translated_content).join(" "),
+          overall_confidence: partialSections.reduce((sum, s) => sum + (s.confidence || 0), 0) / Math.max(partialSections.length, 1),
+          bleu_score: 0,
+          processing_time: 0,
+          model_used: "",
+          statistics: {
+            sections_translated: partialSections.length,
+            total_words: 0,
+            legal_terms_found: 0,
+          },
+        };
+        setResult(partialResult);
+        toast.info(`Translation stopped — showing ${partialSections.length} completed sections`);
+      } else {
+        setError(tracked.error || "Translation failed");
+        toast.error("Translation failed");
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jobs, activeJobId]);
 
-  // Load glossary terms once
+  // Load all glossary terms once
   useEffect(() => {
     getGlossary(undefined, undefined)
-      .then((g) => setGlossaryTerms(g.terms?.slice(0, 200) || []))
+      .then((g) => setGlossaryTerms(g.terms || []))
       .catch(() => {});
   }, []);
 
@@ -183,31 +216,62 @@ export function TranslationWorkspace({
 
   // ── Highlight glossary terms in text ───────────────────────────────────
   const highlightGlossary = (text: string, lang: "en" | "si" | "ta") => {
-    if (!glossaryTerms.length) return text;
-    const parts: React.ReactNode[] = [];
-    let remaining = text;
-    let key = 0;
+    if (!glossaryTerms.length || !text) return text;
 
-    for (const term of glossaryTerms) {
-      const termText = term[lang];
-      if (!termText || termText.length < 2) continue;
-      const idx = remaining.toLowerCase().indexOf(termText.toLowerCase());
-      if (idx !== -1) {
-        if (idx > 0) parts.push(remaining.slice(0, idx));
-        parts.push(
-          <span
-            key={key++}
-            className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-0.5 rounded cursor-help"
-            title={`EN: ${term.en}\nSI: ${term.si}\nTA: ${term.ta}`}
-          >
-            {remaining.slice(idx, idx + termText.length)}
-          </span>,
+    // Collect all terms for this language, sorted longest-first to avoid partial matches
+    const termEntries = glossaryTerms
+      .map((t) => ({ text: t[lang], term: t }))
+      .filter((e) => e.text && e.text.length >= 2)
+      .sort((a, b) => b.text.length - a.text.length);
+
+    if (!termEntries.length) return text;
+
+    // Find all match positions (non-overlapping, longest-first)
+    const matches: { start: number; end: number; term: GlossaryTerm }[] = [];
+    const textLower = text.toLowerCase();
+
+    for (const entry of termEntries) {
+      const termLower = entry.text.toLowerCase();
+      let searchFrom = 0;
+      while (searchFrom < textLower.length) {
+        const idx = textLower.indexOf(termLower, searchFrom);
+        if (idx === -1) break;
+        const end = idx + entry.text.length;
+        // Check no overlap with existing matches
+        const overlaps = matches.some(
+          (m) => idx < m.end && end > m.start,
         );
-        remaining = remaining.slice(idx + termText.length);
+        if (!overlaps) {
+          matches.push({ start: idx, end, term: entry.term });
+        }
+        searchFrom = idx + 1;
       }
     }
-    if (remaining) parts.push(remaining);
-    return parts.length > 1 ? <>{parts}</> : text;
+
+    if (matches.length === 0) return text;
+
+    // Sort by position
+    matches.sort((a, b) => a.start - b.start);
+
+    const parts: React.ReactNode[] = [];
+    let cursor = 0;
+    matches.forEach((m, i) => {
+      if (m.start > cursor) {
+        parts.push(text.slice(cursor, m.start));
+      }
+      parts.push(
+        <span
+          key={i}
+          className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-0.5 rounded cursor-help"
+          title={`EN: ${m.term.en}\nSI: ${m.term.si}\nTA: ${m.term.ta}`}
+        >
+          {text.slice(m.start, m.end)}
+        </span>,
+      );
+      cursor = m.end;
+    });
+    if (cursor < text.length) parts.push(text.slice(cursor));
+    return <>{parts}</>;
   };
 
   // ── Render ─────────────────────────────────────────────────────────────
@@ -645,11 +709,32 @@ export function TranslationWorkspace({
                     return (
                       <div
                         key={idx}
-                        className="p-3 rounded-lg border border-dashed border-muted-foreground/20"
+                        className="p-3 rounded-lg border border-dashed border-muted-foreground/20 flex items-center justify-between"
                       >
                         <span className="text-xs text-muted-foreground">
                           §{idx + 1} — Pending
                         </span>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-6 text-xs gap-1 text-muted-foreground hover:text-foreground"
+                          onClick={async () => {
+                            if (!activeJobId) return;
+                            try {
+                              const fd = new FormData();
+                              fd.append("section_index", String(idx));
+                              await fetch(
+                                `${import.meta.env.VITE_API_BASE_URL || ""}/api/translate/skip-section/${activeJobId}`,
+                                { method: "POST", body: fd }
+                              );
+                              toast.info(`Section ${idx + 1} will be skipped`);
+                            } catch {
+                              toast.error("Failed to skip section");
+                            }
+                          }}
+                        >
+                          <SkipForward className="w-3 h-3" /> Skip
+                        </Button>
                       </div>
                     );
                   })}

@@ -200,10 +200,73 @@ TAMIL_GRAMMAR_RULES = [
     # Fix double spaces
     (r'\s{2,}', ' '),
     
-    # Fix duplicate words
+    # Fix duplicate words (common mBART artifacts)
     (r'\bஇன்\s+இன்\b', 'இன்'),
     (r'\bஉம்\s+உம்\b', 'உம்'),
+    (r'\bமற்றும்\s+மற்றும்\b', 'மற்றும்'),
+    (r'\bஅல்லது\s+அல்லது\b', 'அல்லது'),
+    (r'\bஎன்று\s+என்று\b', 'என்று'),
+    (r'\bஆனால்\s+ஆனால்\b', 'ஆனால்'),
+    (r'\bஇல்லை\s+இல்லை\b', 'இல்லை'),
+    (r'\bஉள்ள\s+உள்ள\b', 'உள்ள'),
+    (r'\bஒரு\s+ஒரு\b', 'ஒரு'),
+    (r'\bஇந்த\s+இந்த\b', 'இந்த'),
+    (r'\bஅந்த\s+அந்த\b', 'அந்த'),
+    
+    # Fix duplicate postpositions / case markers
+    (r'\bக்கு\s+க்கு\b', 'க்கு'),
+    (r'\bக்கான\s+க்கான\b', 'க்கான'),
+    (r'\bஉடன்\s+உடன்\b', 'உடன்'),
+    (r'\bமீது\s+மீது\b', 'மீது'),
+    (r'\bபடி\s+படி\b', 'படி'),
+    (r'\bமூலம்\s+மூலம்\b', 'மூலம்'),
+    
+    # Fix duplicate verbs
+    (r'\bசெய்ய\s+செய்ய\b', 'செய்ய'),
+    (r'\bசெய்யப்பட்ட\s+செய்யப்பட்ட\b', 'செய்யப்பட்ட'),
+    (r'\bவேண்டும்\s+வேண்டும்\b', 'வேண்டும்'),
+    (r'\bமுடியும்\s+முடியும்\b', 'முடியும்'),
+    (r'\bஉள்ளது\s+உள்ளது\b', 'உள்ளது'),
+    (r'\bஇருக்கிறது\s+இருக்கிறது\b', 'இருக்கிறது'),
+    
+    # Fix common legal term spacing issues
+    (r'நீதி\s*மன்ற', 'நீதிமன்ற'),
+    (r'உயர்\s*நீதி', 'உயர்நீதி'),
+    (r'சட்ட\s*மன்ற', 'சட்டமன்ற'),
+    (r'உச்ச\s*நீதி', 'உச்சநீதி'),
+    
+    # Fix incorrect number markers after numbers
+    (r'(\d+)\s*வது\s*வது', r'\1 வது'),
+    
+    # Fix common mistranslations from mBART
+    (r'\bசட்டத்தின்\s*படி\s*படி\b', 'சட்டத்தின் படி'),
+    (r'\bஅதன்\s*படி\s*படி\b', 'அதன்படி'),
 ]
+
+# Common Tamil legal phrase corrections
+TAMIL_PHRASE_CORRECTIONS = {
+    # Court names
+    "உயர் நீதிமன்றம்": "உயர்நீதிமன்றம்",
+    "உச்ச நீதிமன்றம்": "உச்சநீதிமன்றம்",
+    "மாவட்ட நீதிமன்றம்": "மாவட்ட நீதிமன்றம்",
+    
+    # Legal role terms
+    "வழக்கு தொடர்பவர்": "வழக்காளர்",
+    "வழக்கு பதிவாளர்": "வழக்குப் பதிவாளர்",
+    
+    # Common legal phrase fixes
+    "சட்டத்தின் கீழ் கீழ்": "சட்டத்தின் கீழ்",
+    "படி படி": "படி",
+    "மூலம் மூலம்": "மூலம்",
+    "அதன் படி": "அதன்படி",
+    "இலங்கை சனநாயக சோசலிச குடியரசு": "இலங்கை ஜனநாயக சோசலிசக் குடியரசு",
+    
+    # Legal terminology
+    "தீர்ப்பு வழங்கப் பட்ட": "தீர்ப்பு வழங்கப்பட்ட",
+    "வழக்கு தாக்கல்": "வழக்குத் தாக்கல்",
+    "ஆணை பிறப்பிக்கப் பட்ட": "ஆணை பிறப்பிக்கப்பட்ட",
+    "நிவாரணம் கோரி": "நிவாரணம் கோரி",
+}
 
 
 # ============================================================================
@@ -257,6 +320,12 @@ def apply_tamil_grammar_correction(text: str) -> Tuple[str, int]:
         if new_text != corrected:
             corrections_count += 1
             corrected = new_text
+    
+    # Apply phrase corrections
+    for incorrect, correct in TAMIL_PHRASE_CORRECTIONS.items():
+        if incorrect in corrected:
+            corrected = corrected.replace(incorrect, correct)
+            corrections_count += 1
     
     # Trim whitespace
     corrected = corrected.strip()
@@ -346,21 +415,34 @@ def apply_glossary_correction(text: str, source_text: str, target_lang: str) -> 
         local_words = correct_local_term.split()
 
         if len(en_words) >= 2 and len(local_words) >= 2:
-            # Multi-word term: check if partial match exists (first word of translation)
+            # Multi-word term: only replace if we find a partial match that
+            # shares at least TWO words with the glossary term AND is close
+            # in length (within 30% tolerance). This prevents the old bug
+            # where the first-word match grabbed everything to the next
+            # sentence boundary and destroyed correct translations.
             first_local = local_words[0]
             if first_local in corrected and correct_local_term not in corrected:
-                # Find the partial and see if it needs fixing
-                # Look for the first word followed by different words than expected
-                partial_pattern = re.escape(first_local) + r'[^\n.;,]*'
-                match = re.search(partial_pattern, corrected)
-                if match:
+                # Build a tight pattern: first word + up to N more words
+                # (where N = number of words in the correct term)
+                max_extra = len(local_words)
+                partial_pattern = re.escape(first_local) + r'(?:\s+\S+){0,' + str(max_extra) + r'}'
+                for match in re.finditer(partial_pattern, corrected):
                     matched_text = match.group(0).strip()
-                    # Only replace if the matched text differs from the correct term
-                    # and is roughly similar in length (avoid replacing unrelated text)
-                    if matched_text != correct_local_term and len(matched_text) <= len(correct_local_term) * 2:
+                    if matched_text == correct_local_term:
+                        break  # already correct
+                    # Require at least 2 shared words between match and glossary term
+                    matched_words = set(matched_text.split())
+                    glossary_words = set(local_words)
+                    shared = matched_words & glossary_words
+                    if len(shared) < 2:
+                        continue
+                    # Length guard: matched text must be within 30% of correct term length
+                    len_ratio = len(matched_text) / max(len(correct_local_term), 1)
+                    if 0.5 <= len_ratio <= 1.5:
                         corrected = corrected.replace(matched_text, correct_local_term, 1)
                         corrections_count += 1
                         terms_corrected.append(en_term)
+                        break
         elif len(en_words) == 1:
             # Single-word term: look for the English word left untranslated in output
             # This catches cases where the model left an English word as-is
