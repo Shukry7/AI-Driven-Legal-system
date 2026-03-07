@@ -26,7 +26,7 @@ def secure_filename(filename: str) -> str:
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from app.services.pdf_service import pdf_bytes_to_text, strip_bold_markers
+from app.services.pdf_service import pdf_bytes_to_text, pdf_bytes_to_dual_text, strip_bold_markers
 from app.services.clause_detection_service import analyze_clause_detection
 from app.services.hybrid_clause_detection_service import analyze_with_hybrid_detection
 from app.services.clause_patterns import CLAUSE_DEFINITIONS
@@ -169,31 +169,43 @@ async def analyze_clauses(
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save uploaded PDF: {e}")
 
-        # Extract text from PDF
-        ok, result = pdf_bytes_to_text(file_bytes)
+        # Extract text from PDF (dual version - tagged and clean)
+        ok, result = pdf_bytes_to_dual_text(file_bytes)
         if not ok:
             raise HTTPException(status_code=500, detail=f"PDF text extraction failed: {result}")
 
-        extracted_text = result
-        logger.info(f"analyze-clauses: completed text extraction length={len(extracted_text)}")
+        extracted_tagged = result['tagged']
+        extracted_clean = result['clean']
+        extracted_text = extracted_clean  # Use clean for analysis
+        logger.info(f"analyze-clauses: completed text extraction - tagged: {len(extracted_tagged)}, clean: {len(extracted_clean)}")
 
-        # Save extracted text
-        txt_path = saved_pdf_path + '.txt'
+        # Save both versions
+        tagged_path = saved_pdf_path + '.tagged.txt'
+        clean_path = saved_pdf_path + '.clean.txt'
+        txt_path = clean_path  # Use clean path for analysis
+        
         try:
-            with open(txt_path, 'w', encoding='utf-8') as t:
-                t.write(extracted_text)
-            logger.info(f"analyze-clauses: saved extracted text to {txt_path}")
+            # Save tagged version
+            with open(tagged_path, 'w', encoding='utf-8') as t:
+                t.write(extracted_tagged)
+            logger.info(f"analyze-clauses: saved tagged text to {tagged_path}")
             
-            # Write text metadata
-            try:
-                meta_txt = {
-                    'filename': os.path.basename(txt_path),
-                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                }
-                with open(txt_path + '.meta.json', 'w', encoding='utf-8') as m:
-                    json.dump(meta_txt, m)
-            except Exception:
-                logger.exception(f'Failed to write text metadata')
+            # Save clean version
+            with open(clean_path, 'w', encoding='utf-8') as c:
+                c.write(extracted_clean)
+            logger.info(f"analyze-clauses: saved clean text to {clean_path}")
+            
+            # Write metadata for both text files
+            for path in [tagged_path, clean_path]:
+                try:
+                    meta_txt = {
+                        'filename': os.path.basename(path),
+                        'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
+                    }
+                    with open(path + '.meta.json', 'w', encoding='utf-8') as m:
+                        json.dump(meta_txt, m)
+                except Exception:
+                    logger.exception(f'Failed to write text metadata for {path}')
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save extracted text: {e}")
 
@@ -222,11 +234,25 @@ async def analyze_clauses(
         if not os.path.exists(candidate_path):
             raise HTTPException(status_code=404, detail=f"File not found: {result_filename}")
 
-        # Expect a text file
-        if not result_filename.lower().endswith('.txt'):
+        # Expect a clean text file (or legacy .txt)
+        if result_filename.lower().endswith('.clean.txt'):
+            # New dual-file system
+            clean_path = candidate_path
+            txt_path = candidate_path
+        elif result_filename.lower().endswith('.txt'):
+            # Legacy or general .txt - try to find .clean.txt first
+            base_name = candidate_path[:-4]  # Remove .txt
+            clean_path = base_name + '.clean.txt'
+            if os.path.exists(clean_path):
+                txt_path = clean_path
+                candidate_path = clean_path
+            else:
+                # Use legacy file
+                txt_path = candidate_path
+        else:
             raise HTTPException(
                 status_code=400, 
-                detail="analyze-clauses expects a .txt filename previously generated"
+                detail="analyze-clauses expects a .clean.txt or .txt filename"
             )
 
         try:
@@ -335,10 +361,11 @@ async def predict_clauses(
             raise HTTPException(status_code=400, detail="Uploaded file has no filename")
         try:
             file_bytes = await file.read()
-            ok, result = pdf_bytes_to_text(file_bytes)
+            ok, result = pdf_bytes_to_dual_text(file_bytes)
             if not ok:
                 raise HTTPException(status_code=500, detail=f"PDF text extraction failed: {result}")
-            extracted_text = result
+            # Use clean version for clause prediction
+            extracted_text = result['clean']
         except HTTPException:
             raise
         except Exception as e:
@@ -346,9 +373,22 @@ async def predict_clauses(
     # Mode 2: Existing text file
     elif filename:
         safe_name = secure_filename(filename)
-        # Ensure it's a .txt file
-        if not safe_name.lower().endswith('.txt'):
-            safe_name = safe_name + '.txt'
+        
+        # Prefer .clean.txt, fallback to .txt
+        if safe_name.lower().endswith('.clean.txt'):
+            # Already specifying clean version
+            pass
+        elif safe_name.lower().endswith('.txt'):
+            # Check if .clean.txt exists, prefer it
+            base_name = safe_name[:-4]
+            clean_name = base_name + '.clean.txt'
+            test_path = os.path.abspath(os.path.join(uploads_dir, clean_name))
+            if os.path.exists(test_path):
+                safe_name = clean_name
+        else:
+            # Add .clean.txt extension as default
+            safe_name = safe_name + '.clean.txt'
+            
         candidate = os.path.abspath(os.path.join(uploads_dir, safe_name))
         uploads_dir_abs = os.path.abspath(uploads_dir)
         if not (candidate == uploads_dir_abs or candidate.startswith(uploads_dir_abs + os.sep)):
