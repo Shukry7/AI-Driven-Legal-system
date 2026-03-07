@@ -39,8 +39,9 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent        # repo root
-SINHALA_MODEL_DIR = ROOT_DIR / "sinhala_legal_final_model"
-TAMIL_MODEL_DIR  = ROOT_DIR / "tamil_legal_final_model"
+ML_MODELS_DIR = Path(__file__).resolve().parent.parent / "ml_models"   # backend/app/ml_models
+SINHALA_MODEL_DIR = ML_MODELS_DIR / "sinhala_legal_final_model"
+TAMIL_MODEL_DIR  = ML_MODELS_DIR / "tamil_legal_final_model"
 GLOSSARY_PATH    = ROOT_DIR / "legal_glossary.csv"
 JOBS_DIR         = Path(__file__).resolve().parent.parent.parent / "translation_jobs"
 JOBS_DIR.mkdir(exist_ok=True)
@@ -191,6 +192,11 @@ def _split_into_sections(text: str) -> List[Dict]:
     paragraphs = re.split(r"\n\s*\n", cleaned)
     paragraphs = [p.strip() for p in paragraphs if p.strip()]
 
+    # If double-newline split produced very few sections for a large text,
+    # fall back to sentence-based chunking (PDF extraction often lacks paragraph breaks)
+    if len(paragraphs) <= 1 and len(cleaned.strip()) > 600:
+        paragraphs = _chunk_text_into_sections(cleaned.strip())
+
     if not paragraphs:
         return [{"id": "sec-1", "type": "paragraph", "content": cleaned, "keywords": []}]
 
@@ -210,16 +216,60 @@ def _split_into_sections(text: str) -> List[Dict]:
     return sections
 
 
+def _chunk_text_into_sections(text: str, target_size: int = 800) -> List[str]:
+    """Split text into sections of ~target_size chars using sentence boundaries.
+
+    Used as fallback when PDF text has no paragraph breaks (double-newlines).
+    """
+    # Normalize whitespace: collapse runs of spaces/tabs, keep single newlines as spaces
+    normalized = re.sub(r"[ \t]+", " ", text)
+    normalized = re.sub(r"\n\s*", " ", normalized)
+    normalized = normalized.strip()
+
+    if not normalized:
+        return []
+
+    # Split into sentences on period/question-mark/exclamation followed by space + uppercase
+    # Protect common abbreviations from false splits
+    sentences = re.split(
+        r'(?<=[.!?])\s+(?=[A-Z("])',
+        normalized,
+    )
+    sentences = [s.strip() for s in sentences if s.strip()]
+
+    if not sentences:
+        return [normalized]
+
+    # Group sentences into chunks of roughly target_size characters
+    chunks: List[str] = []
+    current: List[str] = []
+    current_len = 0
+
+    for sent in sentences:
+        if current and current_len + len(sent) > target_size:
+            chunks.append(" ".join(current))
+            current = [sent]
+            current_len = len(sent)
+        else:
+            current.append(sent)
+            current_len += len(sent)
+
+    if current:
+        chunks.append(" ".join(current))
+
+    return chunks
+
+
 # ---------------------------------------------------------------------------
 # Translation helpers
 # ---------------------------------------------------------------------------
 
 def _translate_text(text: str, model_key: str, max_length: int = 512) -> Tuple[str, float]:
-    """Translate a chunk of text. Returns (translated, confidence)."""
+    """Translate text sentence-by-sentence for better quality, then merge.
+    Returns (translated, avg_confidence)."""
     models = load_models()
     entry = models.get(model_key)
     if entry is None:
-        # Mock fallback – reverse words for demo
         return f"[mock-{model_key}] {text}", 0.0
 
     device = torch.device(entry.get("on_device", models.get("device", "cpu")))
@@ -227,27 +277,63 @@ def _translate_text(text: str, model_key: str, max_length: int = 512) -> Tuple[s
     mdl = entry["model"]
     tgt_lang = entry["tgt_lang"]
 
-    inputs = tok(text, return_tensors="pt", max_length=max_length, truncation=True, padding=True).to(device)
-    with torch.no_grad():
-        out = mdl.generate(
-            **inputs,
-            forced_bos_token_id=tok.lang_code_to_id[tgt_lang],
-            max_length=max_length,
-            num_beams=5,
-            early_stopping=True,
-            output_scores=True,
-            return_dict_in_generate=True,
-        )
-    translated = tok.batch_decode(out.sequences, skip_special_tokens=True)[0]
+    # Split into sentences for one-at-a-time translation
+    sentences = _split_sentences(text)
+    if not sentences:
+        return "", 0.0
 
-    # Rough confidence: mean of softmax-max across generated tokens
-    if out.scores:
-        confs = [torch.softmax(s, dim=-1).max().item() for s in out.scores]
-        confidence = sum(confs) / len(confs)
-    else:
-        confidence = 0.85
+    translated_parts = []
+    confidences = []
 
-    return translated, round(confidence, 4)
+    for sent in sentences:
+        sent = sent.strip()
+        if not sent:
+            continue
+        # Very short fragments (< 3 chars) — keep as-is (numbers, punctuation)
+        if len(sent) < 3 and not any(c.isalpha() for c in sent):
+            translated_parts.append(sent)
+            confidences.append(1.0)
+            continue
+
+        inputs = tok(sent, return_tensors="pt", max_length=max_length, truncation=True, padding=True).to(device)
+        with torch.no_grad():
+            out = mdl.generate(
+                **inputs,
+                forced_bos_token_id=tok.lang_code_to_id[tgt_lang],
+                max_length=max_length,
+                num_beams=5,
+                early_stopping=True,
+                output_scores=True,
+                return_dict_in_generate=True,
+            )
+        trans = tok.batch_decode(out.sequences, skip_special_tokens=True)[0]
+        translated_parts.append(trans)
+
+        if out.scores:
+            confs = [torch.softmax(s, dim=-1).max().item() for s in out.scores]
+            confidences.append(sum(confs) / len(confs))
+        else:
+            confidences.append(0.85)
+
+    merged = " ".join(translated_parts)
+    avg_conf = sum(confidences) / max(len(confidences), 1)
+    return merged, round(avg_conf, 4)
+
+
+def _split_sentences(text: str) -> List[str]:
+    """Split text into sentences, preserving legal citation patterns."""
+    # Split on sentence-ending punctuation followed by space or end
+    # but not on abbreviations like "No." "v." "Ltd." etc.
+    parts = re.split(r'(?<=[.!?])\s+(?=[A-Z\u0D80-\u0DFF\u0B80-\u0BFF\u0D00-\u0D7F])', text)
+    # Further split very long sentences (>300 chars) at semicolons or commas
+    result = []
+    for p in parts:
+        if len(p) > 300:
+            sub = re.split(r'(?<=[;])\s+', p)
+            result.extend(sub)
+        else:
+            result.append(p)
+    return [s for s in result if s.strip()]
 
 
 def _model_key(source: str, target: str) -> str:
@@ -282,6 +368,29 @@ def translate_sections(
         glossary_map[t["en"].lower()] = t.get("si" if target_lang == "si" else "ta", "")
 
     for i, sec in enumerate(sections):
+        # Check if job was cancelled
+        job_state = _load_job(job_id)
+        if job_state and job_state.get("status") == "failed":
+            logger.info("Job %s was cancelled, stopping at section %d/%d", job_id, i, len(sections))
+            break
+
+        # Check if this section should be skipped
+        skip_sections = set(job_state.get("skip_sections", [])) if job_state else set()
+        if i in skip_sections:
+            logger.info("Skipping section %d (marked by user)", i)
+            translated.append({
+                "id": sec["id"],
+                "type": sec.get("type", "paragraph"),
+                "translated_content": "[Skipped]",
+                "confidence": 0,
+                "keywords": [],
+                "skipped": True,
+            })
+            _update_job_progress(job_id, i + 1, len(sections), translated[-1])
+            if progress_callback:
+                progress_callback(i + 1, len(sections))
+            continue
+
         text = sec["content"]
         trans_text, conf = _translate_text(text, key)
 
@@ -309,18 +418,31 @@ def translate_sections(
     
     # === POST-PROCESSING: Apply glossary + grammar corrections ===
     logger.info("Applying post-translation corrections for %s...", target_lang.upper())
-    corrected_sections, correction_stats = batch_correct_sections(
-        translated, sections, target_lang
-    )
-    
-    logger.info(
-        "✓ Corrections applied: %d total (%d glossary, %d grammar) across %d/%d sections",
-        correction_stats["total_corrections"],
-        correction_stats["glossary_corrections"],
-        correction_stats["grammar_corrections"],
-        correction_stats["sections_corrected"],
-        correction_stats["total_sections"]
-    )
+    try:
+        corrected_sections, correction_stats = batch_correct_sections(
+            translated, sections, target_lang
+        )
+        
+        logger.info(
+            "✓ Corrections applied: %d total (%d glossary, %d grammar) across %d/%d sections",
+            correction_stats["total_corrections"],
+            correction_stats["glossary_corrections"],
+            correction_stats["grammar_corrections"],
+            correction_stats["sections_corrected"],
+            correction_stats["total_sections"]
+        )
+    except Exception as e:
+        logger.exception("Post-processing corrections failed, returning raw translations: %s", e)
+        corrected_sections = translated
+        correction_stats = {
+            "total_sections": len(translated),
+            "sections_corrected": 0,
+            "glossary_corrections": 0,
+            "grammar_corrections": 0,
+            "total_corrections": 0,
+            "all_terms_corrected": [],
+            "error": str(e),
+        }
     
     return corrected_sections, overall, correction_stats
 
@@ -345,22 +467,33 @@ def translate_raw_text(text: str, source_lang: str, target_lang: str) -> Tuple[s
     
     # === POST-PROCESSING: Apply glossary + grammar corrections ===
     logger.info("Applying corrections to raw text translation (%s)...", target_lang.upper())
-    correction_result = apply_comprehensive_correction(full_trans, text, target_lang)
+    try:
+        correction_result = apply_comprehensive_correction(full_trans, text, target_lang)
+        
+        corrected_text = correction_result["corrected_text"]
+        correction_info = {
+            "glossary_corrections": correction_result["glossary_corrections"],
+            "grammar_corrections": correction_result["grammar_corrections"],
+            "total_corrections": correction_result["total_corrections"],
+            "terms_corrected": correction_result["terms_corrected"],
+        }
     
-    corrected_text = correction_result["corrected_text"]
-    correction_info = {
-        "glossary_corrections": correction_result["glossary_corrections"],
-        "grammar_corrections": correction_result["grammar_corrections"],
-        "total_corrections": correction_result["total_corrections"],
-        "terms_corrected": correction_result["terms_corrected"],
-    }
-    
-    logger.info(
-        "✓ Applied %d corrections (%d glossary, %d grammar)",
-        correction_info["total_corrections"],
-        correction_info["glossary_corrections"],
-        correction_info["grammar_corrections"]
-    )
+        logger.info(
+            "✓ Applied %d corrections (%d glossary, %d grammar)",
+            correction_info["total_corrections"],
+            correction_info["glossary_corrections"],
+            correction_info["grammar_corrections"]
+        )
+    except Exception as e:
+        logger.exception("Post-processing corrections failed for raw text: %s", e)
+        corrected_text = full_trans
+        correction_info = {
+            "glossary_corrections": 0,
+            "grammar_corrections": 0,
+            "total_corrections": 0,
+            "terms_corrected": [],
+            "error": str(e),
+        }
     
     return corrected_text, avg_conf, correction_info
 

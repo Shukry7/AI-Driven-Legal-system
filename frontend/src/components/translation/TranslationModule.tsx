@@ -28,12 +28,31 @@ export function TranslationModule() {
   const [translationResult, setTranslationResult] =
     useState<TranslationJobResult | null>(null);
   const [activeTab, setActiveTab] = useState("translate");
-  const { viewingJobId, setViewingJobId, getResult } = useTranslation();
+  const { viewingJobId, setViewingJobId, getResult, jobs } = useTranslation();
 
-  // When the floating widget triggers viewing a completed job
+  // When the floating widget triggers viewing a job (completed or in-progress)
   useEffect(() => {
     if (!viewingJobId) return;
     (async () => {
+      // First check if this is an in-progress job we already track
+      const tracked = jobs.find((j) => j.jobId === viewingJobId);
+
+      if (tracked && (tracked.status === "processing" || tracked.status === "uploading")) {
+        // In-progress job: navigate to workspace with the job's source data
+        const extractedText = tracked.sourceSections?.map((s) => s.content).join("\n\n") || "";
+        setTranslationResult(null);
+        setUploadData({
+          sourceLanguage: tracked.sourceLang,
+          targetLanguage: tracked.targetLang,
+          extractedText,
+          mode: tracked.mode,
+        });
+        setCurrentView("workspace");
+        setViewingJobId(null);
+        return;
+      }
+
+      // Completed job: fetch full result
       const result = await getResult(viewingJobId);
       if (result) {
         setTranslationResult(result);

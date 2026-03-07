@@ -145,11 +145,11 @@ function JobRow({
         </div>
 
         <div className="flex items-center gap-1">
-          {job.status === "completed" && (
+          {(job.status === "completed" || isActive) && (
             <button
               onClick={() => onView(job.jobId)}
               className="p-1 rounded hover:bg-accent/20 transition-colors"
-              title="View result"
+              title={isActive ? "View progress" : "View result"}
             >
               <ExternalLink className="w-3.5 h-3.5 text-primary" />
             </button>

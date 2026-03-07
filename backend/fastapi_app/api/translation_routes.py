@@ -285,6 +285,24 @@ async def cancel_translation(job_id: str):
 
 
 # ═══════════════════════════════════════════════════════════════════════════
+# POST /api/translate/skip-section/{job_id}
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/translate/skip-section/{job_id}")
+async def skip_section(job_id: str, section_index: int = Form(...)):
+    """Mark a section to be skipped during translation."""
+    from app.services.translation_service import _load_job, _save_job
+    job = _load_job(job_id)
+    if not job:
+        raise HTTPException(404, "Job not found")
+    skip_set = set(job.get("skip_sections", []))
+    skip_set.add(section_index)
+    job["skip_sections"] = list(skip_set)
+    _save_job(job_id, job)
+    return JSONResponse({"message": f"Section {section_index} marked for skip", "skip_sections": list(skip_set)})
+
+
+# ═══════════════════════════════════════════════════════════════════════════
 # DELETE /api/translate/job/{job_id}
 # ═══════════════════════════════════════════════════════════════════════════
 
