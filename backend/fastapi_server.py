@@ -112,7 +112,9 @@ async def root():
                     "health": "/api/health"
                 },
                 "lineage_analysis": {
-                    "upload_and_analyze": "/api/lineage/analyze-lineage"
+                    "upload_and_analyze": "/api/lineage/analyze-lineage",
+                    "search_and_fetch": "/api/lineage/search-act",
+                    "get_stats": "/api/lineage/stats",
                 },
                 "docs": "/docs",
                 "redoc": "/redoc"
