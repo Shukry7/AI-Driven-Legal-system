@@ -1814,46 +1814,32 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               </div>
             </div>
 
-            <div className="flex gap-3 mt-4">
+            <div className="grid grid-cols-2 gap-4 mt-6">
               <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <List className="w-4 h-4 mr-2" />
+                  <Button variant="outline" size="lg" className="w-full">
+                    <List className="w-5 h-5 mr-2" />
                     View Clause Details
                   </Button>
                 </DialogTrigger>
                 {renderClauseDetailsDialog()}
               </Dialog>
-              <Button variant="outline" size="sm" onClick={handleDownloadDocument}>
-                <Download className="w-4 h-4 mr-2" />
-                Download PDF
-              </Button>
               {/* AI Suggestions Button (Manual mode) */}
               {!predictions && (
                 <Button
-                  variant="default"
-                  size="sm"
+                  size="lg"
                   onClick={() => handleGetAISuggestions(false)}
                   disabled={predictionsLoading}
-                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  className="w-full bg-violet-600 hover:bg-violet-700 text-white"
                 >
                   {predictionsLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   ) : (
-                    <Sparkles className="w-4 h-4 mr-2" />
+                    <Sparkles className="w-5 h-5 mr-2" />
                   )}
                   {predictionsLoading ? 'Getting AI Suggestions...' : 'Get AI Suggestions'}
                 </Button>
               )}
-              <Button className="flex-1" onClick={() => onComplete({
-                ...results,
-                originalDocument: documentText,
-                modifiedDocument: modifiedDocumentText,
-                filename: savedTextFilename || undefined
-              })}>
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Continue to Full Review
-              </Button>
             </div>
           </CardContent>
         </Card>
