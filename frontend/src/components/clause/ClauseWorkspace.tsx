@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp, Home, Database, CheckCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
 import api from '@/config/api';
-import { predictClauses, getPredictionConfig, acceptSuggestion, saveTextFile, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
+import { predictClauses, getPredictionConfig, acceptSuggestion, saveTextFile, saveToDatabase, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
 
 interface ClauseWorkspaceProps {
   file: File;
@@ -31,6 +31,7 @@ interface AnalysisResults {
   corruptedClauses: CorruptedClause[];
   originalDocument?: string;
   modifiedDocument?: string;
+  filename?: string; // The finalized filename for database storage
   statistics?: {
     total_clauses: number;
     present: number;
@@ -83,6 +84,9 @@ interface ProcessStep {
 }
 
 export function ClauseWorkspace({ file, onComplete, onCancel, originalDocument }: ClauseWorkspaceProps) {
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [isSavedToDb, setIsSavedToDb] = useState(false);
+
   const defaultDocumentText = `IN THE SUPREME COURT OF THE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA
 
 In the matter of an application for Leave to Appeal under and in terms of Section 5C (1) of the High Court of the Provinces (Special Provisions) Act No.19 of 1990 as amended by Act, No. 54 of 2006
@@ -768,7 +772,50 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     return Math.min(200, text.length);
   };
 
+  const generateReport = () => {
+    if (!results) return '';
+    
+    const acceptedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted').length;
+    const rejectedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected').length;
+    const editedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited').length;
+    
+    return `CLAUSE ANALYSIS REPORT
+========================
+Generated: ${new Date().toLocaleString()}
 
+SUMMARY
+-------
+Total Clauses: ${results.totalClauses}
+Valid Clauses: ${results.validClauses}
+Corrupted Clauses: ${results.corruptedClauses.length}
+Missing Clauses: ${results.missingClauses.length}
+
+REVIEW STATISTICS
+-----------------
+Accepted: ${acceptedCount}
+Rejected: ${rejectedCount}
+Edited: ${editedCount}
+Pending: ${[...results.missingClauses, ...results.corruptedClauses].filter(c => !c.status).length}
+
+MISSING CLAUSES
+---------------
+${results.missingClauses.map(c => `
+${c.name}
+Status: ${c.status || 'Pending'}
+Severity: ${c.severity}
+Description: ${c.description}
+${c.status === 'accepted' ? `Accepted Text: ${c.userInputValue || c.predictedText}` : ''}`).join('\n')}
+
+CORRUPTED CLAUSES
+-----------------
+${results.corruptedClauses.map(c => `
+${c.name}
+Status: ${c.status || 'Pending'}
+Issue: ${c.issue}
+${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedText}` : ''}`).join('\n')}
+
+--- END OF REPORT ---`;
+  };
 
   const handleAcceptClause = (type: 'missing' | 'corrupted', id: number) => {
     if (!results) return;
@@ -1409,6 +1456,46 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     }
   };
 
+  const handleSaveToDatabase = async () => {
+    try {
+      if (!savedTextFilename) {
+        alert('No file available to save. Please upload a document first.');
+        return;
+      }
+
+      // Derive the finalized filename from the current filename
+      // e.g., "document.pdf.clean.txt" -> "document.pdf_finalized.clean.txt"
+      const finalizedFilename = savedTextFilename.replace('.clean.txt', '_finalized.clean.txt');
+      console.log('Saving finalized document to MongoDB:', finalizedFilename);
+
+      // Prepare metadata to store with the finalized document
+      const analysisData = {
+        timestamp: new Date().toISOString(),
+        totalClauses: results?.totalClauses || 0,
+        validClauses: results?.validClauses || 0,
+        missingClauses: results?.missingClauses || [],
+        corruptedClauses: results?.corruptedClauses || [],
+        originalFilename: file.name,
+      };
+
+      // Save the finalized text file to MongoDB GridFS
+      const response = await saveToDatabase(finalizedFilename, analysisData);
+
+      if (response.success) {
+        setIsSavedToDb(true);
+        console.log('Finalized document saved to database:', response);
+        alert('Successfully saved finalized document to database!');
+        // Optionally close dialog after a brief delay
+        setTimeout(() => setShowCompleteDialog(false), 1500);
+      } else {
+        throw new Error('Failed to save to database');
+      }
+    } catch (error) {
+      console.error('Error saving to database:', error);
+      alert(`Failed to save to database: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  };
+
   // Helper function to get organized clause lists from backend response
   const getOrganizedClauses = () => {
     if (!results) return { present: [], missing: [], corrupted: [] };
@@ -1581,12 +1668,35 @@ Judge: [MISSING: Third Judge Signature - Signature required]
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!analysisRunning && !analysisComplete && (
+          {!analysisComplete && !analysisRunning && (
             <Button onClick={startAnalysis}>Start AI Analysis</Button>
           )}
-          <Button variant="outline" onClick={onCancel}>
-            Back
-          </Button>
+          {analysisComplete && results && (
+            <>
+              <Button
+                variant="outline"
+                onClick={handleDownloadDocument}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Report
+              </Button>
+              <Button
+                variant="outline"
+                className="border-green-600 text-green-600 hover:bg-green-50"
+                onClick={() => setViewMode(viewMode === 'review' ? 'comparison' : 'review')}
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                {viewMode === 'review' ? 'Show Comparison' : 'Back to Review'}
+              </Button>
+              <Button 
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => setShowCompleteDialog(true)}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Complete Analysis
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1636,6 +1746,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
       {/* Analysis Summary - Horizontal Layout */}
       {analysisComplete && results && (
+        <>
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Analysis Summary</CardTitle>
@@ -1737,7 +1848,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               <Button className="flex-1" onClick={() => onComplete({
                 ...results,
                 originalDocument: documentText,
-                modifiedDocument: modifiedDocumentText
+                modifiedDocument: modifiedDocumentText,
+                filename: savedTextFilename || undefined
               })}>
                 <CheckCircle className="w-4 h-4 mr-2" />
                 Continue to Full Review
@@ -1745,7 +1857,53 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             </div>
           </CardContent>
         </Card>
+        </>
       )}
+
+      {/* ─── Complete Analysis Dialog ─────────────────────────────────────── */}
+      <Dialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCheck className="w-5 h-5 text-green-600" />
+              Complete Analysis
+            </DialogTitle>
+            <DialogDescription>
+              Your clause analysis is complete. Choose your next action:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-4">
+            <Button 
+              onClick={() => {
+                handleDownloadDocument();
+              }}
+              className="w-full justify-start bg-blue-600 hover:bg-blue-700"
+              size="lg"
+            >
+              <Download className="w-5 h-5 mr-3" />
+              Download Report
+            </Button>
+            <Button 
+              onClick={handleSaveToDatabase}
+              className="w-full justify-start bg-green-600 hover:bg-green-700"
+              size="lg"
+              disabled={isSavedToDb}
+            >
+              <Database className="w-5 h-5 mr-3" />
+              {isSavedToDb ? 'Saved to Database ✓' : 'Save to Database'}
+            </Button>
+            <Button 
+              onClick={onCancel}
+              className="w-full justify-start"
+              variant="outline"
+              size="lg"
+            >
+              <Home className="w-5 h-5 mr-3" />
+              Back to Dashboard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── AI Suggestions Panel ─────────────────────────────────────────── */}
       {analysisComplete && predictions && predictions.total_missing > 0 && (
