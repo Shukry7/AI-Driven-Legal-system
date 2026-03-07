@@ -144,6 +144,14 @@ async def upload_pdf(file: UploadFile = File(...)):
             c.write(extracted_clean)
         logger.info(f"upload-pdf: saved clean text to {clean_path}")
         
+        # IMPORTANT: Create .original backup of clean version
+        # This preserves the original state before any user edits
+        # Used by document finalization service to detect changes
+        original_clean_path = clean_path + '.original'
+        with open(original_clean_path , 'w', encoding='utf-8') as o:
+            o.write(extracted_clean)
+        logger.info(f"upload-pdf: created original backup at {original_clean_path}")
+        
         # Save metadata for both files
         for path in [tagged_path, clean_path]:
             try:
