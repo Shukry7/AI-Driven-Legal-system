@@ -22,7 +22,8 @@ import {
   AlertTriangle,
   Shield,
   FileJson,
-  Scale
+  Scale,
+  Database
 } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -95,13 +96,16 @@ export default function CaseDetailsPanel({ selected }: Props) {
   // Get the primary treatment for this act (first one)
   const primaryTreatment = selected.acts?.[0];
   
-  // Extract case information from the node
-  const caseInfo = {
-    caseTitle: selected.summary?.split('\n')[0]?.replace('Found in case: ', '') || 'Unknown Case',
-    year: selected.year,
-    citations: selected.citations || 0,
-    citedBy: selected.citedBy || 0
+  // Get rich data if available - from the node's acts[0] which contains all the rich data from search results
+  const richData = primaryTreatment && {
+    act_id: primaryTreatment.act_id,
+    context_preview: primaryTreatment.context_preview,
+    case_title: primaryTreatment.case_title || selected.case_title,
+    filename: primaryTreatment.filename || selected.filename,
+    file_id: primaryTreatment.file_id || selected.file_id
   };
+
+  const isFromDatabase = selected.source === 'database' || richData?.file_id;
 
   return (
     <div className="h-full flex flex-col">
@@ -113,9 +117,13 @@ export default function CaseDetailsPanel({ selected }: Props) {
               <div className="p-2 bg-white/10 rounded-lg">
                 <Scale className="w-5 h-5" />
               </div>
-              <span className="text-sm text-slate-300">Legal Act</span>
+              <span className="text-sm text-slate-300">
+                {isFromDatabase ? 'Database Record' : 'Current Act'} • {selected.id}
+              </span>
             </div>
-            <h3 className="text-xl font-bold leading-tight mb-2">{selected.title}</h3>
+            <h3 className="text-xl font-bold leading-tight mb-2">
+              {selected.title}  {/* This shows the case title or act name */}
+            </h3>
           </div>
           <button
             onClick={() => setBookmarked(!bookmarked)}
@@ -125,15 +133,15 @@ export default function CaseDetailsPanel({ selected }: Props) {
           </button>
         </div>
 
-        {/* Quick stats - Now using real data */}
+        {/* Quick stats - Using real data */}
         <div className="grid grid-cols-3 gap-4">
           <div className="bg-white/10 rounded-lg p-3">
             <div className="text-xs text-slate-300 mb-1 flex items-center gap-1">
               <Hash className="w-3 h-3" />
-              Act ID
+              Node ID
             </div>
             <div className="font-mono text-sm truncate" title={selected.id}>
-              {selected.acts?.[0]?.act_id || selected.id.split('-').slice(0,2).join('-')}
+              {selected.id}  {/* This shows act-0, act-1, etc. */}
             </div>
           </div>
           <div className="bg-white/10 rounded-lg p-3">
@@ -190,27 +198,35 @@ export default function CaseDetailsPanel({ selected }: Props) {
               <div className="bg-gradient-to-r from-slate-50 to-white border border-slate-200 rounded-xl p-4 space-y-3">
                 <div>
                   <div className="text-xs text-slate-500 mb-1">Case Title</div>
-                  <div className="text-slate-700 font-medium">{caseInfo.caseTitle}</div>
+                  <div className="text-slate-700 font-medium">
+                    {richData?.case_title || selected.title || 'Unknown Case'}
+                  </div>
                 </div>
-                {selected.summary && (
+                {richData?.filename && (
                   <div>
-                    <div className="text-xs text-slate-500 mb-1">Full Summary</div>
-                    <p className="text-sm text-slate-600">{selected.summary}</p>
+                    <div className="text-xs text-slate-500 mb-1">Filename</div>
+                    <div className="text-sm text-slate-600 font-mono">{richData.filename}</div>
+                  </div>
+                )}
+                {richData?.act_id && (
+                  <div>
+                    <div className="text-xs text-slate-500 mb-1">Act ID</div>
+                    <div className="text-sm text-slate-600 font-mono">{richData.act_id}</div>
                   </div>
                 )}
               </div>
             </div>
 
-            {/* Context Preview */}
-            {primaryTreatment && (
+            {/* Context Preview - Only show if available */}
+            {richData?.context_preview && (
               <div>
                 <h4 className="font-semibold text-slate-800 mb-3 flex items-center gap-2">
                   <BookOpen className="w-5 h-5 text-indigo-500" />
-                  Context
+                  Context Preview
                 </h4>
                 <div className="bg-gradient-to-r from-slate-50 to-white border border-slate-200 rounded-xl p-4">
                   <p className="text-sm text-slate-600 leading-relaxed">
-                    {primaryTreatment.context_preview || 'No context available'}
+                    {richData.context_preview}
                   </p>
                 </div>
               </div>
@@ -234,7 +250,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
                   </span>
                 </div>
               </div>
-              <div className="bg-gradient-to-r from-slate-50 to-white border border-slate-200 rounded-xl p-2">
+              <div className="bg-gradient-to-r from-slate-50 to-white border border-slate-200 rounded-xl p-4">
                 <div className="text-xs text-slate-500 mb-1">Treatment</div>
                 {primaryTreatment && (
                   <div className={`inline-flex items-center gap-1 px-3 py-1 rounded-full text-sm ${getTreatmentColor(primaryTreatment.treatment)}`}>
@@ -244,6 +260,16 @@ export default function CaseDetailsPanel({ selected }: Props) {
                 )}
               </div>
             </div>
+
+            {/* Source Badge */}
+            {isFromDatabase && (
+              <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-3">
+                <div className="flex items-center gap-2 text-sm text-purple-700">
+                  <Database className="w-4 h-4" />
+                  <span>Retrieved from database</span>
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -273,6 +299,11 @@ export default function CaseDetailsPanel({ selected }: Props) {
                             Confidence: {(act.confidence * 100).toFixed(1)}%
                           </span>
                         </div>
+                        {act.act_id && (
+                          <div className="mt-1 text-xs text-slate-400">
+                            ID: {act.act_id}
+                          </div>
+                        )}
                       </div>
                     </div>
                     
@@ -286,7 +317,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
                       </div>
                     </div>
                     
-                    {/* Context preview */}
+                    {/* Context preview - Only show if available */}
                     {act.context_preview && (
                       <p className="mt-2 text-xs text-slate-500 line-clamp-2">
                         {act.context_preview}
@@ -332,16 +363,16 @@ export default function CaseDetailsPanel({ selected }: Props) {
                 <div className="p-4 bg-white/80 rounded-lg border border-slate-200">
                   <div className="text-sm text-slate-500 mb-2">Case Context</div>
                   <div className="text-slate-800">
-                    Found in case <span className="font-medium">{caseInfo.caseTitle}</span>
+                    Found in case <span className="font-medium">{richData?.case_title || selected.case_title || 'Unknown'}</span>
                     {selected.year && ` (${selected.year})`}
                   </div>
                 </div>
                 
-                {primaryTreatment?.context_preview && (
+                {richData?.context_preview && (
                   <div className="p-4 bg-white/80 rounded-lg border border-slate-200">
                     <div className="text-sm text-slate-500 mb-2">Context Preview</div>
                     <div className="text-sm text-slate-700 italic">
-                      "{primaryTreatment.context_preview}"
+                      "{richData.context_preview}"
                     </div>
                   </div>
                 )}
