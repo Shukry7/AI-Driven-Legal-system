@@ -581,26 +581,45 @@ async def recent_uploads():
     """
     try:
         UPLOADS_DIR.mkdir(exist_ok=True)
-        entries = []
-        
+        # Map PDF base names to the newest mtime among their .txt artifacts
+        pdf_map = {}  # pdf_name -> mtime
+
         for path in UPLOADS_DIR.glob("*.txt"):
             try:
                 mtime = path.stat().st_mtime
-                entries.append((path.name, mtime))
+                name = path.name
+                lower = name.lower()
+
+                # Recognise dual-file system names like 'case.pdf.clean.txt' or 'case.pdf.tagged.txt'
+                if lower.endswith('.clean.txt'):
+                    pdf_name = name[:-10]  # strip '.clean.txt'
+                elif lower.endswith('.tagged.txt'):
+                    pdf_name = name[:-11]  # strip '.tagged.txt'
+                else:
+                    # Skip other .txt files that are not part of the PDF dual-file system
+                    continue
+
+                # Only include entries that map back to a .pdf filename
+                if not pdf_name.lower().endswith('.pdf'):
+                    continue
+
+                # Keep the most recent mtime for a given pdf_name
+                existing = pdf_map.get(pdf_name)
+                if existing is None or mtime > existing:
+                    pdf_map[pdf_name] = mtime
             except Exception:
                 continue
-        
-        # Sort by mtime desc and take first 4
-        entries.sort(key=lambda e: e[1], reverse=True)
+
+        # Sort PDFs by mtime desc and take first 4
+        sorted_pdfs = sorted(pdf_map.items(), key=lambda kv: kv[1], reverse=True)[:4]
         recent = []
-        
-        for name, mtime in entries[:4]:
+        for pdf_name, mtime in sorted_pdfs:
             recent.append({
-                'filename': name,
+                'filename': pdf_name,
                 'mtime': mtime,
                 'iso_timestamp': datetime.datetime.fromtimestamp(mtime).isoformat()
             })
-        
+
         return JSONResponse(content={'success': True, 'files': recent})
     except Exception as e:
         logger.exception('recent_uploads failed')

@@ -18,7 +18,23 @@ export function ClauseEntry({ onStartNew }: ClauseEntryProps) {
       try {
         const files = await api.getRecentUploads();
         if (!mounted) return;
-        setRecentAnalyses(files.map(f => ({ filename: f.filename, date: new Date(f.iso_timestamp).toLocaleString() })));
+
+        const normalized = files
+          .map((f: any) => {
+            const name: string = (f.filename || "").toString();
+            const lower = name.toLowerCase();
+
+            if (lower.endsWith('.pdf')) return { filename: name, iso: f.iso_timestamp };
+
+            if (lower.endsWith('.clean.txt')) return { filename: name.slice(0, -10), iso: f.iso_timestamp };
+            if (lower.endsWith('.tagged.txt')) return { filename: name.slice(0, -11), iso: f.iso_timestamp };
+
+            // Not a recognized pdf-related artifact — skip
+            return null;
+          })
+          .filter(Boolean) as Array<{ filename: string; iso: string }>;
+
+        setRecentAnalyses(normalized.map(f => ({ filename: f.filename, date: new Date(f.iso).toLocaleString() })));
       } catch (err) {
         console.error('Failed to load recent uploads', err);
       }
