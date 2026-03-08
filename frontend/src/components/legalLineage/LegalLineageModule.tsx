@@ -400,7 +400,7 @@ export default function LegalLineageModule() {
               <div className="mb-6 p-6 bg-gradient-to-r from-indigo-50 to-teal-50/50 backdrop-blur-sm border border-indigo-100 rounded-2xl shadow-sm animate-pulse-subtle">
                 <div className="flex items-center gap-4">
                   <div className="relative">
-                    <div className="w-14 h-14 rounded-full bg-gradient-to-r from-violet-950 to-teal-600 animate-spin-slow">
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-r from-violet-950 to-cyan-500 animate-spin-slow">
                       <div className="absolute inset-2 bg-white rounded-full"></div>
                     </div>
                     <Scale className="w-6 h-6 text-purple-950 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
@@ -420,7 +420,13 @@ export default function LegalLineageModule() {
                         : 'Processing file...'}
                     </p>
                     <div className="mt-3 w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-indigo-500 to-teal-500 animate-ping"></div>
+                      <div 
+                        className="h-full bg-gradient-to-r from-violet-950 to-cyan-500" 
+                        style={{ 
+                          width: '100%',
+                          animation: 'right 3s cubic-bezier(0.4, 0, 0.6, 1) infinite'
+                        }} 
+                      />
                     </div>
                   </div>
                 </div>
