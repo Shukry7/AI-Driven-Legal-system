@@ -327,3 +327,13 @@ async def get_lineage_stats():
     except Exception as e:
         logger.error(f"Error getting stats: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get statistics: {str(e)}")
+
+@router.get("/lineage/list-uploads")
+async def list_uploads():
+    """List all PDF files in the uploads folder."""
+    try:
+        files = [f.name for f in UPLOADS_FOLDER.glob("*.pdf")]
+        return files
+    except Exception as e:
+        logger.error(f"Error listing uploads: {e}")
+        return []
