@@ -1526,17 +1526,17 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
     const corruptedCount = results?.statistics?.corrupted || results?.corruptedClauses.length || 0;
     
     return (
-      <DialogContent className="max-w-2xl max-h-[80vh]">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0">
+        <div className="px-6 py-4 border-b flex-shrink-0">
           <DialogTitle className="text-xl font-bold">Clause Detection Details</DialogTitle>
           <DialogDescription>
             Complete breakdown of all {results?.statistics?.total_clauses || results?.totalClauses || 0} clauses analyzed in this document
           </DialogDescription>
-        </DialogHeader>
+        </div>
         
-        <ScrollArea className="h-[500px] pr-4">
-          <Tabs defaultValue="present" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col px-6 py-4">
+          <Tabs defaultValue="present" className="flex flex-col flex-1 min-h-0">
+            <TabsList className="grid w-full grid-cols-3 mb-4 flex-shrink-0">
               <TabsTrigger value="present" className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4" />
                 Present ({presentCount})
@@ -1551,7 +1551,8 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="present" className="space-y-2 mt-4">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <TabsContent value="present" className="space-y-2 m-0">
               {organized.present.length > 0 ? (
                 organized.present.map((clauseName, idx) => (
                   <div key={idx} className="flex items-center gap-3 p-3 bg-success/10 border border-success/20 rounded-lg">
@@ -1567,7 +1568,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               )}
             </TabsContent>
 
-            <TabsContent value="missing" className="space-y-2 mt-4">
+              <TabsContent value="missing" className="space-y-2 m-0">
               {organized.missing.length > 0 ? (
                 organized.missing.map((clauseName, idx) => (
                   <div key={idx} className="flex items-center gap-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
@@ -1583,7 +1584,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               )}
             </TabsContent>
 
-            <TabsContent value="corrupted" className="space-y-2 mt-4">
+              <TabsContent value="corrupted" className="space-y-2 m-0">
               {organized.corrupted.length > 0 ? (
                 organized.corrupted.map((clauseName, idx) => (
                   <div key={idx} className="flex items-center gap-3 p-3 bg-warning/10 border border-warning/20 rounded-lg">
@@ -1598,8 +1599,9 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                 </div>
               )}
             </TabsContent>
+            </div>
           </Tabs>
-        </ScrollArea>
+        </div>
       </DialogContent>
     );
   };
