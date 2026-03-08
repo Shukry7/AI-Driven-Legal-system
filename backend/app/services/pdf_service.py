@@ -301,8 +301,8 @@ def _process_line_chars(line_chars, page_width, min_x_global):
         if prev_format != current_format:
             if prev_format:
                 line_parts.append('<</F>>')
-            # Add format marker if different from default
-            if current_format['size'] != 10 or current_format['bold'] != 0:
+            # Add format marker if different from default (size 11, bold 0)
+            if current_format['size'] != 11 or current_format['bold'] != 0:
                 marker = f"<<F:size={current_format['size']},bold={current_format['bold']}>>"
                 line_parts.append(marker)
             prev_format = current_format
@@ -604,7 +604,7 @@ def text_to_pdf(text: str) -> bytes:
 def _get_max_font_size_in_line(line: str) -> float:
     """Get the maximum font size used in a line."""
     import re
-    max_size = 10  # default
+    max_size = 11  # default changed to 11 (standard legal document size)
     
     # Find all format markers
     for match in re.finditer(r'<<F:size=(\d+)', line):
@@ -634,11 +634,11 @@ def _render_line_with_formatting(pdf, line, x, y, max_width):
     current_pos = 0
     
     for match in format_pattern.finditer(line):
-        # Add text before formatted section (if any) - use default formatting
+        # Add text before formatted section (if any) - use default formatting (size 11)
         if match.start() > current_pos:
             parts.append({
                 'text': line[current_pos:match.start()],
-                'size': 10,
+                'size': 11,  # Changed to 11 (standard legal document size)
                 'bold': False
             })
         
@@ -655,17 +655,17 @@ def _render_line_with_formatting(pdf, line, x, y, max_width):
         
         current_pos = match.end()
     
-    # Add remaining text after last formatted section
+    # Add remaining text after last formatted section (use size 11 as default)
     if current_pos < len(line):
         parts.append({
             'text': line[current_pos:],
-            'size': 10,
+            'size': 11,  # Changed to 11 (standard legal document size)
             'bold': False
         })
     
-    # If no format markers found, render as normal
+    # If no format markers found, render with default size 11
     if not parts:
-        pdf.setFont("Courier", 10)
+        pdf.setFont("Courier", 11)  # Changed to 11
         pdf.drawString(x, y, line)
         return
     

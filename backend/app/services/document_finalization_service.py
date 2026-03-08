@@ -23,6 +23,81 @@ UPLOAD_FOLDER = Path(__file__).parent.parent.parent / "uploads"
 logger = logging.getLogger(__name__)
 
 
+def extract_format_at_position(text: str, position: int) -> Dict[str, int]:
+    """
+    Extract the formatting context at a specific position in tagged text.
+    Looks for the nearest formatting tag to determine size and bold settings.
+    
+    Args:
+        text: Tagged text with formatting markers
+        position: Position where we want to insert text
+        
+    Returns:
+        Dict with 'size' and 'bold' keys
+    """
+    # Default formatting for legal documents
+    format_info = {'size': 11, 'bold': 0}
+    
+    # Look backwards from position to find the last formatting tag
+    before_text = text[:position]
+    format_matches = list(re.finditer(r'<<F:([^>]+)>>', before_text))
+    
+    if format_matches:
+        last_match = format_matches[-1]
+        tag_content = last_match.group(1)
+        
+        # Parse formatting parameters
+        for param in tag_content.split(','):
+            param = param.strip()
+            if '=' in param:
+                key, value = param.split('=', 1)
+                key = key.strip()
+                value = value.strip()
+                
+                if key == 'size':
+                    format_info['size'] = int(value)
+                elif key == 'bold':
+                    format_info['bold'] = int(value)
+    else:
+        # Look forwards for the next formatting tag
+        after_text = text[position:]
+        format_match = re.search(r'<<F:([^>]+)>>', after_text)
+        
+        if format_match:
+            tag_content = format_match.group(1)
+            
+            for param in tag_content.split(','):
+                param = param.strip()
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    if key == 'size':
+                        format_info['size'] = int(value)
+                    elif key == 'bold':
+                        format_info['bold'] = int(value)
+    
+    return format_info
+
+
+def wrap_with_formatting(text: str, format_info: Dict[str, int]) -> str:
+    """
+    Wrap text with formatting tags.
+    
+    Args:
+        text: Plain text to wrap
+        format_info: Dict with 'size' and 'bold' keys
+        
+    Returns:
+        Text wrapped with formatting tags
+    """
+    size = format_info.get('size', 11)
+    bold = format_info.get('bold', 0)
+    
+    return f"<<F:size={size},bold={bold}>>{text}<</F>>"
+
+
 def find_insertion_position(text: str, clause_key: str, clause_info: Dict) -> Optional[int]:
     """
     Find the appropriate position to insert a clause suggestion.
@@ -110,7 +185,7 @@ def insert_clause_text(text: str, clause_key: str, suggestion_text: str, positio
     Insert a clause suggestion at the specified position with proper formatting.
     
     Args:
-        text: Original document text
+        text: Original document text (tagged version)
         clause_key: Clause identifier
         suggestion_text: Text to insert
         position: Character position to insert at
@@ -121,38 +196,44 @@ def insert_clause_text(text: str, clause_key: str, suggestion_text: str, positio
     clause_info = PREDICTABLE_CLAUSES.get(clause_key, {})
     clause_name = clause_info.get("name", clause_key.replace("_", " ").title())
     
+    # Extract formatting context at insertion position
+    format_info = extract_format_at_position(text, position)
+    
+    # Wrap the suggestion text with formatting tags
+    formatted_suggestion = wrap_with_formatting(suggestion_text, format_info)
+    
     # Format the insertion with appropriate headers
     if clause_key in ["case_number", "case_title", "court_name"]:
         # Header clauses - insert with emphasis
-        formatted = f"\n{'='*60}\n{clause_name.upper()}\n{'='*60}\n{suggestion_text}\n\n"
+        formatted = f"\n{'='*60}\n{clause_name.upper()}\n{'='*60}\n{formatted_suggestion}\n\n"
     elif clause_key in ["judge_names", "judge_bench"]:
         # Judge info - labeled format
-        formatted = f"\n{clause_name}: {suggestion_text}\n\n"
+        formatted = f"\n{clause_name}: {formatted_suggestion}\n\n"
     elif clause_key in ["petitioner_name", "respondent_name"]:
         # Parties - section format
-        formatted = f"\n\n{clause_name.upper()}:\n{suggestion_text}\n"
+        formatted = f"\n\n{clause_name.upper()}:\n{formatted_suggestion}\n"
     elif clause_key == "legal_representatives":
         # Counsel - section format
-        formatted = f"\n\nCOUNSEL:\n{suggestion_text}\n"
+        formatted = f"\n\nCOUNSEL:\n{formatted_suggestion}\n"
     elif clause_key == "subject_matter":
         # Subject - descriptive format
-        formatted = f"\n\nSUBJECT MATTER:\n{suggestion_text}\n\n"
+        formatted = f"\n\nSUBJECT MATTER:\n{formatted_suggestion}\n\n"
     elif clause_key in ["date_of_order", "hearing_dates"]:
         # Dates - simple format
-        formatted = f"\n{clause_name}: {suggestion_text}\n"
+        formatted = f"\n{clause_name}: {formatted_suggestion}\n"
     elif clause_key == "referred_cases":
         # Citations - list format
-        formatted = f"\n\nCASES REFERRED:\n{suggestion_text}\n\n"
+        formatted = f"\n\nCASES REFERRED:\n{formatted_suggestion}\n\n"
     elif clause_key in ["judge_concurrence", "conclusion_section", "disposition_formula", 
                         "procedural_history", "lower_court_findings", "appellant_argument", 
                         "respondent_argument", "legal_framework", "issue_analysis", "cost_order",
                         "leave_to_appeal"]:
         # Narrative and formal sections - insert text directly without label
         # These flow naturally in the judgment without explicit headers
-        formatted = f"\n\n{suggestion_text}\n\n"
+        formatted = f"\n\n{formatted_suggestion}\n\n"
     else:
         # Default format (for metadata/structural elements that need labels)
-        formatted = f"\n\n{clause_name}:\n{suggestion_text}\n\n"
+        formatted = f"\n\n{clause_name}:\n{formatted_suggestion}\n\n"
     
     # Insert at position
     return text[:position] + formatted + text[position:]
