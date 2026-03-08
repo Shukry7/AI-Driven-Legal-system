@@ -477,6 +477,14 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       .catch(err => console.warn('Failed to fetch prediction config:', err));
   }, []);
 
+  // ─── Auto-fetch predictions when analysis completes ──────────────────────
+  useEffect(() => {
+    if (analysisComplete && !predictions && savedTextFilename && !predictionsLoading) {
+      // Automatically fetch AI suggestions when analysis completes
+      handleGetAISuggestions(false);
+    }
+  }, [analysisComplete, predictions, savedTextFilename]);
+
   // ─── AI Prediction Handlers ──────────────────────────────────────────────
   const handleGetAISuggestions = async (forceRefresh: boolean = false) => {
     if (!savedTextFilename) {
@@ -1816,7 +1824,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-6">
+            <div className="mt-6">
               <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="lg" className="w-full">
@@ -1826,22 +1834,6 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                 </DialogTrigger>
                 {renderClauseDetailsDialog()}
               </Dialog>
-              {/* AI Suggestions Button (Manual mode) */}
-              {!predictions && (
-                <Button
-                  size="lg"
-                  onClick={() => handleGetAISuggestions(false)}
-                  disabled={predictionsLoading}
-                  className="w-full bg-violet-600 hover:bg-violet-700 text-white"
-                >
-                  {predictionsLoading ? (
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-5 h-5 mr-2" />
-                  )}
-                  {predictionsLoading ? 'Getting AI Suggestions...' : 'Get AI Suggestions'}
-                </Button>
-              )}
             </div>
           </CardContent>
         </Card>
