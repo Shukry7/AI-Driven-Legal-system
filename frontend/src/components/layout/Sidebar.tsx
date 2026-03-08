@@ -36,7 +36,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
           <div>
             <h1 className="font-heading font-bold text-lg">LegalAI</h1>
             <p className="text-xs text-sidebar-foreground/60">
-              Case Management
+              Your Legal AI Assistent
             </p>
           </div>
         </div>
@@ -55,7 +55,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-2 overflow-y-auto">
+      <nav className="flex-1 px-3 py-3 overflow-y-auto">
         <div className="space-y-1">
           <NavItem
             icon={LayoutDashboard}
@@ -87,7 +87,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
         <div className="mt-6">
           <button
             onClick={() => setAiToolsExpanded(!aiToolsExpanded)}
-            className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors"
+            className="flex items-center justify-between w-full px-3 py-1 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors"
           >
             <span>AI Tools</span>
             <ChevronDown
@@ -126,12 +126,14 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 label="Document Analysis"
                 active={activeModule === "analysis"}
                 onClick={() => onModuleChange("analysis")}
+                highlight
               />
               <NavItem 
                 icon={GitGraph} 
                 label="Legal Lineage"
                 active={activeModule === 'legalLineage'}
                 onClick={() => onModuleChange('legalLineage')}
+                highlight
               />
             </div>
           )}
