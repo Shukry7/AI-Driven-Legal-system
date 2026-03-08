@@ -143,8 +143,15 @@ def insert_clause_text(text: str, clause_key: str, suggestion_text: str, positio
     elif clause_key == "referred_cases":
         # Citations - list format
         formatted = f"\n\nCASES REFERRED:\n{suggestion_text}\n\n"
+    elif clause_key in ["judge_concurrence", "conclusion_section", "disposition_formula", 
+                        "procedural_history", "lower_court_findings", "appellant_argument", 
+                        "respondent_argument", "legal_framework", "issue_analysis", "cost_order",
+                        "leave_to_appeal"]:
+        # Narrative and formal sections - insert text directly without label
+        # These flow naturally in the judgment without explicit headers
+        formatted = f"\n\n{suggestion_text}\n\n"
     else:
-        # Default format
+        # Default format (for metadata/structural elements that need labels)
         formatted = f"\n\n{clause_name}:\n{suggestion_text}\n\n"
     
     # Insert at position
@@ -399,8 +406,15 @@ def insert_clause_text_clean(text: str, clause_key: str, suggestion_text: str, p
     elif clause_key == "referred_cases":
         # Citations
         formatted = f"\n\nCASES REFERRED:\n{suggestion_text}\n\n"
+    elif clause_key in ["judge_concurrence", "conclusion_section", "disposition_formula", 
+                        "procedural_history", "lower_court_findings", "appellant_argument", 
+                        "respondent_argument", "legal_framework", "issue_analysis", "cost_order",
+                        "leave_to_appeal"]:
+        # Narrative and formal sections - insert text directly without label
+        # These flow naturally in the judgment without explicit headers
+        formatted = f"\n\n{suggestion_text}\n\n"
     else:
-        # Default format
+        # Default format (for metadata/structural elements that need labels)
         formatted = f"\n\n{clause_name}:\n{suggestion_text}\n\n"
     
     # Insert at position
