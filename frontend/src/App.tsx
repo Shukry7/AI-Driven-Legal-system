@@ -9,6 +9,7 @@ import ClauseEntryPage from "./pages/clause/Entry";
 import ClauseUploadPage from "./pages/clause/Upload";
 import ClauseWorkspacePage from "./pages/clause/Workspace";
 import ClauseSuggestionsPage from "./pages/clause/Suggestions";
+import CasesPage from "./pages/Cases";
 import { ClauseProvider } from "./components/clause/ClauseContext";
 import { TranslationProvider } from "./components/translation/TranslationContext";
 import { TranslationFloatingWidget } from "./components/translation/TranslationFloatingWidget";
@@ -36,6 +37,8 @@ const App = () => (
                 path="/clause/suggestions"
                 element={<ClauseSuggestionsPage />}
               />
+              {/* Cases pages */}
+              <Route path="/cases" element={<CasesPage />} />
               {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
               <Route path="*" element={<NotFound />} />
             </Routes>

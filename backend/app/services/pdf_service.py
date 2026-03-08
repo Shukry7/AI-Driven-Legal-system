@@ -88,6 +88,53 @@ def pdf_bytes_to_text(pdf_bytes: bytes) -> Tuple[bool, str]:
         return False, f"PDF extraction failed: {str(e)}"
 
 
+def pdf_bytes_to_dual_text(pdf_bytes: bytes) -> Tuple[bool, any]:
+    """
+    Extract text from PDF bytes and generate both tagged and clean versions.
+    
+    Args:
+        pdf_bytes: Raw bytes of a PDF file
+        
+    Returns:
+        Tuple[bool, dict|str]: 
+        - If successful: (True, {'tagged': text_with_formatting, 'clean': text_without_tags})
+        - If failed: (False, error_message_string)
+    """
+    if PDF_LIBRARY is None:
+        return False, "No PDF library installed. Install pdfplumber or PyPDF2."
+    
+    try:
+        if PDF_LIBRARY == 'pdfplumber':
+            ok, result = _extract_with_pdfplumber(pdf_bytes)
+        else:
+            ok, result = _extract_with_pypdf2(pdf_bytes)
+
+        if ok:
+            tagged_text = result
+            clean_text = strip_bold_markers(tagged_text)
+            return True, {
+                'tagged': tagged_text,
+                'clean': clean_text
+            }
+
+        # If PDF libraries couldn't extract text, try OCR fallback for scanned PDFs
+        if isinstance(result, str) and 'no text could be extracted' in result.lower():
+            ocr_ok, ocr_result = _ocr_fallback(pdf_bytes)
+            if not ocr_ok:
+                return False, f"PDF extraction failed: {result}; OCR fallback failed: {ocr_result}"
+            
+            tagged_text = ocr_result
+            clean_text = strip_bold_markers(tagged_text)
+            return True, {
+                'tagged': tagged_text,
+                'clean': clean_text
+            }
+
+        return False, result
+    except Exception as e:
+        return False, f"PDF extraction failed: {str(e)}"
+
+
 def _extract_with_pdfplumber(pdf_bytes: bytes) -> Tuple[bool, str]:
     """
     Extract text using pdfplumber (preferred method - better formatting).
@@ -234,13 +281,19 @@ def _process_line_chars(line_chars, page_width, min_x_global):
     for char in line_chars:
         char_text = char.get('text', '')
         font_name = char.get('fontname', '').lower()
-        font_size = round(char.get('size', 10))
+        font_size = round(char.get('size', 8))  # Default to 8pt
+        
+        # Normalize font sizes: headings (>=11) = 12pt, regular text (<11) = 8pt
+        if font_size >= 11:
+            normalized_size = 12
+        else:
+            normalized_size = 8
         
         # Detect formatting
         is_bold = 'bold' in font_name
         
         current_format = {
-            'size': font_size,
+            'size': normalized_size,
             'bold': 1 if is_bold else 0,
         }
         
@@ -248,8 +301,8 @@ def _process_line_chars(line_chars, page_width, min_x_global):
         if prev_format != current_format:
             if prev_format:
                 line_parts.append('<</F>>')
-            # Add format marker if different from default
-            if current_format['size'] != 10 or current_format['bold'] != 0:
+            # Add format marker if different from default (size 11, bold 0)
+            if current_format['size'] != 11 or current_format['bold'] != 0:
                 marker = f"<<F:size={current_format['size']},bold={current_format['bold']}>>"
                 line_parts.append(marker)
             prev_format = current_format
@@ -481,6 +534,31 @@ def text_to_pdf(text: str) -> bytes:
     if not REPORTLAB_AVAILABLE:
         raise ImportError("reportlab is required for PDF generation. Install with: pip install reportlab")
     
+    import re
+    
+    # CRITICAL: Clean up any malformed or duplicate format markers
+    # This handles cases where tags appear as literal text from editing
+    
+    # Step 1: Remove any standalone/malformed opening tags without matching closing tags
+    text = re.sub(r'<<F:[^>]*>>\s*(?!.*?<</F>>)', '', text)
+    
+    # Step 2: Remove any standalone closing tags without opening tags  
+    lines = text.split('\n')
+    cleaned_lines = []
+    for line in lines:
+        # Count opening and closing tags
+        opening_count = len(re.findall(r'<<F:[^>]*>>', line))
+        closing_count = len(re.findall(r'<</F>>', line))
+        
+        # If mismatched, strip all format tags from this line
+        if opening_count != closing_count:
+            line = re.sub(r'<<F:[^>]*>>', '', line)
+            line = re.sub(r'<</F>>', '', line)
+        
+        cleaned_lines.append(line)
+    
+    text = '\n'.join(cleaned_lines)
+    
     buffer = BytesIO()
     
     # Create PDF with A4 page size
@@ -526,7 +604,7 @@ def text_to_pdf(text: str) -> bytes:
 def _get_max_font_size_in_line(line: str) -> float:
     """Get the maximum font size used in a line."""
     import re
-    max_size = 10  # default
+    max_size = 11  # default changed to 11 (standard legal document size)
     
     # Find all format markers
     for match in re.finditer(r'<<F:size=(\d+)', line):
@@ -556,11 +634,11 @@ def _render_line_with_formatting(pdf, line, x, y, max_width):
     current_pos = 0
     
     for match in format_pattern.finditer(line):
-        # Add text before formatted section (if any) - use default formatting
+        # Add text before formatted section (if any) - use default formatting (size 11)
         if match.start() > current_pos:
             parts.append({
                 'text': line[current_pos:match.start()],
-                'size': 10,
+                'size': 11,  # Changed to 11 (standard legal document size)
                 'bold': False
             })
         
@@ -577,17 +655,17 @@ def _render_line_with_formatting(pdf, line, x, y, max_width):
         
         current_pos = match.end()
     
-    # Add remaining text after last formatted section
+    # Add remaining text after last formatted section (use size 11 as default)
     if current_pos < len(line):
         parts.append({
             'text': line[current_pos:],
-            'size': 10,
+            'size': 11,  # Changed to 11 (standard legal document size)
             'bold': False
         })
     
-    # If no format markers found, render as normal
+    # If no format markers found, render with default size 11
     if not parts:
-        pdf.setFont("Courier", 10)
+        pdf.setFont("Courier", 11)  # Changed to 11
         pdf.drawString(x, y, line)
         return
     

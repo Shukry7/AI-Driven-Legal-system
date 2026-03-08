@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp, Home, Database, CheckCheck } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
 import api from '@/config/api';
-import { predictClauses, getPredictionConfig, acceptSuggestion, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
+import { predictClauses, getPredictionConfig, acceptSuggestion, saveTextFile, saveToDatabase, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
 
 interface ClauseWorkspaceProps {
   file: File;
@@ -31,6 +31,7 @@ interface AnalysisResults {
   corruptedClauses: CorruptedClause[];
   originalDocument?: string;
   modifiedDocument?: string;
+  filename?: string; // The finalized filename for database storage
   statistics?: {
     total_clauses: number;
     present: number;
@@ -83,6 +84,9 @@ interface ProcessStep {
 }
 
 export function ClauseWorkspace({ file, onComplete, onCancel, originalDocument }: ClauseWorkspaceProps) {
+  const [showCompleteDialog, setShowCompleteDialog] = useState(false);
+  const [isSavedToDb, setIsSavedToDb] = useState(false);
+
   const defaultDocumentText = `IN THE SUPREME COURT OF THE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA
 
 In the matter of an application for Leave to Appeal under and in terms of Section 5C (1) of the High Court of the Provinces (Special Provisions) Act No.19 of 1990 as amended by Act, No. 54 of 2006
@@ -519,6 +523,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
       
+      // IMPORTANT: Save the modified text back to backend so it's in sync
+      await saveTextFile(savedTextFilename, updatedDoc);
+      
       // Update local state
       setSuggestionStatuses(prev => ({ ...prev, [clauseKey]: 'accepted' }));
     } catch (err: any) {
@@ -577,6 +584,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
+
+      // IMPORTANT: Save the modified text back to backend so it's in sync
+      await saveTextFile(savedTextFilename, updatedDoc);
 
       // Update the suggestion text in predictions
       setPredictions(prev => {
@@ -651,6 +661,16 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   // Helper function to find insertion position for a clause
   const findClauseInsertionPosition = (text: string, clauseKey: string): number => {
+    // Judge concurrence block goes at the very end of the document (last 5-15 lines)
+    if (clauseKey === 'judge_concurrence') {
+      return text.length;
+    }
+    
+    // Conclusion section and disposition formula go near the end (80-95% through document)
+    if (['conclusion_section', 'disposition_formula'].includes(clauseKey)) {
+      return Math.floor(text.length * 0.9);
+    }
+    
     // Header clauses go at the very beginning
     if (['case_number', 'case_title', 'court_name', 'judge_names', 'judge_bench'].includes(clauseKey)) {
       return 0;
@@ -752,7 +772,50 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     return Math.min(200, text.length);
   };
 
+  const generateReport = () => {
+    if (!results) return '';
+    
+    const acceptedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'accepted').length;
+    const rejectedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'rejected').length;
+    const editedCount = [...results.missingClauses, ...results.corruptedClauses].filter(c => c.status === 'edited').length;
+    
+    return `CLAUSE ANALYSIS REPORT
+========================
+Generated: ${new Date().toLocaleString()}
 
+SUMMARY
+-------
+Total Clauses: ${results.totalClauses}
+Valid Clauses: ${results.validClauses}
+Corrupted Clauses: ${results.corruptedClauses.length}
+Missing Clauses: ${results.missingClauses.length}
+
+REVIEW STATISTICS
+-----------------
+Accepted: ${acceptedCount}
+Rejected: ${rejectedCount}
+Edited: ${editedCount}
+Pending: ${[...results.missingClauses, ...results.corruptedClauses].filter(c => !c.status).length}
+
+MISSING CLAUSES
+---------------
+${results.missingClauses.map(c => `
+${c.name}
+Status: ${c.status || 'Pending'}
+Severity: ${c.severity}
+Description: ${c.description}
+${c.status === 'accepted' ? `Accepted Text: ${c.userInputValue || c.predictedText}` : ''}`).join('\n')}
+
+CORRUPTED CLAUSES
+-----------------
+${results.corruptedClauses.map(c => `
+${c.name}
+Status: ${c.status || 'Pending'}
+Issue: ${c.issue}
+${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedText}` : ''}`).join('\n')}
+
+--- END OF REPORT ---`;
+  };
 
   const handleAcceptClause = (type: 'missing' | 'corrupted', id: number) => {
     if (!results) return;
@@ -944,7 +1007,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   const renderDocumentWithHighlights = () => {
     // Strip formatting markers for display (but keep them in the actual data)
-    const displayText = stripFormattingMarkers(documentText);
+    const displayText = stripFormattingMarkers(modifiedDocumentText);
     const lines = displayText.trim().split('\n');
     let charOffset = 0;
 
@@ -1046,33 +1109,66 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
       // Highlight corrupted regions detected by backend regex patterns
       if (lineCorruptedRegions.length > 0) {
-        let highlightedLine = line;
-        const sortedRegions = [...lineCorruptedRegions].sort((a, b) => b.start - a.start); // Sort descending to replace from end
+        const sortedRegions = [...lineCorruptedRegions].sort((a, b) => b.start - a.start);
         
         for (const region of sortedRegions) {
           const relativeStart = Math.max(0, region.start - lineStart);
           const relativeEnd = Math.min(line.length, region.end - lineStart);
           
           if (relativeStart < relativeEnd && relativeStart >= 0 && relativeEnd <= line.length) {
-            const beforeRegion = highlightedLine.substring(0, relativeStart);
-            const corruptedPart = highlightedLine.substring(relativeStart, relativeEnd);
-            const afterRegion = highlightedLine.substring(relativeEnd);
+            const beforeSection = line.substring(0, relativeStart);
+            const corruptedSection = line.substring(relativeStart, relativeEnd);
+            const afterSection = line.substring(relativeEnd);
             
-            return (
-              <div key={idx} className="hover:bg-warning/5 transition-colors">
-                {beforeRegion}
-                <span 
-                  className="relative inline-block bg-warning/70 text-warning-foreground px-1 py-0.5 rounded cursor-help border border-warning"
-                  title={`Corrupted: ${region.clause_name}`}
-                >
-                  {corruptedPart}
-                  <span className="absolute -top-1 -right-1 flex h-2 w-2">
-                    <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
-                  </span>
-                </span>
-                {afterRegion}
-              </div>
-            );
+            // Find only the actual corrupted characters within this section
+            // Look for sequences of special corruption characters
+            const corruptionPattern = /([#*%€@£¥§¶†‡°•■□▪▫◊○●◘◙☺☻♀♂♠♣♥♦]{1,}|[^\w\s\-.,/:()'"&]{3,})/g;
+            
+            // Split the section into parts: before corruption, corruption, after corruption
+            let parts: Array<{text: string, isCorrupted: boolean}> = [];
+            let lastIndex = 0;
+            let match;
+            
+            while ((match = corruptionPattern.exec(corruptedSection)) !== null) {
+              // Add text before the corruption
+              if (match.index > lastIndex) {
+                parts.push({text: corruptedSection.substring(lastIndex, match.index), isCorrupted: false});
+              }
+              // Add the corrupted text
+              parts.push({text: match[0], isCorrupted: true});
+              lastIndex = match.index + match[0].length;
+            }
+            
+            // Add remaining text after last corruption
+            if (lastIndex < corruptedSection.length) {
+              parts.push({text: corruptedSection.substring(lastIndex), isCorrupted: false});
+            }
+            
+            // Only render highlighting if we actually found corruption
+            if (parts.some(p => p.isCorrupted)) {
+              return (
+                <div key={idx} className="hover:bg-warning/5 transition-colors">
+                  {beforeSection}
+                  {parts.map((part, partIdx) => 
+                    part.isCorrupted ? (
+                      <span 
+                        key={partIdx}
+                        className="relative inline-block bg-warning/70 text-warning-foreground px-1 py-0.5 rounded cursor-help border border-warning"
+                        title={`Corrupted: ${region.clause_name}`}
+                      >
+                        {part.text}
+                        <span className="absolute -top-1 -right-1 flex h-2 w-2">
+                          <span className="relative inline-flex rounded-full h-2 w-2 bg-destructive"></span>
+                        </span>
+                      </span>
+                    ) : (
+                      <span key={partIdx}>{part.text}</span>
+                    )
+                  )}
+                  {afterSection}
+                </div>
+              );
+            }
           }
         }
       }
@@ -1322,16 +1418,20 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     try {
       const API_BASE = import.meta.env.VITE_API_BASE_URL || '';
       
-      // Call backend to generate PDF
-      const response = await fetch(`${API_BASE}/generate-pdf`, {
+      if (!savedTextFilename) {
+        alert('No file available for download. Please upload a document first.');
+        return;
+      }
+      
+      // Use the finalize-and-download-pdf endpoint which:
+      // 1. Merges any edits from clean version into tagged version
+      // 2. Generates PDF from tagged version (preserves formatting)
+      const formData = new FormData();
+      formData.append('filename', savedTextFilename);
+      
+      const response = await fetch(`${API_BASE}/finalize-and-download-pdf`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          text: modifiedDocumentText,
-          filename: `${file.name.replace(/\.[^/.]+$/, '')}_completed.pdf`
-        })
+        body: formData
       });
 
       if (!response.ok) {
@@ -1353,6 +1453,46 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     } catch (error) {
       console.error('Error generating PDF:', error);
       alert('Failed to generate PDF. Please try again.');
+    }
+  };
+
+  const handleSaveToDatabase = async () => {
+    try {
+      if (!savedTextFilename) {
+        alert('No file available to save. Please upload a document first.');
+        return;
+      }
+
+      // Derive the finalized filename from the current filename
+      // e.g., "document.pdf.clean.txt" -> "document.pdf_finalized.clean.txt"
+      const finalizedFilename = savedTextFilename.replace('.clean.txt', '_finalized.clean.txt');
+      console.log('Saving finalized document to MongoDB:', finalizedFilename);
+
+      // Prepare metadata to store with the finalized document
+      const analysisData = {
+        timestamp: new Date().toISOString(),
+        totalClauses: results?.totalClauses || 0,
+        validClauses: results?.validClauses || 0,
+        missingClauses: results?.missingClauses || [],
+        corruptedClauses: results?.corruptedClauses || [],
+        originalFilename: file.name,
+      };
+
+      // Save the finalized text file to MongoDB GridFS
+      const response = await saveToDatabase(finalizedFilename, analysisData);
+
+      if (response.success) {
+        setIsSavedToDb(true);
+        console.log('Finalized document saved to database:', response);
+        alert('Successfully saved finalized document to database!');
+        // Optionally close dialog after a brief delay
+        setTimeout(() => setShowCompleteDialog(false), 1500);
+      } else {
+        throw new Error('Failed to save to database');
+      }
+    } catch (error) {
+      console.error('Error saving to database:', error);
+      alert(`Failed to save to database: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -1386,17 +1526,17 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     const corruptedCount = results?.statistics?.corrupted || results?.corruptedClauses.length || 0;
     
     return (
-      <DialogContent className="max-w-2xl max-h-[80vh]">
-        <DialogHeader>
+      <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col gap-0 p-0">
+        <div className="px-6 py-4 border-b flex-shrink-0">
           <DialogTitle className="text-xl font-bold">Clause Detection Details</DialogTitle>
           <DialogDescription>
             Complete breakdown of all {results?.statistics?.total_clauses || results?.totalClauses || 0} clauses analyzed in this document
           </DialogDescription>
-        </DialogHeader>
+        </div>
         
-        <ScrollArea className="h-[500px] pr-4">
-          <Tabs defaultValue="present" className="w-full">
-            <TabsList className="grid w-full grid-cols-3">
+        <div className="flex-1 min-h-0 overflow-hidden flex flex-col px-6 py-4">
+          <Tabs defaultValue="present" className="flex flex-col flex-1 min-h-0">
+            <TabsList className="grid w-full grid-cols-3 mb-4 flex-shrink-0">
               <TabsTrigger value="present" className="flex items-center gap-2">
                 <CheckCircle className="w-4 h-4" />
                 Present ({presentCount})
@@ -1411,7 +1551,8 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               </TabsTrigger>
             </TabsList>
 
-            <TabsContent value="present" className="space-y-2 mt-4">
+            <div className="flex-1 min-h-0 overflow-y-auto">
+              <TabsContent value="present" className="space-y-2 m-0">
               {organized.present.length > 0 ? (
                 organized.present.map((clauseName, idx) => (
                   <div key={idx} className="flex items-center gap-3 p-3 bg-success/10 border border-success/20 rounded-lg">
@@ -1427,7 +1568,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               )}
             </TabsContent>
 
-            <TabsContent value="missing" className="space-y-2 mt-4">
+              <TabsContent value="missing" className="space-y-2 m-0">
               {organized.missing.length > 0 ? (
                 organized.missing.map((clauseName, idx) => (
                   <div key={idx} className="flex items-center gap-3 p-3 bg-destructive/10 border border-destructive/20 rounded-lg">
@@ -1443,7 +1584,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               )}
             </TabsContent>
 
-            <TabsContent value="corrupted" className="space-y-2 mt-4">
+              <TabsContent value="corrupted" className="space-y-2 m-0">
               {organized.corrupted.length > 0 ? (
                 organized.corrupted.map((clauseName, idx) => (
                   <div key={idx} className="flex items-center gap-3 p-3 bg-warning/10 border border-warning/20 rounded-lg">
@@ -1458,8 +1599,9 @@ Judge: [MISSING: Third Judge Signature - Signature required]
                 </div>
               )}
             </TabsContent>
+            </div>
           </Tabs>
-        </ScrollArea>
+        </div>
       </DialogContent>
     );
   };
@@ -1528,12 +1670,35 @@ Judge: [MISSING: Third Judge Signature - Signature required]
           </p>
         </div>
         <div className="flex items-center gap-2">
-          {!analysisRunning && !analysisComplete && (
+          {!analysisComplete && !analysisRunning && (
             <Button onClick={startAnalysis}>Start AI Analysis</Button>
           )}
-          <Button variant="outline" onClick={onCancel}>
-            Back
-          </Button>
+          {analysisComplete && results && (
+            <>
+              <Button
+                variant="outline"
+                onClick={handleDownloadDocument}
+              >
+                <Download className="w-4 h-4 mr-2" />
+                Download Report
+              </Button>
+              <Button
+                variant="outline"
+                className="border-green-600 text-green-600 hover:bg-green-50"
+                onClick={() => setViewMode(viewMode === 'review' ? 'comparison' : 'review')}
+              >
+                <Eye className="w-4 h-4 mr-2" />
+                {viewMode === 'review' ? 'Show Comparison' : 'Back to Review'}
+              </Button>
+              <Button 
+                className="bg-blue-600 hover:bg-blue-700"
+                onClick={() => setShowCompleteDialog(true)}
+              >
+                <CheckCircle className="w-4 h-4 mr-2" />
+                Complete Analysis
+              </Button>
+            </>
+          )}
         </div>
       </div>
 
@@ -1583,6 +1748,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
       {/* Analysis Summary - Horizontal Layout */}
       {analysisComplete && results && (
+        <>
         <Card>
           <CardHeader>
             <CardTitle className="text-lg">Analysis Summary</CardTitle>
@@ -1650,49 +1816,82 @@ Judge: [MISSING: Third Judge Signature - Signature required]
               </div>
             </div>
 
-            <div className="flex gap-3 mt-4">
+            <div className="grid grid-cols-2 gap-4 mt-6">
               <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
                 <DialogTrigger asChild>
-                  <Button variant="outline" size="sm">
-                    <List className="w-4 h-4 mr-2" />
+                  <Button variant="outline" size="lg" className="w-full">
+                    <List className="w-5 h-5 mr-2" />
                     View Clause Details
                   </Button>
                 </DialogTrigger>
                 {renderClauseDetailsDialog()}
               </Dialog>
-              <Button variant="outline" size="sm" onClick={handleDownloadDocument}>
-                <Download className="w-4 h-4 mr-2" />
-                Download PDF
-              </Button>
               {/* AI Suggestions Button (Manual mode) */}
               {!predictions && (
                 <Button
-                  variant="default"
-                  size="sm"
+                  size="lg"
                   onClick={() => handleGetAISuggestions(false)}
                   disabled={predictionsLoading}
-                  className="bg-violet-600 hover:bg-violet-700 text-white"
+                  className="w-full bg-violet-600 hover:bg-violet-700 text-white"
                 >
                   {predictionsLoading ? (
-                    <Loader2 className="w-4 h-4 mr-2 animate-spin" />
+                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   ) : (
-                    <Sparkles className="w-4 h-4 mr-2" />
+                    <Sparkles className="w-5 h-5 mr-2" />
                   )}
                   {predictionsLoading ? 'Getting AI Suggestions...' : 'Get AI Suggestions'}
                 </Button>
               )}
-              <Button className="flex-1" onClick={() => onComplete({
-                ...results,
-                originalDocument: documentText,
-                modifiedDocument: modifiedDocumentText
-              })}>
-                <CheckCircle className="w-4 h-4 mr-2" />
-                Continue to Full Review
-              </Button>
             </div>
           </CardContent>
         </Card>
+        </>
       )}
+
+      {/* ─── Complete Analysis Dialog ─────────────────────────────────────── */}
+      <Dialog open={showCompleteDialog} onOpenChange={setShowCompleteDialog}>
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle className="flex items-center gap-2">
+              <CheckCheck className="w-5 h-5 text-green-600" />
+              Complete Analysis
+            </DialogTitle>
+            <DialogDescription>
+              Your clause analysis is complete. Choose your next action:
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3 pt-4">
+            <Button 
+              onClick={() => {
+                handleDownloadDocument();
+              }}
+              className="w-full justify-start bg-blue-600 hover:bg-blue-700"
+              size="lg"
+            >
+              <Download className="w-5 h-5 mr-3" />
+              Download Report
+            </Button>
+            <Button 
+              onClick={handleSaveToDatabase}
+              className="w-full justify-start bg-green-600 hover:bg-green-700"
+              size="lg"
+              disabled={isSavedToDb}
+            >
+              <Database className="w-5 h-5 mr-3" />
+              {isSavedToDb ? 'Saved to Database ✓' : 'Save to Database'}
+            </Button>
+            <Button 
+              onClick={onCancel}
+              className="w-full justify-start"
+              variant="outline"
+              size="lg"
+            >
+              <Home className="w-5 h-5 mr-3" />
+              Back to Dashboard
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {/* ─── AI Suggestions Panel ─────────────────────────────────────────── */}
       {analysisComplete && predictions && predictions.total_missing > 0 && (

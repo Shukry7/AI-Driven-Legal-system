@@ -26,7 +26,7 @@ def secure_filename(filename: str) -> str:
 import sys
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
 
-from app.services.pdf_service import pdf_bytes_to_text, strip_bold_markers
+from app.services.pdf_service import pdf_bytes_to_text, pdf_bytes_to_dual_text, strip_bold_markers
 from app.services.clause_detection_service import analyze_clause_detection
 from app.services.hybrid_clause_detection_service import analyze_with_hybrid_detection
 from app.services.clause_patterns import CLAUSE_DEFINITIONS
@@ -155,45 +155,60 @@ async def analyze_clauses(
             
             logger.info(f"analyze-clauses: saved uploaded PDF to {saved_pdf_path}")
             
-            # Write metadata
-            try:
-                meta = {
-                    'filename': save_name,
-                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                }
-                with open(saved_pdf_path + '.meta.json', 'w', encoding='utf-8') as m:
-                    json.dump(meta, m)
-            except Exception as e:
-                logger.exception(f'Failed to write metadata: {e}')
+            # Metadata will be created after text extraction (see below)
 
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save uploaded PDF: {e}")
 
-        # Extract text from PDF
-        ok, result = pdf_bytes_to_text(file_bytes)
+        # Extract text from PDF (dual version - tagged and clean)
+        ok, result = pdf_bytes_to_dual_text(file_bytes)
         if not ok:
             raise HTTPException(status_code=500, detail=f"PDF text extraction failed: {result}")
 
-        extracted_text = result
-        logger.info(f"analyze-clauses: completed text extraction length={len(extracted_text)}")
+        extracted_tagged = result['tagged']
+        extracted_clean = result['clean']
+        extracted_text = extracted_clean  # Use clean for analysis
+        logger.info(f"analyze-clauses: completed text extraction - tagged: {len(extracted_tagged)}, clean: {len(extracted_clean)}")
 
-        # Save extracted text
-        txt_path = saved_pdf_path + '.txt'
+        # Save both versions
+        tagged_path = saved_pdf_path + '.tagged.txt'
+        clean_path = saved_pdf_path + '.clean.txt'
+        txt_path = clean_path  # Use clean path for analysis
+        
         try:
-            with open(txt_path, 'w', encoding='utf-8') as t:
-                t.write(extracted_text)
-            logger.info(f"analyze-clauses: saved extracted text to {txt_path}")
+            # Save tagged version
+            with open(tagged_path, 'w', encoding='utf-8') as t:
+                t.write(extracted_tagged)
+            logger.info(f"analyze-clauses: saved tagged text to {tagged_path}")
             
-            # Write text metadata
+            # Save clean version
+            with open(clean_path, 'w', encoding='utf-8') as c:
+                c.write(extracted_clean)
+            logger.info(f"analyze-clauses: saved clean text to {clean_path}")
+            
+            # Create .original backup if it doesn't exist
+            original_clean_path = clean_path + '.original'
+            if not os.path.exists(original_clean_path):
+                with open(original_clean_path, 'w', encoding='utf-8') as o:
+                    o.write(extracted_clean)
+            
+            # Create ONE consolidated metadata file for the PDF
+            meta = {
+                'filename': save_name,
+                'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z',
+                'artifacts': [
+                    os.path.basename(clean_path),
+                    os.path.basename(original_clean_path),
+                    os.path.basename(tagged_path)
+                ]
+            }
+            meta_path = str(saved_pdf_path) + '.meta.json'
             try:
-                meta_txt = {
-                    'filename': os.path.basename(txt_path),
-                    'uploaded_at': datetime.datetime.utcnow().isoformat() + 'Z'
-                }
-                with open(txt_path + '.meta.json', 'w', encoding='utf-8') as m:
-                    json.dump(meta_txt, m)
+                with open(meta_path, 'w', encoding='utf-8') as m:
+                    json.dump(meta, m)
+                logger.info(f"analyze-clauses: created consolidated metadata at {meta_path}")
             except Exception:
-                logger.exception(f'Failed to write text metadata')
+                logger.exception(f'Failed to write metadata')
         except Exception as e:
             raise HTTPException(status_code=500, detail=f"Failed to save extracted text: {e}")
 
@@ -222,11 +237,25 @@ async def analyze_clauses(
         if not os.path.exists(candidate_path):
             raise HTTPException(status_code=404, detail=f"File not found: {result_filename}")
 
-        # Expect a text file
-        if not result_filename.lower().endswith('.txt'):
+        # Expect a clean text file (or legacy .txt)
+        if result_filename.lower().endswith('.clean.txt'):
+            # New dual-file system
+            clean_path = candidate_path
+            txt_path = candidate_path
+        elif result_filename.lower().endswith('.txt'):
+            # Legacy or general .txt - try to find .clean.txt first
+            base_name = candidate_path[:-4]  # Remove .txt
+            clean_path = base_name + '.clean.txt'
+            if os.path.exists(clean_path):
+                txt_path = clean_path
+                candidate_path = clean_path
+            else:
+                # Use legacy file
+                txt_path = candidate_path
+        else:
             raise HTTPException(
                 status_code=400, 
-                detail="analyze-clauses expects a .txt filename previously generated"
+                detail="analyze-clauses expects a .clean.txt or .txt filename"
             )
 
         try:
@@ -335,10 +364,11 @@ async def predict_clauses(
             raise HTTPException(status_code=400, detail="Uploaded file has no filename")
         try:
             file_bytes = await file.read()
-            ok, result = pdf_bytes_to_text(file_bytes)
+            ok, result = pdf_bytes_to_dual_text(file_bytes)
             if not ok:
                 raise HTTPException(status_code=500, detail=f"PDF text extraction failed: {result}")
-            extracted_text = result
+            # Use clean version for clause prediction
+            extracted_text = result['clean']
         except HTTPException:
             raise
         except Exception as e:
@@ -346,9 +376,22 @@ async def predict_clauses(
     # Mode 2: Existing text file
     elif filename:
         safe_name = secure_filename(filename)
-        # Ensure it's a .txt file
-        if not safe_name.lower().endswith('.txt'):
-            safe_name = safe_name + '.txt'
+        
+        # Prefer .clean.txt, fallback to .txt
+        if safe_name.lower().endswith('.clean.txt'):
+            # Already specifying clean version
+            pass
+        elif safe_name.lower().endswith('.txt'):
+            # Check if .clean.txt exists, prefer it
+            base_name = safe_name[:-4]
+            clean_name = base_name + '.clean.txt'
+            test_path = os.path.abspath(os.path.join(uploads_dir, clean_name))
+            if os.path.exists(test_path):
+                safe_name = clean_name
+        else:
+            # Add .clean.txt extension as default
+            safe_name = safe_name + '.clean.txt'
+            
         candidate = os.path.abspath(os.path.join(uploads_dir, safe_name))
         uploads_dir_abs = os.path.abspath(uploads_dir)
         if not (candidate == uploads_dir_abs or candidate.startswith(uploads_dir_abs + os.sep)):
@@ -467,15 +510,23 @@ async def get_suggestion_decisions(filename: str):
 
 
 @router.post("/finalize-document")
-async def finalize_document(filename: str = Form(...)):
+async def finalize_document(
+    filename: str = Form(...),
+    skip_suggestions: bool = Form(False)
+):
     """
     Generate final document with all accepted clause suggestions inserted.
+    
+    Args:
+        filename: The document filename
+        skip_suggestions: If True, skip inserting AI suggestions (just merge edits)
+    
     Returns the modified text content.
     """
     try:
         from app.services.document_finalization_service import finalize_document_with_suggestions
         
-        result = await finalize_document_with_suggestions(filename)
+        result = await finalize_document_with_suggestions(filename, skip_suggestions=skip_suggestions)
         
         logger.info(f"Finalized document {filename} with {result['inserted_count']} suggestions")
         
@@ -530,3 +581,161 @@ async def health_check():
         "prediction_mode": get_prediction_mode(),
         "predictable_clauses": len(PREDICTABLE_CLAUSES),
     }
+
+
+@router.post("/save-to-database")
+async def save_to_database(
+    filename: str = Form(...),
+    analysis_data: Optional[str] = Form(None),
+):
+    """
+    Save the finalized document to MongoDB GridFS.
+    
+    Args:
+        filename: The finalized document filename (e.g., "document.pdf_finalized.clean.txt")
+        analysis_data: Optional JSON string with analysis metadata
+        
+    Returns:
+        JSON with success status and the GridFS file ID
+    """
+    try:
+        from pathlib import Path
+        from app.services.mongodb_service import get_mongodb_service
+        
+        # Parse analysis metadata if provided
+        metadata = None
+        if analysis_data:
+            try:
+                metadata = json.loads(analysis_data)
+            except json.JSONDecodeError:
+                logger.warning("Invalid JSON in analysis_data, ignoring metadata")
+        
+        # Get the file path
+        upload_folder = Path(__file__).parent.parent.parent / "uploads"
+        file_path = upload_folder / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        # Read file content
+        with open(file_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        # Save to MongoDB GridFS
+        mongo_service = get_mongodb_service()
+        
+        if not mongo_service.is_connected():
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB is not connected. Please check your MongoDB connection."
+            )
+        
+        file_id = mongo_service.save_finalized_document(
+            filename=filename,
+            file_content=content,
+            metadata=metadata
+        )
+        
+        if not file_id:
+            raise HTTPException(
+                status_code=500,
+                detail="Failed to save document to MongoDB"
+            )
+        
+        logger.info(f"Successfully saved document to MongoDB: {filename} (ID: {file_id})")
+        
+        return {
+            "success": True,
+            "file_id": file_id,
+            "filename": filename,
+            "message": "Document successfully saved to database"
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error saving to database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/database-documents")
+async def list_database_documents(
+    limit: int = 50,
+    skip: int = 0
+):
+    """
+    List documents stored in MongoDB GridFS.
+    
+    Args:
+        limit: Maximum number of documents to return (default: 50)
+        skip: Number of documents to skip for pagination (default: 0)
+        
+    Returns:
+        JSON with list of documents and their metadata
+    """
+    try:
+        from app.services.mongodb_service import get_mongodb_service
+        
+        mongo_service = get_mongodb_service()
+        
+        if not mongo_service.is_connected():
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB is not connected"
+            )
+        
+        documents = mongo_service.list_documents(limit=limit, skip=skip)
+        
+        return {
+            "success": True,
+            "documents": documents,
+            "count": len(documents)
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error listing database documents: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/database-document/{file_id}")
+async def get_database_document(file_id: str):
+    """
+    Retrieve a document from MongoDB GridFS by its ID.
+    
+    Args:
+        file_id: The ObjectId of the document
+        
+    Returns:
+        JSON with document content and metadata
+    """
+    try:
+        from app.services.mongodb_service import get_mongodb_service
+        
+        mongo_service = get_mongodb_service()
+        
+        if not mongo_service.is_connected():
+            raise HTTPException(
+                status_code=503,
+                detail="MongoDB is not connected"
+            )
+        
+        document = mongo_service.get_document_by_id(file_id)
+        
+        if not document:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Document not found with ID: {file_id}"
+            )
+        
+        return {
+            "success": True,
+            "document": document
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error retrieving database document: {e}")
+        raise HTTPException(status_code=500, detail=str(e))

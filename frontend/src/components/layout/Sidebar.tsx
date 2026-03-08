@@ -36,7 +36,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
           <div>
             <h1 className="font-heading font-bold text-lg">LegalAI</h1>
             <p className="text-xs text-sidebar-foreground/60">
-              Case Management
+              Your Legal AI Assistent
             </p>
           </div>
         </div>
@@ -55,7 +55,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
       </div>
 
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-2 overflow-y-auto">
+      <nav className="flex-1 px-3 py-3 overflow-y-auto">
         <div className="space-y-1">
           <NavItem
             icon={LayoutDashboard}
@@ -69,37 +69,15 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
             active={activeModule === "cases"}
             onClick={() => onModuleChange("cases")}
           />
-          <NavItem
-            icon={FileText}
-            label="Documents"
-            active={activeModule === "documents"}
-            onClick={() => onModuleChange("documents")}
-          />
-          <NavItem
-            icon={Users}
-            label="Clients"
-            active={activeModule === "clients"}
-            onClick={() => onModuleChange("clients")}
-          />
-        </div>
 
-        {/* AI Tools Section */}
-        <div className="mt-6">
-          <button
-            onClick={() => setAiToolsExpanded(!aiToolsExpanded)}
-            className="flex items-center justify-between w-full px-3 py-2 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors"
-          >
-            <span>AI Tools</span>
-            <ChevronDown
-              className={cn(
-                "w-4 h-4 transition-transform",
-                aiToolsExpanded && "rotate-180"
-              )}
-            />
-          </button>
+          <NavItem
+                icon={CheckCircle}
+                label="Document Analysis"
+                active={activeModule === "clause"}
+                onClick={() => onModuleChange("clause")}
+                highlight
+              />
 
-          {aiToolsExpanded && (
-            <div className="mt-1 space-y-1 ml-2 border-l border-sidebar-border pl-2">
               <NavItem
                 icon={Languages}
                 label="Multilingual Translation"
@@ -107,13 +85,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 onClick={() => onModuleChange("translation")}
                 highlight
               />
-              <NavItem
-                icon={CheckCircle}
-                label="Clause Detection"
-                active={activeModule === "clause"}
-                onClick={() => onModuleChange("clause")}
-                highlight
-              />
+              
               <NavItem
                 icon={AlertCircle}
                 label="Risk Classification"
@@ -121,20 +93,15 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 onClick={() => onModuleChange("classification")}
                 highlight
               />
-              <NavItem
-                icon={BookOpen}
-                label="Document Analysis"
-                active={activeModule === "analysis"}
-                onClick={() => onModuleChange("analysis")}
-              />
+             
               <NavItem 
                 icon={GitGraph} 
                 label="Legal Lineage"
                 active={activeModule === 'legalLineage'}
                 onClick={() => onModuleChange('legalLineage')}
+                highlight
               />
-            </div>
-          )}
+         
         </div>
       </nav>
 

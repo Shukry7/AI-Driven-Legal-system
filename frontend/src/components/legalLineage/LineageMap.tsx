@@ -1,5 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
-import type { CaseNode, CitationEdge } from './types';
+import type { CaseNode, CitationEdge } from '@/config/api';
 import { 
   ZoomIn, 
   ZoomOut, 
@@ -9,7 +9,11 @@ import {
   GitBranch,
   GitCommit,
   GitPullRequest,
-  Target
+  Target,
+  Shield,
+  AlertTriangle,
+  CheckCircle,
+  XCircle
 } from 'lucide-react';
 
 interface Props {
@@ -25,11 +29,27 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
   const [dragStart, setDragStart] = useState({ x: 0, y: 0 });
   const [hoveredNode, setHoveredNode] = useState<CaseNode | null>(null);
   const [hoveredEdge, setHoveredEdge] = useState<CitationEdge | null>(null);
-  const [viewMode, setViewMode] = useState<'force' | 'radial' | 'hierarchical'>('radial');
+  const [viewMode, setViewMode] = useState<'radial' | 'force' | 'hierarchical'>('radial');
   const svgRef = useRef<SVGSVGElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
 
-  // Enhanced layout calculations
+  // Get treatment color and icon
+  const getTreatmentInfo = (treatment?: string) => {
+    switch (treatment) {
+      case 'FOLLOWED':
+        return { color: '#10b981', icon: CheckCircle, bg: 'bg-green-100', text: 'text-green-700' };
+      case 'OVERRULED':
+        return { color: '#ef4444', icon: XCircle, bg: 'bg-red-100', text: 'text-red-700' };
+      case 'DISTINGUISHED':
+        return { color: '#f59e0b', icon: AlertTriangle, bg: 'bg-amber-100', text: 'text-amber-700' };
+      case 'APPLIED':
+        return { color: '#3b82f6', icon: Shield, bg: 'bg-blue-100', text: 'text-blue-700' };
+      default:
+        return { color: '#64748b', icon: GitCommit, bg: 'bg-slate-100', text: 'text-slate-700' };
+    }
+  };
+
+  // Layout calculations
   const calculateRadialLayout = () => {
     const center = { x: 450, y: 220 };
     const baseRadius = Math.min(180, Math.max(80, nodes.length * 8));
@@ -50,7 +70,6 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
   };
 
   const calculateForceLayout = () => {
-    // Simplified force-directed layout
     const center = { x: 450, y: 220 };
     return nodes.map((n, i) => {
       const angle = (2 * Math.PI * i) / Math.max(1, nodes.length);
@@ -141,7 +160,7 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
   // Export functionality
   useEffect(() => {
     function onExport() {
-      const svg = document.getElementById('lineage-svg') as SVGSVGElement | null;
+      const svg = document.getElementById('lineage-svg') as unknown as SVGSVGElement | null;
       if (!svg) return;
 
       // Add watermark for export
@@ -149,10 +168,10 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
       const watermark = `
         <g id="watermark" opacity="0.1">
           <text x="400" y="430" text-anchor="middle" font-family="Arial" font-size="24" fill="#334155">
-            Legal Lineage Explorer
+            
           </text>
           <text x="400" y="460" text-anchor="middle" font-family="Arial" font-size="12" fill="#64748b">
-            Generated ${new Date().toLocaleDateString()}
+            
           </text>
         </g>
       `;
@@ -177,20 +196,18 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
         const ctx = canvas.getContext('2d');
         
         if (ctx) {
-          // White background
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
-          
-          // Draw SVG
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           
-          // Add watermark on canvas
-          ctx.globalAlpha = 0.1;
-          ctx.font = '24px Arial';
-          ctx.fillStyle = '#334155';
+          ctx.globalAlpha = 0.15; // Slightly darker than before
+          ctx.font = '35px Arial';
+          ctx.fillStyle = '#00000'; // Darker slate color
           ctx.textAlign = 'center';
-          ctx.fillText('Legal Lineage Explorer', canvas.width / 2, canvas.height - 40);
-          ctx.font = '12px Arial';
+          
+          // Add scale icon (⚖️) before LegalAI text
+          ctx.fillText('⚖ LegalAI', canvas.width / 2, canvas.height - 40);
+          
+          ctx.font = '18px Arial';
           ctx.fillText(`Generated ${new Date().toLocaleDateString()}`, canvas.width / 2, canvas.height - 15);
           ctx.globalAlpha = 1;
           
@@ -212,28 +229,6 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
     window.addEventListener('exportGraph', onExport as EventListener);
     return () => window.removeEventListener('exportGraph', onExport as EventListener);
   }, []);
-
-  // Get edge color based on relation
-  const getEdgeColor = (relation: string) => {
-    switch (relation) {
-      case 'followed': return '#10b981';
-      case 'overruled': return '#ef4444';
-      case 'distinguished': return '#f59e0b';
-      case 'cited': return '#8b5cf6';
-      case 'related': return '#64748b';
-      default: return '#94a3b8';
-    }
-  };
-
-  const getEdgeLabel = (relation: string) => {
-    switch (relation) {
-      case 'followed': return 'Followed';
-      case 'overruled': return 'Overruled';
-      case 'distinguished': return 'Distinguished';
-      case 'cited': return 'Cited';
-      default: return 'Related';
-    }
-  };
 
   return (
     <div 
@@ -317,7 +312,32 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
               </div>
             </div>
           </div>
+          
+          {/* Treatments */}
+          {hoveredNode.acts && hoveredNode.acts.length > 0 && (
+            <div className="mb-3">
+              <div className="text-xs font-medium text-slate-500 mb-2">Treatments:</div>
+              <div className="space-y-2">
+                {hoveredNode.acts.map((act, i) => {
+                  const info = getTreatmentInfo(act.treatment);
+                  return (
+                    <div key={i} className="flex items-center gap-2">
+                      <div className={`p-1 rounded ${info.bg}`}>
+                        <info.icon className={`w-3 h-3 ${info.text}`} />
+                      </div>
+                      <span className="text-sm text-slate-700 flex-1">{act.act}</span>
+                      <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${info.bg} ${info.text}`}>
+                        {act.treatment}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+          
           <p className="text-sm text-slate-600 line-clamp-3">{hoveredNode.summary || 'No summary available'}</p>
+          
           <div className="flex items-center gap-4 mt-3 pt-3 border-t border-slate-100">
             <div className="text-sm">
               <span className="text-slate-500">Citations: </span>
@@ -335,8 +355,13 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
       {hoveredEdge && (
         <div className="absolute bottom-4 left-1/2 transform -translate-x-1/2 z-20 bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl p-3 shadow-xl">
           <div className="flex items-center gap-2">
-            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getEdgeColor(hoveredEdge.relation) }} />
-            <span className="font-medium text-slate-800">{getEdgeLabel(hoveredEdge.relation)}</span>
+            <div className="w-3 h-3 rounded-full" style={{ backgroundColor: getTreatmentInfo(hoveredEdge.relation).color }} />
+            <span className="font-medium text-slate-800 capitalize">{hoveredEdge.relation}</span>
+            {hoveredEdge.confidence && (
+              <span className="text-xs text-slate-500 ml-2">
+                Confidence: {(hoveredEdge.confidence * 100).toFixed(1)}%
+              </span>
+            )}
           </div>
           <div className="text-sm text-slate-600 mt-1">
             {hoveredEdge.source} → {hoveredEdge.target}
@@ -348,23 +373,23 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
       <div className="absolute bottom-4 right-4 z-20 bg-white/90 backdrop-blur-sm border border-slate-200 rounded-xl p-4 shadow-sm">
         <h5 className="font-semibold text-slate-700 mb-2 flex items-center gap-2">
           <Info className="w-4 h-4" />
-          Legend
+          Treatments
         </h5>
         <div className="space-y-2">
-          {['followed', 'overruled', 'distinguished', 'cited'].map((rel) => (
-            <div key={rel} className="flex items-center gap-2">
-              <div className="w-3 h-0.5" style={{ backgroundColor: getEdgeColor(rel) }} />
-              <span className="text-sm text-slate-600 capitalize">{rel}</span>
-            </div>
-          ))}
-          <div className="flex items-center gap-2 mt-3">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-r from-teal-500 to-cyan-500" />
-            <span className="text-sm text-slate-600">Central Case</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <div className="w-6 h-6 rounded-full bg-gradient-to-r from-blue-500 to-indigo-500" />
-            <span className="text-sm text-slate-600">Related Cases</span>
-          </div>
+          {[
+            { label: 'Followed', color: '#10b981', icon: CheckCircle },
+            { label: 'Overruled', color: '#ef4444', icon: XCircle },
+            { label: 'Distinguished', color: '#f59e0b', icon: AlertTriangle },
+            { label: 'Applied', color: '#3b82f6', icon: Shield }
+          ].map((item) => {
+            const Icon = item.icon;
+            return (
+              <div key={item.label} className="flex items-center gap-2">
+                <Icon className="w-4 h-4" style={{ color: item.color }} />
+                <span className="text-sm text-slate-600">{item.label}</span>
+              </div>
+            );
+          })}
         </div>
       </div>
 
@@ -423,22 +448,21 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
             const t = positioned.find((p) => p.id === e.target);
             if (!s || !t) return null;
 
-            const color = getEdgeColor(e.relation);
+            const color = getTreatmentInfo(e.relation).color;
             const edgeLength = Math.sqrt(Math.pow(t.x - s.x, 2) + Math.pow(t.y - s.y, 2));
-            const curvature = 0.3;
             
             // Bezier curve for better visualization
             const midX = (s.x + t.x) / 2;
             const midY = (s.y + t.y) / 2;
             const cp1X = s.x + (t.x - s.x) * 0.5;
-            const cp1Y = s.y + (t.y - s.y) * 0.5 + curvature * edgeLength;
+            const cp1Y = s.y + (t.y - s.y) * 0.5 + 30;
             const cp2X = s.x + (t.x - s.x) * 0.5;
-            const cp2Y = s.y + (t.y - s.y) * 0.5 - curvature * edgeLength;
+            const cp2Y = s.y + (t.y - s.y) * 0.5 - 30;
 
             return (
-              <g key={idx}>
+              <g key={e.id || idx}>
                 <path
-                  d={`M ${s.x} ${s.y} Q ${cp1X} ${cp1Y}, ${midX} ${midY} T ${t.x} ${t.y}`}
+                  d={`M ${s.x} ${s.y} C ${cp1X} ${cp1Y}, ${cp2X} ${cp2Y}, ${t.x} ${t.y}`}
                   fill="none"
                   stroke={color}
                   strokeWidth={e.weight || 2}
@@ -449,17 +473,19 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
                   onMouseLeave={() => setHoveredEdge(null)}
                 />
                 {/* Edge label */}
-                <text
-                  x={midX}
-                  y={midY - 10}
-                  textAnchor="middle"
-                  fontSize="10"
-                  fill={color}
-                  fontWeight="600"
-                  className="pointer-events-none"
-                >
-                  {getEdgeLabel(e.relation)}
-                </text>
+                {e.confidence && e.confidence > 0.7 && (
+                  <text
+                    x={midX}
+                    y={midY - 15}
+                    textAnchor="middle"
+                    fontSize="9"
+                    fill={color}
+                    fontWeight="600"
+                    className="pointer-events-none"
+                  >
+                    {Math.round(e.confidence * 100)}% confidence
+                  </text>
+                )}
               </g>
             );
           })}
@@ -467,9 +493,13 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
           {/* Nodes */}
           {positioned.map((n) => {
             const isCenter = n.isCentral || nodes[0]?.id === n.id;
-            const nodeSize = isCenter ? 36 : 28;
+            const nodeSize = isCenter ? 40 : 32;
             const title = (n.title || n.id || '').toString();
             const isHovered = hoveredNode?.id === n.id;
+            
+            // Get treatment for node color
+            const mainTreatment = n.acts?.[0]?.treatment;
+            const treatmentInfo = getTreatmentInfo(mainTreatment);
 
             return (
               <g key={n.id} transform={`translate(${n.x}, ${n.y})`}>
@@ -477,7 +507,7 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
                 {isHovered && (
                   <circle
                     r={nodeSize + 8}
-                    fill={`url(#${isCenter ? 'node-gradient-central' : 'node-gradient-regular'})`}
+                    fill={treatmentInfo.color}
                     opacity="0.2"
                     filter="url(#glow)"
                   />
@@ -486,10 +516,10 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
                 {/* Main node */}
                 <circle
                   r={nodeSize}
-                  fill={`url(#${isCenter ? 'node-gradient-central' : 'node-gradient-regular'})`}
+                  fill={treatmentInfo.color}
                   stroke={isCenter ? '#083344' : '#1e40af'}
                   strokeWidth={isCenter ? 2.5 : 2}
-                  className="transition-all duration-200 cursor-pointer hover:r-[32]"
+                  className="transition-all duration-200 cursor-pointer hover:r-[36]"
                   onMouseEnter={() => setHoveredNode(n)}
                   onMouseLeave={() => setHoveredNode(null)}
                   onClick={() => onSelectNode?.(n)}
@@ -517,8 +547,8 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
                     : title}
                 </text>
                 
-                {/* Year badge */}
-                {n.year && (
+                {/* Treatment indicator for non-primary acts */}
+                {n.acts && n.acts.length > 1 && (
                   <g transform="translate(0, 24)">
                     <rect
                       x={-20}
@@ -534,17 +564,17 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
                       x={0}
                       y={11}
                       textAnchor="middle"
-                      fontSize="9"
-                      fill="#64748b"
-                      fontWeight="500"
+                      fontSize="8"
+                      fill={treatmentInfo.color}
+                      fontWeight="600"
                       className="pointer-events-none"
                     >
-                      {n.year}
+                      +{n.acts.length - 1} more
                     </text>
                   </g>
                 )}
                 
-                <title>{`${title} — ${n.year || '—'}`}</title>
+                <title>{`${title} — ${mainTreatment || 'Unknown treatment'}`}</title>
               </g>
             );
           })}
@@ -564,11 +594,11 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
         <div className="flex items-center gap-4 text-sm text-slate-600">
           <span className="flex items-center gap-1">
             <GitCommit className="w-4 h-4 text-blue-500" />
-            <span className="font-semibold text-slate-800">{nodes.length}</span> nodes
+            <span className="font-semibold text-slate-800">{nodes.length}</span> acts
           </span>
           <span className="flex items-center gap-1">
             <GitBranch className="w-4 h-4 text-green-500" />
-            <span className="font-semibold text-slate-800">{edges.length}</span> edges
+            <span className="font-semibold text-slate-800">{edges.length}</span> relationships
           </span>
           <span className="text-xs text-slate-500">
             Scale: {scale.toFixed(2)}x • {viewMode} view

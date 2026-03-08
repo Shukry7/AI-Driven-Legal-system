@@ -16,6 +16,7 @@ from apscheduler.schedulers.background import BackgroundScheduler
 from fastapi_app.api.classification_routes import router as classification_router
 from fastapi_app.api.clause_routes import router as clause_router
 from fastapi_app.api.pdf_routes import router as pdf_router
+from fastapi_app.api.lineage_routes import router as lineage_router
 from fastapi_app.api.translation_routes import router as translation_router, preload_models as preload_translation_models
 
 # Configure logging
@@ -47,6 +48,7 @@ app.add_middleware(
 app.include_router(classification_router, prefix="/api", tags=["classification"])
 app.include_router(clause_router, prefix="/api", tags=["clause_detection"])
 app.include_router(pdf_router, tags=["pdf_processing"])
+app.include_router(lineage_router, prefix="/api", tags=["lineage_analysis"])
 app.include_router(translation_router, prefix="/api", tags=["translation"])
 
 # Initialize background scheduler for cleanup tasks
@@ -160,6 +162,12 @@ async def root():
                     "analyze_clauses": "/api/analyze-clauses",
                     "list_clauses": "/api/clauses/list",
                     "health": "/api/health"
+                },
+                "lineage_analysis": {
+                    "upload_and_analyze": "/api/lineage/analyze-lineage",
+                    "search_and_fetch": "/api/lineage/search-act",
+                    "get_stats": "/api/lineage/stats",
+                    "list_uploads": "/api/lineage/list-uploads"
                 },
                 "docs": "/docs",
                 "redoc": "/redoc"

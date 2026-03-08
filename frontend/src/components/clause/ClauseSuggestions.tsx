@@ -22,6 +22,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
+import { saveToDatabase } from '@/config/api';
 
 interface ClauseSuggestionsProps {
   results: AnalysisResults;
@@ -35,6 +36,7 @@ interface AnalysisResults {
   corruptedClauses: CorruptedClause[];
   originalDocument?: string;
   modifiedDocument?: string;
+  filename?: string; // The finalized filename for database storage
 }
 
 interface MissingClause {
@@ -56,6 +58,13 @@ interface MissingClause {
   placeholderText?: string;
   inputType?: 'text' | 'date' | 'currency' | 'signature' | 'number';
   userInputValue?: string;
+  // NEW: Insertion point information
+  insertionPoint?: {
+    lineEstimate?: number;
+    positionDescription?: string;
+    markerBefore?: string;
+    markerAfter?: string;
+  };
 }
 
 interface CorruptedClause {
@@ -215,6 +224,18 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
 
   const handleSaveToDatabase = async () => {
     try {
+      if (!results.filename) {
+        alert('No filename available to save. Cannot save to database.');
+        console.error('Missing filename in results:', results);
+        return;
+      }
+
+      // Derive the finalized filename from the current filename
+      // e.g., "document.pdf.clean.txt" -> "document.pdf_finalized.clean.txt"
+      const finalizedFilename = results.filename.replace('.clean.txt', '_finalized.clean.txt');
+      console.log('Saving finalized document to MongoDB:', finalizedFilename);
+
+      // Prepare metadata to store with the finalized document
       const analysisData = {
         timestamp: new Date().toISOString(),
         totalClauses: results.totalClauses,
@@ -227,12 +248,20 @@ export function ClauseSuggestions({ results: initialResults, onComplete }: Claus
       };
       
       console.log('Saving to database:', analysisData);
-      // TODO: Replace with actual API call
-      // await fetch('/api/clause-analysis', { method: 'POST', body: JSON.stringify(analysisData) });
       
-      setIsSavedToDb(true);
+      // Save the finalized text file to MongoDB GridFS
+      const response = await saveToDatabase(finalizedFilename, analysisData);
+      
+      if (response.success) {
+        setIsSavedToDb(true);
+        console.log('Document successfully saved to database:', response);
+        alert('Successfully saved finalized document to database!');
+      } else {
+        throw new Error('Failed to save to database');
+      }
     } catch (error) {
       console.error('Error saving to database:', error);
+      alert(`Failed to save to database: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -416,7 +445,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                       <div
                         key={idx}
                         className={`py-1 px-2 rounded ${
-                          isNew || isReplaced ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium' : ''
+                          isNew || isReplaced ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : ''
                         }`}
                       >
                         {line || '\u00A0'}
@@ -471,7 +500,10 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
         <div className="flex gap-2">
           {mainView === 'review' ? (
             <>
-              <Button variant="outline">
+              <Button 
+                variant="outline"
+                onClick={handleDownloadReport}
+              >
                 <Download className="w-4 h-4 mr-2" />
                 Download Report
               </Button>
@@ -978,6 +1010,33 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                             </div>
                           ) : (
                             <div className="space-y-4">
+                              {/* Insertion Point Information */}
+                              {clause.insertionPoint && clause.insertionPoint.positionDescription && (
+                                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                                  <div className="flex items-start gap-2">
+                                    <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1">
+                                      <p className="text-xs font-semibold text-blue-800 dark:text-blue-200 mb-1">
+                                        📍 Insertion Location
+                                      </p>
+                                      <p className="text-sm text-blue-700 dark:text-blue-300">
+                                        {clause.insertionPoint.positionDescription}
+                                      </p>
+                                      {clause.insertionPoint.lineEstimate && (
+                                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                          Estimated line: ~{clause.insertionPoint.lineEstimate}
+                                        </p>
+                                      )}
+                                      {clause.insertionPoint.markerAfter && (
+                                        <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1">
+                                          Before: {clause.insertionPoint.markerAfter}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              
                               <div className="bg-card border-2 border-accent/20 rounded-lg p-4">
                                 <div className="flex items-start justify-between mb-3">
                                   <p className="text-xs font-semibold text-muted-foreground uppercase">
