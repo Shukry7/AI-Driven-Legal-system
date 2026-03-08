@@ -218,6 +218,9 @@ export interface PredictionSuggestion {
   context_used: Record<string, any>;
   position: string;
   status: "pending" | "accepted" | "edited" | "rejected";
+  // NEW: Position-based insertion data from OpenAI
+  anchor_text?: string;            // The exact text from document where to insert
+  insertion_position?: "before" | "after" | "end";  // Position relative to anchor
 }
 
 export interface PredictionResult {

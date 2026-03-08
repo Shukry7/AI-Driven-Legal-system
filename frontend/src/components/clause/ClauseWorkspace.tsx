@@ -533,9 +533,13 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         confidence: suggestion.confidence,
       });
       
-      // Insert suggestion into document preview immediately
+      // NEW: Use position-based insertion from OpenAI
       const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, suggestion.suggestion);
-      const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
+      const insertPosition = findInsertionPositionFromAnchor(
+        modifiedDocumentText, 
+        suggestion.anchor_text || '', 
+        suggestion.insertion_position || 'end'
+      );
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
       
@@ -595,9 +599,13 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         edited_text: editedSuggestionText,
       });
 
-      // Insert edited suggestion into document preview immediately
+      // NEW: Use position-based insertion from OpenAI
       const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, editedSuggestionText);
-      const insertPosition = findClauseInsertionPosition(modifiedDocumentText, clauseKey);
+      const insertPosition = findInsertionPositionFromAnchor(
+        modifiedDocumentText, 
+        suggestion.anchor_text || '', 
+        suggestion.insertion_position || 'end'
+      );
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
 
@@ -641,41 +649,171 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     return { total, accepted, rejected, edited, pending };
   };
 
-  // Helper function to format clause text for insertion
-  const formatClauseForInsertion = (clauseKey: string, clauseName: string, text: string): string => {
-    // Header clauses - insert with emphasis
-    if (['case_number', 'case_title', 'court_name'].includes(clauseKey)) {
-      return `\n${'='.repeat(60)}\n${clauseName.toUpperCase()}\n${'='.repeat(60)}\n${text}\n\n`;
+  // Helper function to wrap text after 10-11 words per line
+  const wrapTextForInsertion = (text: string, wordsPerLine: number = 10): string => {
+    const words = text.trim().split(/\s+/);
+    const lines: string[] = [];
+    
+    for (let i = 0; i < words.length; i += wordsPerLine) {
+      const lineWords = words.slice(i, i + wordsPerLine);
+      lines.push(lineWords.join(' '));
     }
-    // Judge info - labeled format
-    if (['judge_names', 'judge_bench'].includes(clauseKey)) {
-      return `\n${clauseName}: ${text}\n\n`;
-    }
-    // Parties - section format
-    if (['petitioner_name', 'respondent_name'].includes(clauseKey)) {
-      return `\n\n${clauseName.toUpperCase()}:\n${text}\n`;
-    }
-    // Counsel - section format
-    if (clauseKey === 'legal_representatives') {
-      return `\n\nCOUNSEL:\n${text}\n`;
-    }
-    // Subject - descriptive format
-    if (clauseKey === 'subject_matter') {
-      return `\n\nSUBJECT MATTER:\n${text}\n\n`;
-    }
-    // Dates - simple format
-    if (['date_of_order', 'hearing_dates'].includes(clauseKey)) {
-      return `\n${clauseName}: ${text}\n`;
-    }
-    // Citations - list format
-    if (clauseKey === 'referred_cases') {
-      return `\n\nCASES REFERRED:\n${text}\n\n`;
-    }
-    // Default format
-    return `\n\n${clauseName}:\n${text}\n\n`;
+    
+    return lines.join('\n');
   };
 
-  // Helper function to find insertion position for a clause
+  // Helper function to format clause text for insertion
+  const formatClauseForInsertion = (clauseKey: string, clauseName: string, text: string): string => {
+    // Wrap the text to multiple lines (10-11 words per line)
+    const wrappedText = wrapTextForInsertion(text, 10);
+    
+    // Insert with proper spacing, NO labels or headings
+    return `\n\n${wrappedText}\n\n`;
+  };
+
+  // NEW: Helper function to find insertion position based on anchor text from OpenAI
+  const findInsertionPositionFromAnchor = (
+    documentText: string, 
+    anchorText: string, 
+    position: "before" | "after" | "end"
+  ): number => {
+    console.log('🔍 findInsertionPositionFromAnchor called');
+    console.log('  - Anchor text:', anchorText?.substring(0, 100));
+    console.log('  - Position:', position);
+    console.log('  - Document length:', documentText.length);
+    
+    // If no anchor text provided, use fallback position
+    if (!anchorText || anchorText.trim().length === 0) {
+      console.warn('⚠️ No anchor text provided, using fallback');
+      if (position === "end") {
+        return documentText.length;
+      }
+      return 0;
+    }
+
+    // Strip formatting markers from document (same as backend does)
+    const stripFormatting = (text: string) => {
+      return text
+        .replace(/<<F:[^>]+>>/g, '')
+        .replace(/<<\/F>>/g, '')
+        .replace(/<<BOLD>>/g, '')
+        .replace(/<<\/BOLD>>/g, '');
+    };
+
+    const cleanDoc = stripFormatting(documentText);
+
+    // Try multiple search strategies
+    
+    // Strategy 1: Exact match (case-sensitive) on clean doc
+    let anchorIndex = cleanDoc.indexOf(anchorText);
+    if (anchorIndex !== -1) {
+      console.log('✅ Found EXACT match at position:', anchorIndex);
+      // Map back to original doc position (account for stripped markers)
+      return position === "before" ? 
+        findOriginalPosition(documentText, cleanDoc, anchorIndex) : 
+        findOriginalPosition(documentText, cleanDoc, anchorIndex + anchorText.length);
+    }
+
+    // Strategy 2: Case-insensitive match
+    const lowerDoc = cleanDoc.toLowerCase();
+    const lowerAnchor = anchorText.toLowerCase();
+    anchorIndex = lowerDoc.indexOf(lowerAnchor);
+    if (anchorIndex !== -1) {
+      console.log('✅ Found case-insensitive match at position:', anchorIndex);
+      return position === "before" ? 
+        findOriginalPosition(documentText, cleanDoc, anchorIndex) : 
+        findOriginalPosition(documentText, cleanDoc, anchorIndex + anchorText.length);
+    }
+
+    // Strategy 3: Trimmed and normalized whitespace match
+    const normalizeWhitespace = (text: string) => text.replace(/\s+/g, ' ').trim();
+    const normalizedDoc = normalizeWhitespace(cleanDoc);
+    const normalizedAnchor = normalizeWhitespace(anchorText);
+    
+    const normalizedIndex = normalizeWhitespace(cleanDoc.toLowerCase()).indexOf(normalizedAnchor.toLowerCase());
+    if (normalizedIndex !== -1) {
+      console.log('✅ Found normalized match at approximate position:', normalizedIndex);
+      // Approximate position
+      return position === "before" ? normalizedIndex : normalizedIndex + normalizedAnchor.length;
+    }
+
+    // Strategy 4: Partial match - first 30 characters
+    if (anchorText.length > 30) {
+      const partialAnchor = anchorText.substring(0, 30);
+      anchorIndex = lowerDoc.indexOf(partialAnchor.toLowerCase());
+      if (anchorIndex !== -1) {
+        console.warn('⚠️ Found PARTIAL match (first 30 chars) at position:', anchorIndex);
+        return position === "before" ? 
+          findOriginalPosition(documentText, cleanDoc, anchorIndex) : 
+          findOriginalPosition(documentText, cleanDoc, anchorIndex + partialAnchor.length);
+      }
+    }
+
+    // Strategy 5: Search for key words from anchor
+    const words = anchorText.split(/\s+/).filter(w => w.length > 4);
+    if (words.length >= 3) {
+      const firstThreeWords = words.slice(0, 3).join('.*');
+      const regex = new RegExp(firstThreeWords, 'i');
+      const match = cleanDoc.match(regex);
+      if (match && match.index !== undefined) {
+        console.warn('⚠️ Found keyword match at position:', match.index);
+        return position === "before" ? 
+          findOriginalPosition(documentText, cleanDoc, match.index) : 
+          findOriginalPosition(documentText, cleanDoc, match.index + match[0].length);
+      }
+    }
+    
+    // All strategies failed - use intelligent fallback
+    console.error('❌ Anchor text not found in document with any strategy!');
+    console.error('   Searched for:', anchorText.substring(0, 100));
+    console.error('   Falling back based on position hint...');
+    
+    // Smart fallback based on position hint
+    if (position === "end" || position === "after") {
+      console.error('   → Using END of document');
+      return documentText.length;
+    } else {
+      console.error('   → Using START of document');
+      return 0;
+    }
+  };
+
+  // Helper to map clean doc position back to original doc position (with formatting markers)
+  const findOriginalPosition = (originalDoc: string, cleanDoc: string, cleanPos: number): number => {
+    let originalPos = 0;
+    let cleanIndex = 0;
+    
+    while (cleanIndex < cleanPos && originalPos < originalDoc.length) {
+      // Skip formatting markers in original
+      if (originalDoc.substring(originalPos).startsWith('<<F:')) {
+        const endMarker = originalDoc.indexOf('>>', originalPos);
+        if (endMarker !== -1) {
+          originalPos = endMarker + 2;
+          continue;
+        }
+      }
+      if (originalDoc.substring(originalPos).startsWith('<</F>>')) {
+        originalPos += 6;
+        continue;
+      }
+      if (originalDoc.substring(originalPos).startsWith('<<BOLD>>')) {
+        originalPos += 8;
+        continue;
+      }
+      if (originalDoc.substring(originalPos).startsWith('<</BOLD>>')) {
+        originalPos += 9;
+        continue;
+      }
+      
+      // Regular character - advance both
+      originalPos++;
+      cleanIndex++;
+    }
+    
+    return originalPos;
+  };
+
+  // OLD: Helper function to find insertion position for a clause (DEPRECATED - kept for fallback)
   const findClauseInsertionPosition = (text: string, clauseKey: string): number => {
     // Judge concurrence block goes at the very end of the document (last 5-15 lines)
     if (clauseKey === 'judge_concurrence') {
@@ -2113,10 +2251,52 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                             {suggestion.suggestion}
                           </div>
                           {suggestion.reasoning && (
-                            <p className="text-xs text-muted-foreground flex items-center gap-1 mb-3">
+                            <p className="text-xs text-muted-foreground flex items-center gap-1 mb-2">
                               <Lightbulb className="w-3 h-3" /> {suggestion.reasoning}
                             </p>
                           )}
+                          {/* NEW: Show insertion position info */}
+                          {suggestion.anchor_text && (() => {
+                            const stripFormatting = (text: string) => text
+                              .replace(/<<F:[^>]+>>/g, '')
+                              .replace(/<<\/F>>/g, '')
+                              .replace(/<<BOLD>>/g, '')
+                              .replace(/<<\/BOLD>>/g, '');
+                            const cleanDoc = stripFormatting(modifiedDocumentText);
+                            const anchorFound = cleanDoc.toLowerCase().includes(suggestion.anchor_text.toLowerCase().substring(0, 30).trim());
+                            
+                            return (
+                              <div className={`border p-2 rounded-lg mb-2 ${
+                                anchorFound
+                                  ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
+                                  : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
+                              }`}>
+                                <p className={`text-xs font-semibold mb-1 flex items-center gap-1 ${
+                                  anchorFound
+                                    ? 'text-green-900 dark:text-green-300'
+                                    : 'text-amber-900 dark:text-amber-300'
+                                }`}>
+                                  <Info className="w-3 h-3" /> 
+                                  {anchorFound
+                                    ? '✓ Will be inserted'
+                                    : '⚠ Anchor text not found -'
+                                  } {suggestion.insertion_position} this text:
+                                </p>
+                                <p className={`text-xs italic font-mono p-1 rounded border ${
+                                  anchorFound
+                                    ? 'text-green-800 dark:text-green-400 bg-white dark:bg-green-950/30 border-green-200 dark:border-green-700'
+                                    : 'text-amber-800 dark:text-amber-400 bg-white dark:bg-amber-950/30 border-amber-200 dark:border-amber-700'
+                                }`}>
+                                  "{suggestion.anchor_text.length > 100 ? suggestion.anchor_text.substring(0, 100) + '...' : suggestion.anchor_text}"
+                                </p>
+                                {!anchorFound && (
+                                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
+                                    Will be inserted at {suggestion.insertion_position === "end" || suggestion.insertion_position === "after" ? "end" : "beginning"} of document
+                                  </p>
+                                )}
+                              </div>
+                            );
+                          })()}
                         </>
                       )}
 

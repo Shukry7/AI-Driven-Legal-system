@@ -1096,18 +1096,18 @@ async def call_openai_batch(
     text: str
 ) -> Dict[str, Dict]:
     """
-    Make a SINGLE batched OpenAI API call for all missing clauses.
-    NOW ENHANCED WITH RAG: Retrieves similar examples from existing legal documents
-    before generating predictions for more accurate and contextually relevant suggestions.
+    NEW APPROACH: Send the ENTIRE document to OpenAI and ask it to:
+    1. Predict missing clauses with proper content
+    2. Specify EXACTLY where each clause should be inserted (anchor text + position)
     
-    Returns dict: clause_key -> { suggestion, confidence, ... }
+    Returns dict: clause_key -> { suggestion, confidence, insertion_anchor, insertion_position, ... }
     """
     logger.info(f"call_openai_batch called for {len(missing_clauses)} clauses")
     logger.info(f"API Key present: {bool(OPENAI_API_KEY)}, Length: {len(OPENAI_API_KEY) if OPENAI_API_KEY else 0}")
     
     if not OPENAI_API_KEY:
         logger.warning("❌ OPENAI_API_KEY not set. Returning fallback suggestions.")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
 
     try:
         from openai import AsyncOpenAI
@@ -1115,25 +1115,23 @@ async def call_openai_batch(
         logger.info(f"✅ AsyncOpenAI client created successfully with model: {OPENAI_MODEL}")
     except ImportError:
         logger.error("❌ openai package not installed. Run: pip install openai")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
     except Exception as e:
         logger.error(f"❌ Failed to create AsyncOpenAI client: {type(e).__name__}: {str(e)}")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
 
-    # ═══ RAG INTEGRATION START ═══
-    # Import RAG service and retrieve similar examples for each clause
+    # ═══ RAG INTEGRATION (Optional Examples) ═══
     try:
         from app.RAG.rag_clause_service import get_rag_service
         rag_service = get_rag_service()
         logger.info("🔍 RAG service initialized, retrieving similar examples...")
         
-        # Retrieve similar examples for each missing clause
         rag_examples = {}
         if rag_service.enabled:
             for mc in missing_clauses:
                 key = mc["clause_key"]
                 ctx = contexts.get(key, {"clause_type": key})
-                similar_examples = rag_service.retrieve_similar_clauses(key, ctx, n_results=3)
+                similar_examples = rag_service.retrieve_similar_clauses(key, ctx, n_results=2)
                 if similar_examples:
                     rag_examples[key] = similar_examples
                     logger.info(f"✅ Retrieved {len(similar_examples)} examples for {key}")
@@ -1142,69 +1140,93 @@ async def call_openai_batch(
     except Exception as e:
         logger.warning(f"⚠️ RAG retrieval failed: {e}. Proceeding without RAG enhancement.")
         rag_examples = {}
-    # ═══ RAG INTEGRATION END ═══
 
-    # Build a single prompt with all clauses (now with RAG examples)
-    clause_prompts = []
+    # ═══ BUILD NEW PROMPT ═══
+    # List missing clauses with their descriptions
+    clause_descriptions = []
     for mc in missing_clauses:
         key = mc["clause_key"]
-        ctx = contexts.get(key, {"clause_type": key})
+        desc = f"""
+{key} ({mc['clause_name']}):
+- Description: {mc.get('description', 'Missing clause that should be present in legal documents')}
+- Predictability: {mc['predictability']}
+- Typical Position: {mc['position']}"""
         
-        # Use RAG-enhanced prompt if examples available
+        # Add RAG examples if available
         if key in rag_examples and rag_examples[key]:
-            prompt = build_clause_prompt_with_rag(key, ctx, rag_examples[key])
-            logger.info(f"📚 Using RAG-enhanced prompt for {key}")
-        else:
-            prompt = build_clause_prompt(key, ctx)
+            desc += f"\n- Example from similar document: \"{rag_examples[key][0]['text'][:150]}...\""
         
-        clause_prompts.append(f"""
---- CLAUSE: {mc['clause_name']} (key: {key}) ---
-Predictability: {mc['predictability']}
-{prompt}
-""")
+        clause_descriptions.append(desc)
+
+    # Truncate document if too long (keep within token limits)
+    max_doc_length = 15000  # chars, roughly 3750 tokens
+    truncated_text = text if len(text) <= max_doc_length else text[:max_doc_length] + "...[TRUNCATED]"
 
     batch_prompt = f"""You are a legal document analysis AI specializing in Sri Lankan Supreme Court judgments.
 
-For each MISSING clause listed below, generate a concise suggestion in formal judicial language.
-Also assign a confidence score (0-100) for each suggestion.
+I will provide you with:
+1. The FULL DOCUMENT text
+2. A list of MISSING clauses that need to be added
 
-IMPORTANT RULES:
+Your task:
+- For each missing clause, generate the appropriate text content
+- Specify EXACTLY where it should be inserted by providing:
+  * An "anchor_text": A unique sentence or phrase from the document (15-50 words) near where the clause should go
+  * A "position": Either "before" or "after" the anchor text
 - Use formal Sri Lankan judicial language
-- Generate concise paragraph-style content (approximately 30-35 words per clause)
-- Keep it brief but professional and suitable for legal documents
-- If you don't have enough context, use [placeholder] brackets for unknown details
-- For FULL predictability clauses, generate complete text
-- For PARTIAL predictability clauses, generate the structure/template with [placeholders]
-- Output valid JSON only
+- Keep suggestions concise (30-50 words per clause)
 
-Generate suggestions for these {len(missing_clauses)} missing clauses:
+════════════════════════════════════════════════════════════
+DOCUMENT TEXT:
+════════════════════════════════════════════════════════════
+{truncated_text}
 
-{''.join(clause_prompts)}
+════════════════════════════════════════════════════════════
+MISSING CLAUSES TO PREDICT:
+════════════════════════════════════════════════════════════
+{''.join(clause_descriptions)}
 
-Respond with a JSON object. Each key is the clause key, and each value has:
-- "suggestion": the generated text (string)
-- "confidence": confidence score 0-100 (integer)
-- "reasoning": brief explanation of why you generated this (string, 1 sentence)
+════════════════════════════════════════════════════════════
+INSTRUCTIONS:
+════════════════════════════════════════════════════════════
+Respond with a JSON object where each key is a clause key from the list above.
+Each value must have:
+- "suggestion": The generated clause text (string)
+- "confidence": Confidence score 0-100 (integer)
+- "reasoning": Brief explanation (1 sentence)
+- "anchor_text": A unique sentence/phrase from the document (15-50 words) that exists near where this clause should be inserted
+- "position": Either "before" or "after" the anchor_text
+
+CRITICAL RULES for anchor_text:
+1. COPY the text EXACTLY from the document above - do NOT paraphrase or change any words
+2. The anchor_text MUST BE A VERBATIM COPY of text that appears in the document
+3. Choose a unique sentence that appears only ONCE in the document
+4. The anchor should be logically close to where the missing clause belongs
+5. For clauses at the very start: use the first sentence with position "before"
+6. For clauses at the very end: use the last sentence with position "after"
+7. DO NOT create or invent text - ONLY copy what exists in the document
+
+EXAMPLE:
+If the document contains: "The Petitioner made an application in terms of Section 87(3)"
+Then anchor_text should be: "The Petitioner made an application in terms of Section 87(3)"
+NOT: "The petitioner filed an application under Section 87(3)" ← WRONG (paraphrased)
 
 JSON Output:"""
 
     try:
         logger.info(f"Making OpenAI API call with model: {OPENAI_MODEL}")
-        logger.info(f"Requesting suggestions for {len(missing_clauses)} clauses")
+        logger.info(f"Requesting position-based suggestions for {len(missing_clauses)} clauses")
+        logger.info(f"Document length: {len(truncated_text)} chars")
         
-        # Log the full request being sent to OpenAI
+        # Log request info
         logger.info("\n" + "="*80)
-        logger.info("📤 SENDING TO OPENAI LLM")
+        logger.info("📤 SENDING TO OPENAI LLM (POSITION-BASED APPROACH)")
         logger.info("="*80)
         logger.info(f"Model: {OPENAI_MODEL}")
         logger.info(f"Temperature: 0.3")
-        logger.info(f"Max Tokens: 5000")
-        logger.info(f"Number of clauses: {len(missing_clauses)}")
-        logger.info(f"\nClauses requested: {[mc['clause_key'] for mc in missing_clauses]}")
-        logger.info(f"\n--- FULL PROMPT SENT TO LLM ---")
-        logger.info(f"System message: You are a legal AI specializing in Sri Lankan Supreme Court judgment structure...")
-        logger.info(f"\nUser prompt (length: {len(batch_prompt)} chars):")
-        logger.info(f"\n{batch_prompt}")
+        logger.info(f"Max Tokens: 6000")
+        logger.info(f"Clauses: {[mc['clause_key'] for mc in missing_clauses]}")
+        logger.info(f"Document length: {len(truncated_text)} chars")
         logger.info("="*80 + "\n")
         
         response = await client.chat.completions.create(
@@ -1212,7 +1234,7 @@ JSON Output:"""
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a legal AI specializing in Sri Lankan Supreme Court judgment structure. You generate concise, professional missing clause text based on document context. Keep outputs brief (around 30-35 words per clause) but formal and suitable for legal documents. Always respond with valid JSON only."
+                    "content": "You are a legal AI that analyzes Sri Lankan Supreme Court judgments. You predict missing clauses AND specify their exact insertion position using anchor text from the document. Always respond with valid JSON."
                 },
                 {
                     "role": "user",
@@ -1220,45 +1242,51 @@ JSON Output:"""
                 }
             ],
             temperature=0.3,
-            max_tokens=5000,
+            max_tokens=6000,
             response_format={"type": "json_object"}
         )
 
         response_text = response.choices[0].message.content.strip()
         
-        # Log the full response received from OpenAI
+        # Log response
         logger.info("\n" + "="*80)
         logger.info("📥 RECEIVED FROM OPENAI LLM")
         logger.info("="*80)
         logger.info(f"Response ID: {response.id}")
-        logger.info(f"Model used: {response.model}")
-        logger.info(f"Finish reason: {response.choices[0].finish_reason}")
-        logger.info(f"Usage - Prompt tokens: {response.usage.prompt_tokens}")
-        logger.info(f"Usage - Completion tokens: {response.usage.completion_tokens}")
-        logger.info(f"Usage - Total tokens: {response.usage.total_tokens}")
-        logger.info(f"\n--- FULL RESPONSE FROM LLM ---")
+        logger.info(f"Tokens used - Prompt: {response.usage.prompt_tokens}, Completion: {response.usage.completion_tokens}, Total: {response.usage.total_tokens}")
         logger.info(f"Response length: {len(response_text)} chars")
         logger.info(f"\n{response_text}")
         logger.info("="*80 + "\n")
         
         suggestions = json.loads(response_text)
         logger.info(f"✅ LLM returned suggestions for {len(suggestions)} clauses")
+        
+        # Validate that responses have required fields
+        for key, sug in suggestions.items():
+            if "anchor_text" not in sug:
+                logger.warning(f"⚠️ Missing anchor_text for {key}, using fallback")
+                sug["anchor_text"] = ""
+                sug["position"] = "end"
+            if "position" not in sug:
+                sug["position"] = "after"
+        
         return suggestions
 
     except json.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse LLM response as JSON: {e}")
         logger.error(f"Response text was: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
     except Exception as e:
         logger.error(f"❌ OpenAI API call failed: {type(e).__name__}: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
 
 
 def _generate_fallback_suggestions(
     missing_clauses: List[Dict],
-    contexts: Dict[str, Dict]
+    contexts: Dict[str, Dict],
+    text: str
 ) -> Dict[str, Dict]:
     """Generate template-based fallback suggestions when LLM is unavailable."""
     fallbacks = {}
@@ -1278,6 +1306,11 @@ def _generate_fallback_suggestions(
         "cost_order": "Considering the circumstances of this case and the conduct of the parties, [the appeal is dismissed with costs/without costs/each party to bear their own costs].",
     }
 
+    # Try to find anchor text from document for position-based insertion
+    lines = text.split('\n')
+    first_line = lines[0] if lines else "Document start"
+    last_line = lines[-1] if lines else "Document end"
+
     for mc in missing_clauses:
         key = mc["clause_key"]
         ctx = contexts.get(key, {})
@@ -1288,10 +1321,16 @@ def _generate_fallback_suggestions(
         else:
             suggestion = template
 
+        # Provide basic position info for fallback
+        anchor = last_line[:100] if key == "judge_concurrence" else first_line[:100]
+        position = "after" if key == "judge_concurrence" else "before"
+
         fallbacks[key] = {
             "suggestion": suggestion,
             "confidence": 30,
-            "reasoning": "Generated from template (LLM unavailable). Please review and edit."
+            "reasoning": "Generated from template (LLM unavailable). Please review and edit.",
+            "anchor_text": anchor,
+            "position": position
         }
 
     return fallbacks
@@ -1397,7 +1436,10 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
             "reasoning": suggestion_data.get("reasoning", ""),
             "context_used": ctx,
             "position": mc["position"],
-            "insertion_point": ctx.get("insertion_point", {}),  # NEW: Include insertion point
+            "insertion_point": ctx.get("insertion_point", {}),
+            # NEW: Position-based insertion data from OpenAI
+            "anchor_text": suggestion_data.get("anchor_text", ""),
+            "insertion_position": suggestion_data.get("position", "end"),  # "before" | "after" | "end"
         }
 
     return result
