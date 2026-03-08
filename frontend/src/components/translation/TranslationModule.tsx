@@ -20,6 +20,10 @@ export interface UploadData {
   targetLanguage: string;
   extractedText: string;
   mode: "document" | "text";
+  /** If provided, we're resuming an in-progress job, not starting a new one */
+  resumingJobId?: string;
+  /** Source sections from an in-progress job */
+  sourceSections?: Array<{ id?: string; type: string; content: string }>;
 }
 
 export function TranslationModule() {
@@ -39,6 +43,7 @@ export function TranslationModule() {
 
       if (tracked && (tracked.status === "processing" || tracked.status === "uploading")) {
         // In-progress job: navigate to workspace with the job's source data
+        // Pass resumingJobId so TranslationWorkspace knows NOT to start a new translation
         const extractedText = tracked.sourceSections?.map((s) => s.content).join("\n\n") || "";
         setTranslationResult(null);
         setUploadData({
@@ -46,6 +51,8 @@ export function TranslationModule() {
           targetLanguage: tracked.targetLang,
           extractedText,
           mode: tracked.mode,
+          resumingJobId: tracked.jobId,
+          sourceSections: tracked.sourceSections,
         });
         setCurrentView("workspace");
         setViewingJobId(null);

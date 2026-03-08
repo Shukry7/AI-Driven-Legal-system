@@ -5,6 +5,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
+import { normalizeSinhalaUnicode } from '@/lib/sinhalaUnicode';
 import { getTranslationHistory, getTranslationJob } from '@/config/api';
 import type { TranslationJobResult } from '@/config/api';
 
@@ -213,7 +214,7 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
                     {index + 1}
                   </span>
                   <div className="flex-1">
-                    <p className="text-sm legal-text text-foreground">{item.translated}</p>
+                    <p className="text-sm legal-text text-foreground">{normalizeSinhalaUnicode(item.translated)}</p>
                     {showGlossary && item.terms.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2">
                         {item.terms.map((term, i) => (
