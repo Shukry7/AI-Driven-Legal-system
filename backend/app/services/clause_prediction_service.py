@@ -686,14 +686,17 @@ def build_clause_prompt_with_rag(clause_key: str, context: Dict[str, Any],
     instructions = f"""
 
 **INSTRUCTIONS:**
-Generate a {clause_name} for the current case based on:
+Generate a concise {clause_name} for the current case based on:
 1. The context information provided above
 2. The style, format, and language patterns shown in the retrieved examples
 3. Standard Sri Lankan judicial conventions
 
-Adapt the examples to fit the specific context. Use [placeholder] for any details not determinable from context.
-Maintain formal judicial language and proper formatting."""
-    
+IMPORTANT:
+- Generate brief, concise content (approximately 30-35 words)
+- Adapt the examples to fit the specific context
+- Use [placeholder] for any details not determinable from context
+- Maintain formal judicial language and proper formatting"""
+
     return "\n".join(context_lines) + "\n" + "\n".join(examples_section) + instructions
 
 
@@ -770,7 +773,7 @@ Generate a formal conclusion paragraph using one of these standard openings:
 - "For all the reasons set out above..."
 
 Follow with the final order (appeal dismissed/allowed) and reference the lower court judgment.
-Keep it concise - 2-4 sentences maximum."""
+Keep it concise - approximately 30-35 words."""
 
     elif clause_key == "disposition_formula":
         case_type = context.get('case_type', 'civil_appeal')
@@ -806,7 +809,7 @@ If SET ASIDE and AFFIRM pattern:
 "The judgment of the Civil Appellate High Court dated 17th January 2011 is hereby set aside. The judgment of the District Court of Mount Lavinia dated 13th December 2007 is affirmed."
 
 **Your task:**
-Generate ONLY the disposition formula (1-3 sentences) based on the outcome. Use formal language matching the examples. Do NOT include cost orders (those come separately)."""
+Generate the disposition formula (approximately 30-35 words) based on the outcome. Use formal language matching the examples. Do NOT include cost orders (those come separately)."""
 
     elif clause_key == "procedural_history":
         cases = context.get("case_numbers", {})
@@ -842,10 +845,9 @@ Example 3:
 "The appellant is a duly incorporated limited liability company that filed an action in the District Court. The Board of Investment had granted approval to the appellant. At that stage, the respondents took the view that Customs duty was leviable. Being aggrieved, the appellant filed this appeal."
 
 **Your task:**
-Generate a similar procedural history paragraph (3-5 sentences) explaining:
+Generate a concise procedural history paragraph (approximately 30-35 words) explaining:
 1. How the case started (which party filed in which court)
-2. What happened in intermediate/lower courts
-3. How it reached the Supreme Court (appeal/leave to appeal)
+2. How it reached the Supreme Court
 
 Use formal Sri Lankan judicial language. Use [date] for unknown dates. Match the style of the examples above."""
 
@@ -894,7 +896,7 @@ Case outcome direction: {context.get('outcome', 'unknown')}
 Use formal judicial language:
 "The learned [Judge title] [held/found/concluded] that [finding]. Accordingly, the learned [Judge title] [entered judgment / dismissed the action]."
 
-Generate 2-3 sentences summarizing what the lower court decided. Use [placeholders] for specific details you cannot determine."""
+Generate a concise paragraph (approximately 30-35 words) summarizing what the lower court decided. Use [placeholders] for specific details you cannot determine."""
 
     elif clause_key == "factual_background_label":
         case_type = context.get("case_type", "civil_appeal")
@@ -926,7 +928,7 @@ Use this format:
 (1) [Argument based on ground 1]
 (2) [Argument based on ground 2]..."
 
-Use formal judicial language. Generate 2-4 argument points. Use [placeholders] for unknowns."""
+Use formal judicial language. Generate concise argument points (approximately 30-35 words total). Use [placeholders] for unknowns."""
 
     elif clause_key == "respondent_argument":
         parties = context.get("parties", {})
@@ -940,7 +942,7 @@ Use this format:
 "Learned Counsel for the Respondent [submitted/contended/urged] that [counter-argument responding to appellant's position].
 It was further submitted on behalf of the Respondent that [additional counter-argument]."
 
-Generate counter-arguments in formal judicial language. 2-3 sentences. Use [placeholders] for unknowns."""
+Generate concise counter-arguments in formal judicial language (approximately 30-35 words). Use [placeholders] for unknowns."""
 
     elif clause_key == "legal_framework":
         statutes = context.get("statutes", {})
@@ -958,7 +960,7 @@ Use formal judicial language:
 "The relevant legal provisions applicable to this case are as follows:..."
 or "It is necessary to examine the statutory framework governing..."
 
-Generate 2-4 sentences introducing the legal framework. Use [placeholders] for provision text you cannot determine."""
+Generate a concise paragraph (approximately 30-35 words) introducing the legal framework. Use [placeholders] for provision text you cannot determine."""
 
     elif clause_key == "issue_analysis":
         case_type = context.get("case_type", "civil_appeal")
@@ -1028,9 +1030,19 @@ Use formal judicial language. If issues not available, generate template with [p
 - Fundamental Rights cases → varied (depends on merit)
 
 **Your task:**
-Generate ONLY the cost order (1-2 sentences maximum). Match the formal style of the examples. Use the detected cost information when available."""
+Generate the cost order (approximately 30-35 words). Match the formal style of the examples. Use the detected cost information when available."""
 
-    return f"Generate the {clause_key} clause for a Sri Lankan Supreme Court judgment based on context: {json.dumps(context)}"
+    # Default catch-all for other clause types
+    return f"""Generate a concise {clause_key} clause for a Sri Lankan Supreme Court judgment.
+
+**Context provided:**
+{json.dumps(context, indent=2)}
+
+**Instructions:**
+- Generate brief paragraph-style content (approximately 30-35 words)
+- Use formal Sri Lankan judicial language
+- Use [placeholder] brackets for any unknown details
+- Follow standard Sri Lankan Supreme Court judgment formatting conventions"""
 
 
 # ─── OpenAI LLM Integration with RAG ─────────────────────────────────────────
@@ -1110,11 +1122,13 @@ Predictability: {mc['predictability']}
 
     batch_prompt = f"""You are a legal document analysis AI specializing in Sri Lankan Supreme Court judgments.
 
-For each MISSING clause listed below, generate a suggestion in formal judicial language.
+For each MISSING clause listed below, generate a concise suggestion in formal judicial language.
 Also assign a confidence score (0-100) for each suggestion.
 
 IMPORTANT RULES:
 - Use formal Sri Lankan judicial language
+- Generate concise paragraph-style content (approximately 30-35 words per clause)
+- Keep it brief but professional and suitable for legal documents
 - If you don't have enough context, use [placeholder] brackets for unknown details
 - For FULL predictability clauses, generate complete text
 - For PARTIAL predictability clauses, generate the structure/template with [placeholders]
@@ -1141,7 +1155,7 @@ JSON Output:"""
         logger.info("="*80)
         logger.info(f"Model: {OPENAI_MODEL}")
         logger.info(f"Temperature: 0.3")
-        logger.info(f"Max Tokens: 4000")
+        logger.info(f"Max Tokens: 5000")
         logger.info(f"Number of clauses: {len(missing_clauses)}")
         logger.info(f"\nClauses requested: {[mc['clause_key'] for mc in missing_clauses]}")
         logger.info(f"\n--- FULL PROMPT SENT TO LLM ---")
@@ -1155,7 +1169,7 @@ JSON Output:"""
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a legal AI specializing in Sri Lankan Supreme Court judgment structure. You generate missing clause text based on document context. Always respond with valid JSON only."
+                    "content": "You are a legal AI specializing in Sri Lankan Supreme Court judgment structure. You generate concise, professional missing clause text based on document context. Keep outputs brief (around 30-35 words per clause) but formal and suitable for legal documents. Always respond with valid JSON only."
                 },
                 {
                     "role": "user",
@@ -1163,7 +1177,7 @@ JSON Output:"""
                 }
             ],
             temperature=0.3,
-            max_tokens=4000,
+            max_tokens=5000,
             response_format={"type": "json_object"}
         )
 

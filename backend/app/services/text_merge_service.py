@@ -189,7 +189,7 @@ def map_clean_position_to_tagged(clean_pos: int, original_clean: str, original_t
     return tagged_idx
 
 
-def extract_surrounding_format_context(tagged_text: str, position: int, radius: int = 50) -> Dict[str, any]:
+def extract_surrounding_format_context(tagged_text: str, position: int, radius: int = 200) -> Dict[str, any]:
     """
     Extract formatting context around a position in tagged text.
     
@@ -198,7 +198,7 @@ def extract_surrounding_format_context(tagged_text: str, position: int, radius: 
     Args:
         tagged_text: Text with formatting tags
         position: Character position
-        radius: How many characters before/after to examine
+        radius: How many characters before/after to examine (increased from 50 to 200)
         
     Returns:
         Dict with formatting info (size, bold, etc.)
@@ -209,7 +209,7 @@ def extract_surrounding_format_context(tagged_text: str, position: int, radius: 
     
     # Look for the last formatting tag before the position
     format_info = {
-        'size': 10,  # Default
+        'size': 11,  # Default to 11 (common legal document size)
         'bold': 0,   # Default
         'has_format': False
     }
@@ -236,6 +236,29 @@ def extract_surrounding_format_context(tagged_text: str, position: int, radius: 
                     format_info['bold'] = int(value)
         
         format_info['has_format'] = True
+    else:
+        # If no format tag found before position, look after position
+        after_text = tagged_text[position:end]
+        format_tags_after = list(re.finditer(r'<<F:([^>]+)>>', after_text))
+        
+        if format_tags_after:
+            next_tag = format_tags_after[0]
+            tag_content = next_tag.group(1)
+            
+            # Parse the tag
+            for param in tag_content.split(','):
+                param = param.strip()
+                if '=' in param:
+                    key, value = param.split('=', 1)
+                    key = key.strip()
+                    value = value.strip()
+                    
+                    if key == 'size':
+                        format_info['size'] = int(value)
+                    elif key == 'bold':
+                        format_info['bold'] = int(value)
+            
+            format_info['has_format'] = True
     
     return format_info
 
@@ -252,18 +275,15 @@ def wrap_text_with_format(text: str, format_info: Dict[str, any]) -> str:
         str: Text with formatting tags if needed
     """
     if not format_info.get('has_format'):
-        # No specific formatting needed
-        return text
+        # No specific formatting detected in context, use default
+        # But still wrap with tags to ensure consistency
+        return f"<<F:size=11,bold=0>>{text}<</F>>"
     
-    # Only add tags if format differs from default
-    size = format_info.get('size', 10)
+    # Always add tags to match surrounding format for consistency
+    size = format_info.get('size', 11)
     bold = format_info.get('bold', 0)
     
-    if size == 10 and bold == 0:
-        # Default formatting, no tags needed
-        return text
-    
-    # Wrap with format tags
+    # Wrap with format tags matching the surrounding context
     return f"<<F:size={size},bold={bold}>>{text}<</F>>"
 
 
