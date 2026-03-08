@@ -11,6 +11,8 @@ In the dual-file system:
 
 import os
 import re
+import json
+import logging
 from pathlib import Path
 from typing import Dict, List, Optional
 from .suggestion_storage_service import get_accepted_suggestions
@@ -18,6 +20,7 @@ from .clause_prediction_service import PREDICTABLE_CLAUSES
 from .text_merge_service import merge_clean_changes_into_tagged
 
 UPLOAD_FOLDER = Path(__file__).parent.parent.parent / "uploads"
+logger = logging.getLogger(__name__)
 
 
 def find_insertion_position(text: str, clause_key: str, clause_info: Dict) -> Optional[int]:
@@ -221,9 +224,6 @@ async def finalize_document_with_suggestions(filename: str, skip_suggestions: bo
     modified_clean_text = current_clean_text
     inserted_clauses = []
     
-    import logging
-    logger = logging.getLogger(__name__)
-    
     if accepted and not skip_suggestions:
         logger.info(f"Processing {len(accepted)} accepted suggestions for {filename}")
         
@@ -323,6 +323,27 @@ async def finalize_document_with_suggestions(filename: str, skip_suggestions: bo
     finalized_clean_path = UPLOAD_FOLDER / finalized_clean_filename
     with open(finalized_clean_path, 'w', encoding='utf-8') as f:
         f.write(modified_clean_text)
+    
+    # Update consolidated metadata to track finalized artifacts
+    meta_path = UPLOAD_FOLDER / (base_name + '.meta.json')
+    if meta_path.exists():
+        try:
+            with open(meta_path, 'r', encoding='utf-8') as f:
+                meta = json.load(f)
+            # Add finalized artifacts to the list if not already present
+            if 'artifacts' not in meta:
+                meta['artifacts'] = []
+            finalized_artifacts = [finalized_clean_filename]
+            if tagged_path.exists():
+                finalized_artifacts.append(base_name + '_finalized.tagged.txt')
+            for artifact in finalized_artifacts:
+                if artifact not in meta['artifacts']:
+                    meta['artifacts'].append(artifact)
+            # Update metadata file
+            with open(meta_path, 'w', encoding='utf-8') as f:
+                json.dump(meta, f)
+        except Exception as e:
+            logger.exception(f'Failed to update metadata with finalized artifacts: {e}')
     
     return {
         "success": True,

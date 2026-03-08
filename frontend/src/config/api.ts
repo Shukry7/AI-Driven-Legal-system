@@ -65,10 +65,12 @@ export async function analyzeByFilename(
   filename: string,
 ): Promise<AnalyzeResult> {
   const url = `${API_BASE}/analyze-clauses`;
+  const formData = new FormData();
+  formData.append("filename", filename);
+  
   const res = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ filename }),
+    body: formData,
   });
   if (!res.ok) {
     const json = await res.json().catch(() => ({ error: "unknown" }));
@@ -849,6 +851,73 @@ export async function listUploadedFiles(): Promise<string[]> {
   }
 }
 
+export interface SaveToDatabaseResult {
+  success: boolean;
+  file_id: string;
+  filename: string;
+  message: string;
+}
+
+export async function saveToDatabase(
+  filename: string,
+  analysisData?: any
+): Promise<SaveToDatabaseResult> {
+  const url = `${API_BASE}/api/save-to-database`;
+  const formData = new FormData();
+  formData.append("filename", filename);
+  
+  if (analysisData) {
+    formData.append("analysis_data", JSON.stringify(analysisData));
+  }
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Failed to save to database" }));
+    throw new Error(error.detail || "Failed to save to database");
+  }
+
+  return res.json();
+}
+
+export async function listDatabaseDocuments(
+  limit: number = 50,
+  skip: number = 0
+): Promise<{ success: boolean; documents: any[]; count: number }> {
+  const url = `${API_BASE}/api/database-documents?limit=${limit}&skip=${skip}`;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Failed to list database documents" }));
+    throw new Error(error.detail || "Failed to list database documents");
+  }
+
+  return res.json();
+}
+
+export async function getDatabaseDocument(
+  fileId: string
+): Promise<{ success: boolean; document: any }> {
+  const url = `${API_BASE}/api/database-document/${encodeURIComponent(fileId)}`;
+  const res = await fetch(url);
+
+  if (!res.ok) {
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Failed to retrieve database document" }));
+    throw new Error(error.detail || "Failed to retrieve database document");
+  }
+
+  return res.json();
+}
+
 export default {
   uploadPdf,
   analyzeClauses,
@@ -873,7 +942,10 @@ export default {
   searchSimilarActs,
   convertSearchResultsToCaseNodes,
   createEdgesFromSearchResults,
-  searchExactAct
+  searchExactAct,
+  saveToDatabase,
+  listDatabaseDocuments,
+  getDatabaseDocument,
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
