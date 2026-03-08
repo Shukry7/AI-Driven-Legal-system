@@ -33,7 +33,8 @@ import {
   Info,
   XCircle,
   FolderOpen,
-  FileUp
+  FileUp,
+  GitGraph
 } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -307,7 +308,7 @@ export default function LegalLineageModule() {
         <div className="mb-8 p-8 rounded-2xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg shadow-blue-100/30">
           <div className="flex items-center gap-3 mb-4">
             <Button className="p-3 rounded-xl">
-              <ChartNetwork className="w-5 text-white" />
+              <GitGraph className="w-5 text-white" />
             </Button>
             <div>
               <h1 className="text-3xl font-bold">

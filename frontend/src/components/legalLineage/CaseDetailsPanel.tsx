@@ -240,7 +240,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
                   <div className="flex-1">
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-indigo-500 to-teal-500"
+                        className="h-full bg-gradient-to-r from-violet-950 to-cyan-500"
                         style={{ width: `${(primaryTreatment?.confidence || 0) * 100}%` }}
                       />
                     </div>
@@ -311,7 +311,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
                     <div className="mt-2">
                       <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-gradient-to-r from-indigo-500 to-teal-500"
+                          className="h-full bg-gradient-to-r from-violet-950 to-cyan-500"
                           style={{ width: `${act.confidence * 100}%` }}
                         />
                       </div>
@@ -334,7 +334,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
           <div className="space-y-6">
             <div className="bg-gradient-to-r from-indigo-50/50 to-teal-50/50 border border-indigo-100 rounded-xl p-5">
               <div className="flex items-center gap-3 mb-4">
-                <div className="p-3 bg-gradient-to-r from-indigo-500 to-teal-500 rounded-xl">
+                <div className="p-3 bg-gradient-to-r from-violet-950 to-cyan-500 rounded-lg">
                   <Brain className="w-6 h-6 text-white" />
                 </div>
                 <div>
