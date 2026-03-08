@@ -1,3 +1,4 @@
+import { useState } from "react";
 import {
   AlertCircle,
   Upload,
@@ -6,6 +7,7 @@ import {
   Shield,
   AlertTriangle,
   AlertOctagon,
+  Trash2,
 } from "lucide-react";
 import {
   Card,
@@ -15,6 +17,17 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useToast } from "@/hooks/use-toast";
 import { useClassification } from "./ClassificationContext";
 
 interface ClassificationEntryProps {
@@ -28,7 +41,44 @@ export function ClassificationEntry({
   onSelectRecent,
   showRecentSection,
 }: ClassificationEntryProps) {
-  const { recentClassifications } = useClassification();
+  const { recentClassifications, deleteClassification } = useClassification();
+  const { toast } = useToast();
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [itemToDelete, setItemToDelete] = useState<{
+    id: string;
+    filename: string;
+  } | null>(null);
+
+  const handleDeleteClick = (
+    e: React.MouseEvent,
+    id: string,
+    filename: string,
+  ) => {
+    e.stopPropagation(); // Prevent card click
+    setItemToDelete({ id, filename });
+    setDeleteDialogOpen(true);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!itemToDelete) return;
+
+    try {
+      await deleteClassification(itemToDelete.id);
+      toast({
+        title: "Classification deleted",
+        description: `"${itemToDelete.filename}" has been removed.`,
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to delete classification. Please try again.",
+        variant: "destructive",
+      });
+    } finally {
+      setDeleteDialogOpen(false);
+      setItemToDelete(null);
+    }
+  };
 
   const getRiskIcon = (risk: string) => {
     switch (risk) {
@@ -98,10 +148,12 @@ export function ClassificationEntry({
                 {recentClassifications.map((item) => (
                   <div
                     key={item.id}
-                    onClick={() => onSelectRecent(item.id)}
-                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/5 transition-colors cursor-pointer group"
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/5 transition-colors group"
                   >
-                    <div className="flex items-center gap-3 flex-1">
+                    <div
+                      onClick={() => onSelectRecent(item.id)}
+                      className="flex items-center gap-3 flex-1 cursor-pointer"
+                    >
                       <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
                         <FileText className="w-5 h-5 text-blue-600" />
                       </div>
@@ -142,9 +194,16 @@ export function ClassificationEntry({
                           </div>
                         )}
                       </div>
-                      <div className="text-accent font-medium text-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                        View →
-                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={(e) =>
+                          handleDeleteClick(e, item.id, item.filename)
+                        }
+                        className="opacity-0 group-hover:opacity-100 transition-opacity hover:bg-red-100 hover:text-red-600"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </Button>
                     </div>
                   </div>
                 ))}
@@ -225,6 +284,28 @@ export function ClassificationEntry({
           </CardContent>
         </Card>
       </div>
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog open={deleteDialogOpen} onOpenChange={setDeleteDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Classification?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete "{itemToDelete?.filename}"? This
+              action cannot be undone.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleConfirmDelete}
+              className="bg-red-600 hover:bg-red-700"
+            >
+              Delete
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
