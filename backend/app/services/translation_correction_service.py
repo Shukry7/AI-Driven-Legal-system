@@ -6,6 +6,7 @@ Provides:
   - Grammar correction for Sinhala output
   - Common mistranslation fixes
   - Term consistency enforcement
+  - Sinhala Unicode normalization (ZWJ insertion for proper conjuncts)
 """
 
 import re
@@ -13,6 +14,11 @@ import logging
 from typing import Dict, List, Tuple, Optional
 from pathlib import Path
 import csv
+
+from app.services.sinhala_unicode_normalizer import (
+    normalize_sinhala_unicode,
+    full_sinhala_normalization,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -482,6 +488,12 @@ def apply_comprehensive_correction(
         }
     
     original_text = text
+    unicode_normalization_count = 0
+    
+    # Step 0: Apply Sinhala Unicode normalization (ZWJ insertion)
+    if target_lang == "si":
+        text, unicode_stats = full_sinhala_normalization(text)
+        unicode_normalization_count = unicode_stats.get("zwj_fixes", 0) + unicode_stats.get("term_fixes", 0)
     
     # Step 1: Apply glossary corrections
     text, glossary_count, terms_corrected = apply_glossary_correction(
@@ -496,13 +508,14 @@ def apply_comprehensive_correction(
     else:
         grammar_count = 0
     
-    total_corrections = glossary_count + grammar_count
+    total_corrections = glossary_count + grammar_count + unicode_normalization_count
     
     result = {
         "corrected_text": text,
         "original_text": original_text,
         "glossary_corrections": glossary_count,
         "grammar_corrections": grammar_count,
+        "unicode_normalizations": unicode_normalization_count,
         "total_corrections": total_corrections,
         "terms_corrected": terms_corrected,
         "was_corrected": total_corrections > 0,

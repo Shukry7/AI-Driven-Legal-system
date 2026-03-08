@@ -181,6 +181,61 @@ _SECTION_PATTERNS = [
 ]
 
 
+def _classify_legal_section(text: str, idx: int, total_sections: int) -> str:
+    """Classify a text section into legal document section types."""
+    upper = text.upper().strip()
+    lower = text.lower().strip()
+    
+    # Court header patterns
+    court_patterns = [
+        "supreme court", "court of appeal", "high court", "district court",
+        "magistrate", "democratic socialist republic", "in the matter of"
+    ]
+    if any(p in lower for p in court_patterns) and len(text) < 300:
+        return "court_header"
+    
+    # Case number patterns
+    case_patterns = [
+        r"s\.?\s*c\.?\s*(appeal|ref|fr|hc|la)",
+        r"(appeal|case|application)\s*no\.?",
+        r"sc\s*(appeal|ref|fr|hc|la)",
+        r"\d+/\d{4}",
+        r"no\.\s*\d+",
+    ]
+    if any(re.search(p, lower) for p in case_patterns) and len(text) < 150:
+        return "case_numbers"
+    
+    # Party info patterns (petitioner, respondent, plaintiff, defendant)
+    party_patterns = [
+        "petitioner", "respondent", "plaintiff", "defendant",
+        "appellant", "complainant", "accused", "applicant",
+        "vs", "versus", "and another", "and others"
+    ]
+    if any(p in lower for p in party_patterns) and len(text) < 400:
+        return "party_info"
+    
+    # Section headings (judgment headings, legal sections)
+    heading_patterns = [
+        "judgment", "order", "facts", "background", "issues",
+        "held", "appearing for", "counsel", "before", "argued on",
+        "decided on", "submissions", "analysis", "conclusion"
+    ]
+    if any(lower.startswith(p) or f"\n{p}" in lower for p in heading_patterns) and len(text) < 200:
+        return "section_heading"
+    
+    # Judge signature (usually at end)
+    judge_patterns = ["judge", "justice", "j.", "chief justice"]
+    if idx >= total_sections - 3 and any(p in lower for p in judge_patterns) and len(text) < 200:
+        return "signature"
+    
+    # Date patterns at end
+    if idx >= total_sections - 2 and re.search(r"\d{1,2}[./]\d{1,2}[./]\d{2,4}", text):
+        if len(text) < 100:
+            return "signature"
+    
+    return "paragraph"
+
+
 def _split_into_sections(text: str) -> List[Dict]:
     """Split text into translatable sections preserving structure."""
     # Strip bold/format markers from clause-detection PDF extraction
@@ -202,9 +257,11 @@ def _split_into_sections(text: str) -> List[Dict]:
 
     sections: List[Dict] = []
     glossary_en = {t["en"].lower(): t["en"] for t in load_glossary()}
+    total_sections = len(paragraphs)
 
     for idx, para in enumerate(paragraphs):
-        sec_type = "header" if idx == 0 and len(para) < 200 else "paragraph"
+        # Use intelligent legal document section classification
+        sec_type = _classify_legal_section(para, idx, total_sections)
         # Find legal keywords present
         kws = [glossary_en[k] for k in glossary_en if k in para.lower()][:8]
         sections.append({
