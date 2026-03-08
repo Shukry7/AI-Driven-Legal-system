@@ -168,10 +168,10 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
       const watermark = `
         <g id="watermark" opacity="0.1">
           <text x="400" y="430" text-anchor="middle" font-family="Arial" font-size="24" fill="#334155">
-            Legal Lineage Explorer
+            
           </text>
           <text x="400" y="460" text-anchor="middle" font-family="Arial" font-size="12" fill="#64748b">
-            Generated ${new Date().toLocaleDateString()}
+            
           </text>
         </g>
       `;
@@ -197,15 +197,17 @@ export default function LineageMap({ nodes = [], edges = [], onSelectNode }: Pro
         
         if (ctx) {
           ctx.fillStyle = '#ffffff';
-          ctx.fillRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
           
-          ctx.globalAlpha = 0.1;
-          ctx.font = '24px Arial';
-          ctx.fillStyle = '#334155';
+          ctx.globalAlpha = 0.15; // Slightly darker than before
+          ctx.font = '35px Arial';
+          ctx.fillStyle = '#00000'; // Darker slate color
           ctx.textAlign = 'center';
-          ctx.fillText('Legal Lineage Explorer', canvas.width / 2, canvas.height - 40);
-          ctx.font = '12px Arial';
+          
+          // Add scale icon (⚖️) before LegalAI text
+          ctx.fillText('⚖ LegalAI', canvas.width / 2, canvas.height - 40);
+          
+          ctx.font = '18px Arial';
           ctx.fillText(`Generated ${new Date().toLocaleDateString()}`, canvas.width / 2, canvas.height - 15);
           ctx.globalAlpha = 1;
           
