@@ -836,6 +836,19 @@ export async function searchExactAct(actName: string): Promise<ActSearchResponse
   }
 }
 
+export async function listUploadedFiles(): Promise<string[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/list-uploads`);
+    if (!response.ok) {
+      throw new Error(`Failed to list files: ${response.statusText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('Error listing uploaded files:', error);
+    return [];
+  }
+}
+
 export default {
   uploadPdf,
   analyzeClauses,
