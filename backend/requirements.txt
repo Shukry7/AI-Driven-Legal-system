@@ -5,14 +5,14 @@ python-multipart>=0.0.6
 python-dotenv>=1.0.1
 
 # PDF processing
-pymupdf==1.23.8
+pymupdf>=1.24.0
 
 # Translation
 deep-translator==1.11.4
 indic-transliteration==2.3.43
 
 # ML/AI models
-scikit-learn==1.3.2
+scikit-learn>=1.4.0
 
 # ═══ RAG Dependencies ═══
 # Vector database for RAG (Windows-compatible version)
@@ -21,8 +21,8 @@ chromadb>=0.4.24
 sentence-transformers>=2.3.1
 
 # Data processing
-pandas==2.1.4
-numpy==1.26.2
+pandas>=2.2.0
+numpy>=1.26.4
 
 # Utilities
 requests==2.31.0
