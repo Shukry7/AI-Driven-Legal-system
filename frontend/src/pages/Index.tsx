@@ -13,6 +13,7 @@ export default function Index() {
   const handleModuleChange = (module: string) => {
     setActiveModule(module);
     if (module === 'clause') navigate('/clause');
+    if (module === 'cases') navigate('/cases');
   };
 
   return (

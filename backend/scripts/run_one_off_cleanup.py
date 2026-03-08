@@ -47,6 +47,7 @@ for filename in os.listdir(uploads):
         # Also add common derived files that might not be in the list
         # (for backwards compatibility and finalized files)
         derived_files = [
+            pdf_base,  # The actual PDF file itself
             f'{pdf_base}.clean.txt',
             f'{pdf_base}.clean.txt.original',
             f'{pdf_base}.tagged.txt',

@@ -904,7 +904,7 @@ export async function listDatabaseDocuments(
 
 export async function getDatabaseDocument(
   fileId: string
-): Promise<{ success: boolean; document: any }> {
+): Promise<Blob> {
   const url = `${API_BASE}/api/database-document/${encodeURIComponent(fileId)}`;
   const res = await fetch(url);
 
@@ -915,7 +915,14 @@ export async function getDatabaseDocument(
     throw new Error(error.detail || "Failed to retrieve database document");
   }
 
-  return res.json();
+  const data = await res.json();
+  if (!data.success || !data.document) {
+    throw new Error("Invalid document response");
+  }
+
+  // Create a Blob from the document content
+  const blob = new Blob([data.document.content], { type: "text/plain" });
+  return blob;
 }
 
 export default {
