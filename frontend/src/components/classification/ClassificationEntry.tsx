@@ -1,4 +1,12 @@
-import { AlertCircle, Upload, FileText, Clock } from "lucide-react";
+import {
+  AlertCircle,
+  Upload,
+  FileText,
+  Clock,
+  Shield,
+  AlertTriangle,
+  AlertOctagon,
+} from "lucide-react";
 import {
   Card,
   CardContent,
@@ -7,59 +15,42 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useClassification } from "./ClassificationContext";
 
 interface ClassificationEntryProps {
   onStartNew: () => void;
-  onSelectFile?: (id: string) => void;
+  onSelectRecent: (id: string) => void;
+  showRecentSection: boolean;
 }
 
 export function ClassificationEntry({
   onStartNew,
-  onSelectFile,
+  onSelectRecent,
+  showRecentSection,
 }: ClassificationEntryProps) {
-  // Mock OCR-processed files from Flask backend
-  const ocrProcessedFiles = [
-    {
-      id: "1",
-      filename: "Supreme Court Judgment - Civil Appeal 2023-45.pdf",
-      uploadDate: "2024-01-15",
-      pages: 12,
-      extractedText: "Sample extracted text...",
-      status: "ready",
-    },
-    {
-      id: "2",
-      filename: "District Court - Contract Dispute Case.pdf",
-      uploadDate: "2024-01-14",
-      pages: 8,
-      extractedText: "Sample extracted text...",
-      status: "ready",
-    },
-    {
-      id: "3",
-      filename: "High Court - Property Rights Matter.pdf",
-      uploadDate: "2024-01-12",
-      pages: 15,
-      extractedText: "Sample extracted text...",
-      status: "ready",
-    },
-    {
-      id: "4",
-      filename: "Commercial Arbitration Award 2024.pdf",
-      uploadDate: "2024-01-10",
-      pages: 20,
-      extractedText: "Sample extracted text...",
-      status: "ready",
-    },
-    {
-      id: "5",
-      filename: "Land Dispute Settlement Order.pdf",
-      uploadDate: "2024-01-08",
-      pages: 6,
-      extractedText: "Sample extracted text...",
-      status: "ready",
-    },
-  ];
+  const { recentClassifications } = useClassification();
+
+  const getRiskIcon = (risk: string) => {
+    switch (risk) {
+      case "high":
+        return <AlertOctagon className="w-4 h-4 text-red-500" />;
+      case "medium":
+        return <AlertTriangle className="w-4 h-4 text-yellow-500" />;
+      default:
+        return <Shield className="w-4 h-4 text-green-500" />;
+    }
+  };
+
+  const getRiskColor = (risk: string) => {
+    switch (risk) {
+      case "high":
+        return "bg-red-100 text-red-700";
+      case "medium":
+        return "bg-yellow-100 text-yellow-700";
+      default:
+        return "bg-green-100 text-green-700";
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -83,54 +74,126 @@ export function ClassificationEntry({
         </CardContent>
       </Card>
 
-      {/* OCR Processed Files */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <FileText className="w-5 h-5 text-muted-foreground" />
-            OCR Processed Documents
-          </CardTitle>
-          <CardDescription>
-            Select a document to analyze for legal risk classification
-          </CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-3">
-            {ocrProcessedFiles.map((file) => (
-              <div
-                key={file.id}
-                onClick={() => onSelectFile?.(file.id)}
-                className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/5 transition-colors cursor-pointer group"
-              >
-                <div className="flex items-center gap-3 flex-1">
-                  <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
-                    <FileText className="w-5 h-5 text-blue-600" />
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <h3 className="font-medium text-foreground truncate">
-                      {file.filename}
-                    </h3>
-                    <p className="text-sm text-muted-foreground">
-                      Uploaded: {file.uploadDate} • {file.pages} pages
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3">
-                  <div className="text-right">
-                    <div className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-green-100 text-green-700 rounded-full text-xs font-medium">
-                      <Clock className="w-3 h-3" />
-                      {file.status === "ready" ? "Ready" : "Processing"}
+      {/* Recent Classifications or OCR Files */}
+      {showRecentSection ? (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <Clock className="w-5 h-5 text-muted-foreground" />
+              Recent Classifications
+            </CardTitle>
+            <CardDescription>
+              View and analyze your previously classified documents
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {recentClassifications.length === 0 ? (
+              <div className="text-center py-8 text-muted-foreground">
+                <FileText className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                <p>No classifications yet</p>
+                <p className="text-sm mt-1">Upload a document to get started</p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {recentClassifications.map((item) => (
+                  <div
+                    key={item.id}
+                    onClick={() => onSelectRecent(item.id)}
+                    className="flex items-center justify-between p-4 border rounded-lg hover:bg-accent/5 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-3 flex-1">
+                      <div className="w-10 h-10 bg-blue-100 rounded-lg flex items-center justify-center group-hover:bg-blue-200 transition-colors">
+                        <FileText className="w-5 h-5 text-blue-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <h3 className="font-medium text-foreground truncate">
+                          {item.filename}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(item.timestamp).toLocaleString()} •{" "}
+                          {item.totalClauses} clauses
+                        </p>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <div className="flex gap-2">
+                        {item.riskSummary.high > 0 && (
+                          <div
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getRiskColor("high")}`}
+                          >
+                            {getRiskIcon("high")}
+                            {item.riskSummary.high}
+                          </div>
+                        )}
+                        {item.riskSummary.medium > 0 && (
+                          <div
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getRiskColor("medium")}`}
+                          >
+                            {getRiskIcon("medium")}
+                            {item.riskSummary.medium}
+                          </div>
+                        )}
+                        {item.riskSummary.low > 0 && (
+                          <div
+                            className={`inline-flex items-center gap-1 px-2 py-1 rounded-full text-xs font-medium ${getRiskColor("low")}`}
+                          >
+                            {getRiskIcon("low")}
+                            {item.riskSummary.low}
+                          </div>
+                        )}
+                      </div>
+                      <div className="text-accent font-medium text-sm opacity-0 group-hover:opacity-100 transition-opacity">
+                        View →
+                      </div>
                     </div>
                   </div>
-                  <div className="text-accent font-medium text-sm opacity-0 group-hover:opacity-100 transition-opacity">
-                    Analyze →
+                ))}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-lg flex items-center gap-2">
+              <FileText className="w-5 h-5 text-muted-foreground" />
+              Quick Start Options
+            </CardTitle>
+            <CardDescription>
+              Choose how you want to begin your analysis
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-4">
+              <div className="p-4 border rounded-lg bg-accent/5">
+                <div className="flex items-start gap-3">
+                  <Upload className="w-5 h-5 text-accent mt-0.5" />
+                  <div>
+                    <h3 className="font-medium mb-1">Upload New Document</h3>
+                    <p className="text-sm text-muted-foreground mb-3">
+                      Upload a PDF or TXT file for immediate classification
+                    </p>
+                    <Button onClick={onStartNew} size="sm">
+                      Get Started
+                    </Button>
                   </div>
                 </div>
               </div>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+              <div className="p-4 border rounded-lg">
+                <div className="flex items-start gap-3">
+                  <Clock className="w-5 h-5 text-muted-foreground mt-0.5" />
+                  <div>
+                    <h3 className="font-medium mb-1">Recent Classifications</h3>
+                    <p className="text-sm text-muted-foreground">
+                      View and analyze your previously classified documents
+                    </p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Info Cards */}
       <div className="grid md:grid-cols-2 gap-6">
