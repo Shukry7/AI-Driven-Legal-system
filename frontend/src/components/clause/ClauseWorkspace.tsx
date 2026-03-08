@@ -258,7 +258,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     { id: 2, name: 'Identifying clauses', status: 'pending', icon: '🔍' },
     { id: 3, name: 'Validating structure', status: 'pending', icon: '✓' },
     { id: 4, name: 'Checking completeness', status: 'pending', icon: '📋' },
-    { id: 5, name: 'Generating report', status: 'pending', icon: '📊' }
+    { id: 5, name: 'AI is Generating Suggestions...', status: 'pending', icon: '🧠' }
   ];
 
   const [processSteps, setProcessSteps] = useState(steps);
@@ -437,14 +437,10 @@ Judge: [MISSING: Third Judge Signature - Signature required]
           updateStepStatus(4, 'complete');
           updateStepStatus(5, 'processing');
           setProgress(95);
-        }, 7500) as unknown as number);
-        timeoutsRef.ids.push(setTimeout(() => {
-          updateStepStatus(5, 'complete');
-          setProgress(100);
-          setAnalysisComplete(true);
+          // Don't set analyzing to false yet - let predictions complete step 5
           setAnalysisRunning(false);
-          setAnalyzing(false);
-          // clear refs
+          setAnalysisComplete(true);
+          // clear timeout refs since analysis steps are done
           timeoutsRef.ids = [];
 
           // Auto-mode: if predictions came with the response, load them
@@ -457,8 +453,12 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             }
             setSuggestionStatuses(statuses);
             setShowPredictionsPanel(true);
+            // Complete step 5 and analyzing immediately since predictions are already loaded
+            updateStepStatus(5, 'complete');
+            setProgress(100);
+            setAnalyzing(false);
           }
-        }, 10000) as unknown as number);
+        }, 7500) as unknown as number);
       } else {
         console.error('analyzeClauses failed', resp);
       }
@@ -481,6 +481,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   useEffect(() => {
     if (analysisComplete && !predictions && savedTextFilename && !predictionsLoading) {
       // Automatically fetch AI suggestions when analysis completes
+      updateStepStatus(5, 'processing');
       handleGetAISuggestions(false);
     }
   }, [analysisComplete, predictions, savedTextFilename]);
@@ -503,9 +504,16 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       }
       setSuggestionStatuses(statuses);
       setShowPredictionsPanel(true);
+      // Complete step 5 when predictions are loaded
+      updateStepStatus(5, 'complete');
+      setProgress(100);
+      setAnalyzing(false);
     } catch (err: any) {
       console.error('Prediction error:', err);
       setPredictionsError(err.message || 'Failed to get AI suggestions');
+      // Still complete step 5 on error to avoid infinite loading
+      updateStepStatus(5, 'complete');
+      setAnalyzing(false);
     } finally {
       setPredictionsLoading(false);
     }
@@ -1815,7 +1823,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
       )}
 
       {/* Analysis Summary - Horizontal Layout */}
-      {analysisComplete && results && (
+      {analysisComplete && results && predictions && (
         <>
         <Card>
           <CardHeader>
