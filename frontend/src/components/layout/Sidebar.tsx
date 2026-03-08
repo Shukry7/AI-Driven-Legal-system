@@ -69,37 +69,15 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
             active={activeModule === "cases"}
             onClick={() => onModuleChange("cases")}
           />
-          <NavItem
-            icon={FileText}
-            label="Documents"
-            active={activeModule === "documents"}
-            onClick={() => onModuleChange("documents")}
-          />
-          <NavItem
-            icon={Users}
-            label="Clients"
-            active={activeModule === "clients"}
-            onClick={() => onModuleChange("clients")}
-          />
-        </div>
 
-        {/* AI Tools Section */}
-        <div className="mt-6">
-          <button
-            onClick={() => setAiToolsExpanded(!aiToolsExpanded)}
-            className="flex items-center justify-between w-full px-3 py-1 text-sm font-medium text-sidebar-foreground/70 hover:text-sidebar-foreground transition-colors"
-          >
-            <span>AI Tools</span>
-            <ChevronDown
-              className={cn(
-                "w-4 h-4 transition-transform",
-                aiToolsExpanded && "rotate-180"
-              )}
-            />
-          </button>
+          <NavItem
+                icon={CheckCircle}
+                label="Document Analysis"
+                active={activeModule === "clause"}
+                onClick={() => onModuleChange("clause")}
+                highlight
+              />
 
-          {aiToolsExpanded && (
-            <div className="mt-1 space-y-1 ml-2 border-l border-sidebar-border pl-2">
               <NavItem
                 icon={Languages}
                 label="Multilingual Translation"
@@ -107,13 +85,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 onClick={() => onModuleChange("translation")}
                 highlight
               />
-              <NavItem
-                icon={CheckCircle}
-                label="Clause Detection"
-                active={activeModule === "clause"}
-                onClick={() => onModuleChange("clause")}
-                highlight
-              />
+              
               <NavItem
                 icon={AlertCircle}
                 label="Risk Classification"
@@ -121,13 +93,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 onClick={() => onModuleChange("classification")}
                 highlight
               />
-              <NavItem
-                icon={BookOpen}
-                label="Document Analysis"
-                active={activeModule === "analysis"}
-                onClick={() => onModuleChange("analysis")}
-                highlight
-              />
+             
               <NavItem 
                 icon={GitGraph} 
                 label="Legal Lineage"
@@ -135,8 +101,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
                 onClick={() => onModuleChange('legalLineage')}
                 highlight
               />
-            </div>
-          )}
+         
         </div>
       </nav>
 
