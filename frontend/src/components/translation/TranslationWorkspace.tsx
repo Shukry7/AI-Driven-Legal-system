@@ -1,466 +1,704 @@
-import { useState, useEffect } from 'react';
-import { 
-  Play, 
-  Loader2, 
-  Download, 
-  Copy, 
-  CheckCircle2, 
-  BookOpen,
+/**
+ * TranslationWorkspace
+ * ────────────────────
+ * Shows source text alongside translated output.
+ * • For fresh translations: fires off a job via context, then polls until done.
+ * • For existing results: displays immediately.
+ * Sections are rendered side-by-side with confidence badges and glossary
+ * keyword highlights.
+ */
+import { useState, useEffect, useRef } from "react";
+import {
+  ArrowLeft,
+  ArrowRight,
+  CheckCircle2,
+  Clock,
+  Download,
   FileText,
-  Info,
-  ChevronRight
-} from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { Badge } from '@/components/ui/badge';
-import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
-import { toast } from 'sonner';
+  Loader2,
+  RefreshCw,
+  BookOpen,
+  BarChart3,
+  AlertCircle,
+  Home,
+  StopCircle,
+  FileDown,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
+import { Progress } from "@/components/ui/progress";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Separator } from "@/components/ui/separator";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { cn } from "@/lib/utils";
+import { toast } from "sonner";
+import { useTranslation } from "./TranslationContext";
+import { exportTranslation, getGlossary } from "@/config/api";
+import type {
+  TranslationJobResult,
+  SourceSection,
+  TranslationSection,
+  GlossaryTerm,
+} from "@/config/api";
+import type { UploadData } from "./TranslationModule";
 
 interface TranslationWorkspaceProps {
-  file: File;
-  sourceLanguage: string;
-  targetLanguage: string;
+  uploadData: UploadData;
+  existingResult: TranslationJobResult | null;
   onBack: () => void;
   onComplete: () => void;
+  onTranslationComplete: (result: TranslationJobResult) => void;
 }
 
-const sourceDocument = {
-  sections: [
-    {
-      id: 'header',
-      type: 'header',
-      content: 'CIVIL CASE NO. 2024/0341\n\nBEFORE THE DISTRICT COURT OF COLOMBO',
-      keywords: ['CIVIL CASE', 'DISTRICT COURT']
-    },
-    {
-      id: 'parties',
-      type: 'parties',
-      content: 'IN THE MATTER OF:\n\nSilva & Partners (Pvt) Ltd.\n... Plaintiff\n\nvs.\n\nPerera Holdings Corporation\n... Defendant',
-      keywords: ['Plaintiff', 'Defendant']
-    },
-    {
-      id: 'clause1',
-      type: 'clause',
-      content: '1. The Plaintiff is a company duly incorporated under the Companies Act No. 07 of 2007 and carries on business at No. 123, Union Place, Colombo 02.',
-      keywords: ['Companies Act No. 07 of 2007', 'incorporated']
-    },
-    {
-      id: 'clause2',
-      type: 'clause',
-      content: '2. The Defendant is a corporation registered under the said Act and carries on business at No. 45, Galle Road, Colombo 03.',
-      keywords: ['corporation', 'registered']
-    },
-    {
-      id: 'clause3',
-      type: 'clause',
-      content: '3. The Plaintiff avers that on or about the 15th day of March 2023, the parties entered into a written agreement for the supply of goods and services.',
-      keywords: ['avers', 'written agreement', 'supply of goods']
-    }
-  ]
+const langLabel: Record<string, string> = {
+  en: "English",
+  si: "Sinhala (සිංහල)",
+  ta: "Tamil (தமிழ்)",
 };
 
-const translatedContent = {
-  si: {
-    sections: [
-      {
-        id: 'header',
-        content: 'සිවිල් නඩුව අංක 2024/0341\n\nකොළඹ දිසා අධිකරණය ඉදිරියේ',
-        confidence: 0.96
-      },
-      {
-        id: 'parties',
-        content: 'මෙම කාරණයේ:\n\nසිල්වා ඇන්ඩ් පාට්නර්ස් (පෞද්ගලික) සමාගම\n... පැමිණිලිකරු\n\nඑදිරිව\n\nපෙරේරා හෝල්ඩින්ග්ස් සමාගම\n... විත්තිකරු',
-        confidence: 0.94
-      },
-      {
-        id: 'clause1',
-        content: '1. පැමිණිලිකරු 2007 අංක 07 දරන සමාගම් පනත යටතේ නිසි පරිදි සංස්ථාපිත සමාගමක් වන අතර කොළඹ 02, යූනියන් පෙදෙස, අංක 123 හිදී ව්‍යාපාර කරයි.',
-        confidence: 0.92
-      },
-      {
-        id: 'clause2',
-        content: '2. විත්තිකරු එම පනත යටතේ ලියාපදිංචි සංස්ථාවක් වන අතර කොළඹ 03, ගාලු පාර, අංක 45 හිදී ව්‍යාපාර කරයි.',
-        confidence: 0.95
-      },
-      {
-        id: 'clause3',
-        content: '3. පැමිණිලිකරු ප්‍රකාශ කරන්නේ 2023 මාර්තු 15 වන දින හෝ ඒ පමණ කාලයේදී, පාර්ශවයන් භාණ්ඩ හා සේවා සැපයීම සඳහා ලිඛිත ගිවිසුමකට එළඹි බවයි.',
-        confidence: 0.89
-      }
-    ]
-  },
-  ta: {
-    sections: [
-      {
-        id: 'header',
-        content: 'சிவில் வழக்கு எண் 2024/0341\n\nகொழும்பு மாவட்ட நீதிமன்றத்தின் முன்',
-        confidence: 0.95
-      },
-      {
-        id: 'parties',
-        content: 'இந்த விவகாரத்தில்:\n\nசில்வா & பார்ட்னர்ஸ் (பிரைவேட்) லிமிடெட்\n... வாதி\n\nஎதிராக\n\nபெரேரா ஹோல்டிங்ஸ் கார்ப்பரேஷன்\n... பிரதிவாதி',
-        confidence: 0.93
-      },
-      {
-        id: 'clause1',
-        content: '1. வாதி 2007 ஆம் ஆண்டின் 07 ஆம் இலக்க நிறுவனங்கள் சட்டத்தின் கீழ் முறையாக இணைக்கப்பட்ட நிறுவனமாகும், கொழும்பு 02, யூனியன் பிளேஸ், எண் 123 இல் வணிகம் செய்கிறது.',
-        confidence: 0.91
-      },
-      {
-        id: 'clause2',
-        content: '2. பிரதிவாதி குறிப்பிட்ட சட்டத்தின் கீழ் பதிவு செய்யப்பட்ட நிறுவனமாகும், கொழும்பு 03, காலி வீதி, எண் 45 இல் வணிகம் செய்கிறது.',
-        confidence: 0.94
-      },
-      {
-        id: 'clause3',
-        content: '3. வாதி கூறுவது என்னவெனில், 2023 மார்ச் 15 ஆம் திகதி அல்லது அதன் அருகில், தரப்பினர் பொருட்கள் மற்றும் சேவைகளை வழங்குவதற்கான எழுத்துப்பூர்வ ஒப்பந்தத்தில் நுழைந்தனர்.',
-        confidence: 0.88
-      }
-    ]
-  }
-};
+function confidenceColor(c: number) {
+  if (c >= 0.85) return "text-green-500";
+  if (c >= 0.6) return "text-yellow-500";
+  return "text-red-500";
+}
+function confidenceBadge(c: number) {
+  if (c >= 0.85)
+    return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400";
+  if (c >= 0.6)
+    return "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400";
+  return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400";
+}
 
-const glossaryTerms = [
-  { en: 'Plaintiff', si: 'පැමිණිලිකරු', ta: 'வாதி', category: 'Civil Law' },
-  { en: 'Defendant', si: 'විත්තිකරු', ta: 'பிரதிவாதி', category: 'Civil Law' },
-  { en: 'District Court', si: 'දිසා අධිකරණය', ta: 'மாவட்ட நீதிமன்றம்', category: 'Courts' },
-  { en: 'incorporated', si: 'සංස්ථාපිත', ta: 'இணைக்கப்பட்ட', category: 'Corporate Law' },
-  { en: 'agreement', si: 'ගිවිසුම', ta: 'ஒப்பந்தம்', category: 'Contract Law' }
-];
-
-export function TranslationWorkspace({ 
-  file, 
-  sourceLanguage, 
-  targetLanguage, 
+export function TranslationWorkspace({
+  uploadData,
+  existingResult,
   onBack,
-  onComplete 
+  onComplete,
+  onTranslationComplete,
 }: TranslationWorkspaceProps) {
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [translationComplete, setTranslationComplete] = useState(false);
-  const [selectedSection, setSelectedSection] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const { startDocumentJob, startTextJob, jobs, cancelJob } = useTranslation();
 
-  const targetLangKey = targetLanguage as keyof typeof translatedContent;
-  const translatedSections = translatedContent[targetLangKey]?.sections || translatedContent.si.sections;
+  const [result, setResult] = useState<TranslationJobResult | null>(
+    existingResult,
+  );
+  const [activeJobId, setActiveJobId] = useState<string | null>(null);
+  const [selectedSection, setSelectedSection] = useState<number>(0);
+  const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>([]);
+  const [viewMode, setViewMode] = useState<
+    "side-by-side" | "source" | "translated"
+  >("side-by-side");
+  const [error, setError] = useState<string | null>(null);
+  const hasStarted = useRef(false);
 
-  const handleTranslate = () => {
-    setIsTranslating(true);
-    setTimeout(() => {
-      setIsTranslating(false);
-      setTranslationComplete(true);
-      toast.success('Translation completed successfully');
-    }, 3000);
+  // On mount, kick off translation (or show existing result)
+  useEffect(() => {
+    if (existingResult) {
+      setResult(existingResult);
+      return;
+    }
+    if (hasStarted.current) return;
+    hasStarted.current = true;
+    (async () => {
+      try {
+        let tracked;
+        if (uploadData.mode === "document" && uploadData.file) {
+          tracked = await startDocumentJob(
+            uploadData.file,
+            uploadData.sourceLanguage,
+            uploadData.targetLanguage,
+          );
+        } else {
+          tracked = await startTextJob(
+            uploadData.extractedText,
+            uploadData.sourceLanguage,
+            uploadData.targetLanguage,
+          );
+        }
+        setActiveJobId(tracked.jobId);
+        toast.info("Translation started — running in background");
+      } catch (err: unknown) {
+        setError((err as Error)?.message || "Failed to start translation");
+        toast.error("Failed to start translation");
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [uploadData, existingResult]);
+
+  // Watch the context for completion
+  useEffect(() => {
+    if (!activeJobId) return;
+    const tracked = jobs.find((j) => j.jobId === activeJobId);
+    if (!tracked) return;
+    if (tracked.status === "completed" && tracked.result) {
+      setResult(tracked.result);
+      onTranslationComplete(tracked.result);
+      toast.success("Translation completed!");
+    }
+    if (tracked.status === "failed") {
+      setError(tracked.error || "Translation failed");
+      toast.error("Translation failed");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jobs, activeJobId]);
+
+  // Load glossary terms once
+  useEffect(() => {
+    getGlossary(undefined, undefined)
+      .then((g) => setGlossaryTerms(g.terms?.slice(0, 200) || []))
+      .catch(() => {});
+  }, []);
+
+  // ── Active job info ────────────────────────────────────────────────────
+  const activeJob = activeJobId
+    ? jobs.find((j) => j.jobId === activeJobId)
+    : null;
+  const isTranslating =
+    activeJob &&
+    (activeJob.status === "processing" || activeJob.status === "uploading");
+
+  const sourceSections = result?.source_sections || [];
+  const translatedSections = result?.translated_sections || [];
+
+  // Progressive sections while translating
+  const progressiveSourceSections = activeJob?.sourceSections || [];
+  const progressiveTranslatedSections = activeJob?.partialSections || [];
+
+  // ── Export ─────────────────────────────────────────────────────────────
+  const handleExport = async (format: string) => {
+    if (!result) return;
+    try {
+      const blob = await exportTranslation(result.job_id, format);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `${result.filename || "translation"}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      toast.success(`Exported as ${format.toUpperCase()}`);
+    } catch {
+      toast.error("Export failed");
+    }
   };
 
-  const handleCopy = () => {
-    const fullText = translatedSections.map(s => s.content).join('\n\n');
-    navigator.clipboard.writeText(fullText);
-    setCopied(true);
-    toast.success('Copied to clipboard');
-    setTimeout(() => setCopied(false), 2000);
+  // ── Highlight glossary terms in text ───────────────────────────────────
+  const highlightGlossary = (text: string, lang: "en" | "si" | "ta") => {
+    if (!glossaryTerms.length) return text;
+    const parts: React.ReactNode[] = [];
+    let remaining = text;
+    let key = 0;
+
+    for (const term of glossaryTerms) {
+      const termText = term[lang];
+      if (!termText || termText.length < 2) continue;
+      const idx = remaining.toLowerCase().indexOf(termText.toLowerCase());
+      if (idx !== -1) {
+        if (idx > 0) parts.push(remaining.slice(0, idx));
+        parts.push(
+          <span
+            key={key++}
+            className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-0.5 rounded cursor-help"
+            title={`EN: ${term.en}\nSI: ${term.si}\nTA: ${term.ta}`}
+          >
+            {remaining.slice(idx, idx + termText.length)}
+          </span>,
+        );
+        remaining = remaining.slice(idx + termText.length);
+      }
+    }
+    if (remaining) parts.push(remaining);
+    return parts.length > 1 ? <>{parts}</> : text;
   };
 
-  const getLanguageLabel = (code: string) => {
-    const labels: Record<string, string> = { en: 'English', si: 'Sinhala', ta: 'Tamil' };
-    return labels[code] || code;
-  };
-
-  const getConfidenceColor = (confidence: number) => {
-    if (confidence >= 0.9) return 'text-success';
-    if (confidence >= 0.8) return 'text-warning';
-    return 'text-destructive';
-  };
-
+  // ── Render ─────────────────────────────────────────────────────────────
   return (
-    <div className="space-y-6">
-      {/* Header */}
+    <div className="space-y-4">
+      {/* Breadcrumb */}
+      <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+        <button onClick={onBack} className="flex items-center gap-1 hover:text-foreground transition-colors">
+          <Home className="w-3.5 h-3.5" />
+          Translations
+        </button>
+        <span>/</span>
+        <span className="text-foreground font-medium">Translation Workspace</span>
+      </nav>
+
+      {/* Header actions */}
       <div className="flex items-center justify-between">
-        <div>
-          <div className="flex items-center gap-2 text-sm text-muted-foreground mb-1">
-            <button onClick={onBack} className="hover:text-foreground transition-colors">
-              Translation
-            </button>
-            <ChevronRight className="w-4 h-4" />
-            <span>Workspace</span>
+        <div className="flex items-center gap-3">
+          <Button variant="ghost" size="icon" onClick={onBack}>
+            <ArrowLeft className="w-4 h-4" />
+          </Button>
+          <div>
+            <h2 className="text-xl font-bold text-foreground">
+              Translation Workspace
+            </h2>
+            <p className="text-sm text-muted-foreground">
+              {langLabel[uploadData.sourceLanguage] ||
+                uploadData.sourceLanguage}
+              {" → "}
+              {langLabel[uploadData.targetLanguage] ||
+                uploadData.targetLanguage}
+              {uploadData.mode === "text" && " • Text input"}
+            </p>
           </div>
-          <h2 className="font-heading text-2xl font-bold text-foreground">{file.name}</h2>
-          <p className="text-muted-foreground mt-1">
-            {getLanguageLabel(sourceLanguage)} → {getLanguageLabel(targetLanguage)}
-          </p>
         </div>
-        
-        {/* Model Info */}
-        <Card className="bg-muted/50">
-          <CardContent className="py-3 px-4">
-            <div className="flex items-center gap-2">
-              <Info className="w-4 h-4 text-muted-foreground" />
-              <div>
-                <p className="text-sm font-medium">mBART Fine-Tuned Legal Model</p>
-                <p className="text-xs text-muted-foreground">Stage 1 - Sri Lankan Legal Corpus</p>
+
+        <div className="flex items-center gap-2">
+          {result && (
+            <>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleExport("pdf")}
+                className="gap-1"
+              >
+                <FileDown className="w-3 h-3" /> PDF
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleExport("txt")}
+                className="gap-1"
+              >
+                <Download className="w-3 h-3" /> TXT
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => handleExport("json")}
+                className="gap-1"
+              >
+                <Download className="w-3 h-3" /> JSON
+              </Button>
+              <Button size="sm" onClick={onComplete} className="gap-1">
+                View Summary <ArrowRight className="w-3 h-3" />
+              </Button>
+            </>
+          )}
+        </div>
+      </div>
+
+      {/* Error banner */}
+      {error && (
+        <div className="flex items-center gap-2 p-3 bg-destructive/10 text-destructive rounded-lg text-sm">
+          <AlertCircle className="w-4 h-4" /> {error}
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onBack}
+            className="ml-auto"
+          >
+            Go back
+          </Button>
+        </div>
+      )}
+
+      {/* In-progress indicator */}
+      {isTranslating && (
+        <Card>
+          <CardContent className="py-4">
+            <div className="flex items-center gap-4">
+              <Loader2 className="w-5 h-5 animate-spin text-primary" />
+              <div className="flex-1">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-sm font-medium">
+                    Translating section {(activeJob.completedSections || 0) + 1} of {activeJob.totalSections}…
+                  </span>
+                  <span className="text-sm text-muted-foreground">
+                    {activeJob.completedSections}/{activeJob.totalSections}{" "}
+                    sections • {activeJob.progress}%
+                  </span>
+                </div>
+                <Progress value={activeJob.progress} className="h-2" />
               </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="gap-1 text-destructive border-destructive/30 hover:bg-destructive/10"
+                onClick={() => {
+                  if (activeJobId) {
+                    cancelJob(activeJobId);
+                    toast.info("Translation stopped");
+                  }
+                }}
+              >
+                <StopCircle className="w-3.5 h-3.5" /> Stop
+              </Button>
             </div>
+            <p className="text-xs text-muted-foreground mt-2">
+              You can navigate away — translation continues in the background.
+            </p>
           </CardContent>
         </Card>
-      </div>
+      )}
 
-      {/* Top Actions (sticky) */}
-      <div className="sticky top-0 z-20 bg-background border-b border-border -mx-6 px-6 py-4">
-        <div className="flex items-center justify-between">
-          <Button 
-            variant="outline" 
-            onClick={onBack} 
-            size="default"
-          >
-            Back to Upload
-          </Button>
-
-          {translationComplete && (
-            <div className="flex items-center gap-3">
-              <Button 
-                variant="outline" 
-                size="default"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export PDF
-              </Button>
-              <Button 
-                variant="outline" 
-                size="default"
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Export DOCX
-              </Button>
-              <Button 
-                onClick={onComplete} 
-                size="default"
-              >
-                <CheckCircle2 className="w-4 h-4 mr-2" />
-                Complete & Save
-              </Button>
-            </div>
-          )}
+      {/* Stats row (completed) */}
+      {result && (
+        <div className="grid grid-cols-5 gap-3">
+          <StatCard
+            icon={<FileText className="w-4 h-4" />}
+            label="Sections"
+            value={result.total_sections}
+          />
+          <StatCard
+            icon={<CheckCircle2 className="w-4 h-4 text-green-500" />}
+            label="Confidence"
+            value={`${Math.round(result.overall_confidence * 100)}%`}
+          />
+          <StatCard
+            icon={<BarChart3 className="w-4 h-4" />}
+            label="BLEU"
+            value={result.bleu_score?.toFixed(2) || "—"}
+          />
+          <StatCard
+            icon={<Clock className="w-4 h-4" />}
+            label="Time"
+            value={`${result.processing_time?.toFixed(1) || "—"}s`}
+          />
+          <StatCard
+            icon={<BookOpen className="w-4 h-4" />}
+            label="Legal Terms"
+            value={result.statistics?.legal_terms_found || 0}
+          />
         </div>
-      </div>
+      )}
 
-      {/* Main Workspace - 3 Pane Layout */}
-      <div className="grid grid-cols-12 gap-4 h-[calc(100vh-280px)]">
-        {/* Left Pane - Original Document */}
-        <div className="col-span-5">
-          <Card className="h-full flex flex-col">
-            <CardHeader className="flex-shrink-0 pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Original Document
+      {/* View toggle */}
+      {result && (
+        <div className="flex items-center gap-2">
+          <Tabs
+            value={viewMode}
+            onValueChange={(v) =>
+              setViewMode(v as "side-by-side" | "source" | "translated")
+            }
+          >
+            <TabsList>
+              <TabsTrigger value="side-by-side">Side by Side</TabsTrigger>
+              <TabsTrigger value="source">Source Only</TabsTrigger>
+              <TabsTrigger value="translated">Translated Only</TabsTrigger>
+            </TabsList>
+          </Tabs>
+        </div>
+      )}
+
+      {/* Main content area */}
+      {result ? (
+        <div
+          className={cn(
+            "grid gap-4",
+            viewMode === "side-by-side" ? "grid-cols-2" : "grid-cols-1",
+          )}
+        >
+          {/* Source pane */}
+          {viewMode !== "translated" && (
+            <Card className="h-[600px] flex flex-col">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Source (
+                  {langLabel[result.source_language] || result.source_language})
                 </CardTitle>
-                <Badge variant="outline">{getLanguageLabel(sourceLanguage)}</Badge>
-              </div>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto">
-              <div className="space-y-4">
-                {sourceDocument.sections.map((section) => (
-                  <div 
-                    key={section.id}
-                    className={cn(
-                      "p-3 rounded-lg border cursor-pointer transition-colors",
-                      selectedSection === section.id 
-                        ? "border-accent bg-accent/5" 
-                        : "border-transparent hover:bg-muted/50"
-                    )}
-                    onClick={() => setSelectedSection(section.id)}
-                  >
-                    <div className="flex items-start gap-2 mb-2">
-                      <Badge variant="secondary" className="text-xs capitalize">
-                        {section.type}
-                      </Badge>
+              </CardHeader>
+              <CardContent className="flex-1 overflow-hidden p-0">
+                <ScrollArea className="h-full px-4 pb-4">
+                  {sourceSections.length > 0 ? (
+                    <div className="space-y-3 pt-2">
+                      {sourceSections.map((sec, idx) => (
+                        <div
+                          key={sec.id || idx}
+                          className={cn(
+                            "p-3 rounded-lg border cursor-pointer transition-colors",
+                            selectedSection === idx
+                              ? "border-primary bg-primary/5"
+                              : "border-transparent hover:bg-muted",
+                          )}
+                          onClick={() => setSelectedSection(idx)}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <Badge
+                              variant="outline"
+                              className="text-xs capitalize"
+                            >
+                              {sec.type}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground">
+                              §{idx + 1}
+                            </span>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap">
+                            {highlightGlossary(sec.content, "en")}
+                          </p>
+                        </div>
+                      ))}
                     </div>
-                    <p className="text-sm legal-text whitespace-pre-line text-foreground">
-                      {section.content}
-                    </p>
-                    {section.keywords.length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {section.keywords.map((keyword, i) => (
-                          <TooltipProvider key={i}>
-                            <Tooltip>
-                              <TooltipTrigger>
-                                <span className="text-xs px-1.5 py-0.5 bg-primary/10 text-primary rounded">
-                                  {keyword}
-                                </span>
-                              </TooltipTrigger>
-                              <TooltipContent>
-                                <p className="text-xs">Legal term from glossary</p>
-                              </TooltipContent>
-                            </Tooltip>
-                          </TooltipProvider>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-        {/* Middle Pane - Controls */}
-        <div className="col-span-2 flex flex-col items-center justify-center gap-4">
-          {!translationComplete ? (
-            <Button 
-              size="lg" 
-              onClick={handleTranslate}
-              disabled={isTranslating}
-              className="w-full gap-2"
-            >
-              {isTranslating ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                  Translating...
-                </>
-              ) : (
-                <>
-                  <Play className="w-4 h-4" />
-                  Translate
-                </>
-              )}
-            </Button>
-          ) : (
-            <div className="flex items-center gap-2 text-success">
-              <CheckCircle2 className="w-5 h-5" />
-              <span className="font-medium">Complete</span>
-            </div>
-          )}
-
-          {isTranslating && (
-            <div className="text-center">
-              <div className="w-32 h-1 bg-muted rounded-full overflow-hidden">
-                <div className="h-full bg-accent animate-pulse-subtle" style={{ width: '60%' }} />
-              </div>
-              <p className="text-xs text-muted-foreground mt-2">Processing clauses...</p>
-            </div>
-          )}
-
-          <Button 
-            variant="outline" 
-            size="sm" 
-            disabled 
-            className="w-full text-xs"
-          >
-            Improve (Stage 2)
-          </Button>
-          <p className="text-xs text-muted-foreground text-center">
-            Advanced refinement model not available
-          </p>
-        </div>
-
-        {/* Right Pane - Translated Output */}
-        <div className="col-span-5">
-          <Card className="h-full flex flex-col">
-            <CardHeader className="flex-shrink-0 pb-3">
-              <div className="flex items-center justify-between">
-                <CardTitle className="text-base flex items-center gap-2">
-                  <FileText className="w-4 h-4" />
-                  Translated Output
-                </CardTitle>
-                <div className="flex items-center gap-2">
-                  <Badge variant="outline">{getLanguageLabel(targetLanguage)}</Badge>
-                  {translationComplete && (
-                    <>
-                      <Button variant="ghost" size="sm" onClick={handleCopy}>
-                        {copied ? <CheckCircle2 className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-                      </Button>
-                      <Button variant="ghost" size="sm">
-                        <Download className="w-4 h-4" />
-                      </Button>
-                    </>
+                  ) : (
+                    <div className="p-4">
+                      <p className="text-sm whitespace-pre-wrap">
+                        {result.raw_source_text}
+                      </p>
+                    </div>
                   )}
-                </div>
-              </div>
-            </CardHeader>
-            <CardContent className="flex-1 overflow-y-auto">
-              {!translationComplete && !isTranslating && (
-                <div className="h-full flex items-center justify-center text-muted-foreground">
-                  <p className="text-sm">Click "Translate" to start</p>
-                </div>
-              )}
-              
-              {isTranslating && (
-                <div className="h-full flex items-center justify-center">
-                  <div className="text-center">
-                    <Loader2 className="w-8 h-8 animate-spin mx-auto text-accent mb-4" />
-                    <p className="text-sm text-muted-foreground">Generating translation...</p>
-                  </div>
-                </div>
-              )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
 
-              {translationComplete && (
-                <div className="space-y-4">
-                  {translatedSections.map((section, index) => (
-                    <div 
-                      key={section.id}
+          {/* Translated pane */}
+          {viewMode !== "source" && (
+            <Card className="h-[600px] flex flex-col">
+              <CardHeader className="pb-2">
+                <CardTitle className="text-base">
+                  Translated (
+                  {langLabel[result.target_language] || result.target_language})
+                </CardTitle>
+              </CardHeader>
+              <CardContent className="flex-1 overflow-hidden p-0">
+                <ScrollArea className="h-full px-4 pb-4">
+                  {translatedSections.length > 0 ? (
+                    <div className="space-y-3 pt-2">
+                      {translatedSections.map((sec, idx) => (
+                        <div
+                          key={sec.id || idx}
+                          className={cn(
+                            "p-3 rounded-lg border transition-colors",
+                            selectedSection === idx
+                              ? "border-primary bg-primary/5"
+                              : "border-transparent hover:bg-muted",
+                          )}
+                          onClick={() => setSelectedSection(idx)}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <Badge
+                              variant="outline"
+                              className="text-xs capitalize"
+                            >
+                              {sec.type}
+                            </Badge>
+                            <Badge
+                              className={cn(
+                                "text-xs",
+                                confidenceBadge(sec.confidence),
+                              )}
+                            >
+                              {Math.round(sec.confidence * 100)}%
+                            </Badge>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap">
+                            {highlightGlossary(
+                              sec.translated_content,
+                              result.target_language as "si" | "ta",
+                            )}
+                          </p>
+                          {sec.keywords?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {sec.keywords.map((kw) => (
+                                <Badge
+                                  key={kw}
+                                  variant="secondary"
+                                  className="text-xs"
+                                >
+                                  {kw}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="p-4">
+                      <p className="text-sm whitespace-pre-wrap">
+                        {result.raw_translated_text}
+                      </p>
+                    </div>
+                  )}
+                </ScrollArea>
+              </CardContent>
+            </Card>
+          )}
+        </div>
+      ) : !isTranslating && !error ? (
+        <Card className="py-20">
+          <CardContent className="flex flex-col items-center justify-center text-center">
+            <Loader2 className="w-8 h-8 animate-spin text-muted-foreground mb-4" />
+            <p className="text-muted-foreground">Preparing translation…</p>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {/* Progressive section display while translating */}
+      {isTranslating && !result && progressiveSourceSections.length > 0 && (
+        <div className="grid grid-cols-2 gap-4">
+          {/* Source pane */}
+          <Card className="h-[600px] flex flex-col">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Source ({langLabel[uploadData.sourceLanguage] || uploadData.sourceLanguage})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-hidden p-0">
+              <ScrollArea className="h-full px-4 pb-4">
+                <div className="space-y-3 pt-2">
+                  {progressiveSourceSections.map((sec, idx) => (
+                    <div
+                      key={sec.id || idx}
                       className={cn(
                         "p-3 rounded-lg border transition-colors",
-                        selectedSection === section.id 
-                          ? "border-accent bg-accent/5" 
-                          : "border-transparent hover:bg-muted/50"
+                        selectedSection === idx
+                          ? "border-primary bg-primary/5"
+                          : "border-transparent hover:bg-muted",
                       )}
-                      onClick={() => setSelectedSection(section.id)}
+                      onClick={() => setSelectedSection(idx)}
                     >
-                      <div className="flex items-center justify-between mb-2">
-                        <Badge variant="secondary" className="text-xs">
-                          Section {index + 1}
+                      <div className="flex items-center justify-between mb-1">
+                        <Badge variant="outline" className="text-xs capitalize">
+                          {sec.type}
                         </Badge>
-                        <span className={cn("text-xs font-medium", getConfidenceColor(section.confidence))}>
-                          {Math.round(section.confidence * 100)}% confidence
-                        </span>
+                        <span className="text-xs text-muted-foreground">§{idx + 1}</span>
                       </div>
-                      <p className="text-sm legal-text whitespace-pre-line text-foreground">
-                        {section.content}
+                      <p className="text-sm whitespace-pre-wrap">
+                        {highlightGlossary(sec.content, "en")}
                       </p>
                     </div>
                   ))}
                 </div>
-              )}
+              </ScrollArea>
+            </CardContent>
+          </Card>
+
+          {/* Translated pane — progressive */}
+          <Card className="h-[600px] flex flex-col">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-base">
+                Translated ({langLabel[uploadData.targetLanguage] || uploadData.targetLanguage})
+              </CardTitle>
+            </CardHeader>
+            <CardContent className="flex-1 overflow-hidden p-0">
+              <ScrollArea className="h-full px-4 pb-4">
+                <div className="space-y-3 pt-2">
+                  {progressiveSourceSections.map((_, idx) => {
+                    const translated = progressiveTranslatedSections[idx];
+                    const isCurrentlyTranslating =
+                      idx === (activeJob?.completedSections || 0) &&
+                      idx < (activeJob?.totalSections || 0);
+
+                    if (translated) {
+                      return (
+                        <div
+                          key={translated.id || idx}
+                          className={cn(
+                            "p-3 rounded-lg border transition-colors",
+                            selectedSection === idx
+                              ? "border-primary bg-primary/5"
+                              : "border-transparent hover:bg-muted",
+                          )}
+                          onClick={() => setSelectedSection(idx)}
+                        >
+                          <div className="flex items-center justify-between mb-1">
+                            <Badge variant="outline" className="text-xs capitalize">
+                              {translated.type}
+                            </Badge>
+                            <Badge className={cn("text-xs", confidenceBadge(translated.confidence))}>
+                              {Math.round(translated.confidence * 100)}%
+                            </Badge>
+                          </div>
+                          <p className="text-sm whitespace-pre-wrap">
+                            {highlightGlossary(
+                              translated.translated_content,
+                              uploadData.targetLanguage as "si" | "ta",
+                            )}
+                          </p>
+                          {translated.keywords?.length > 0 && (
+                            <div className="flex flex-wrap gap-1 mt-2">
+                              {translated.keywords.map((kw) => (
+                                <Badge key={kw} variant="secondary" className="text-xs">
+                                  {kw}
+                                </Badge>
+                              ))}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    }
+
+                    if (isCurrentlyTranslating) {
+                      return (
+                        <div
+                          key={idx}
+                          className="p-3 rounded-lg border border-primary/30 bg-primary/5 animate-pulse"
+                        >
+                          <div className="flex items-center gap-2 mb-2">
+                            <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />
+                            <span className="text-xs font-medium text-primary">
+                              Translating section {idx + 1}…
+                            </span>
+                          </div>
+                          <div className="space-y-2">
+                            <div className="h-3 bg-muted rounded w-full" />
+                            <div className="h-3 bg-muted rounded w-4/5" />
+                            <div className="h-3 bg-muted rounded w-3/5" />
+                          </div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={idx}
+                        className="p-3 rounded-lg border border-dashed border-muted-foreground/20"
+                      >
+                        <span className="text-xs text-muted-foreground">
+                          §{idx + 1} — Pending
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </ScrollArea>
             </CardContent>
           </Card>
         </div>
-      </div>
+      )}
 
-      {/* Glossary Panel (at the bottom of the page) */}
-      {/* {translationComplete && (
-        <Card className="mt-6">
-          <CardHeader className="pb-2">
-            <div className="flex items-center gap-2">
-              <BookOpen className="w-4 h-4" />
-              <CardTitle className="text-base">Legal Glossary Terms Used</CardTitle>
-            </div>
+      {/* Source text preview fallback (when translating, no source sections available) */}
+      {isTranslating && !result && progressiveSourceSections.length === 0 && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="text-base">Source Text</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="flex flex-wrap gap-2">
-              {glossaryTerms.map((term, i) => (
-                <TooltipProvider key={i}>
-                  <Tooltip>
-                    <TooltipTrigger>
-                      <Badge variant="outline" className="cursor-help">
-                        {term.en}
-                      </Badge>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      <div className="text-xs space-y-1">
-                        <p><strong>SI:</strong> {term.si}</p>
-                        <p><strong>TA:</strong> {term.ta}</p>
-                        <p className="text-muted-foreground">{term.category}</p>
-                      </div>
-                    </TooltipContent>
-                  </Tooltip>
-                </TooltipProvider>
-              ))}
-            </div>
+            <ScrollArea className="h-64">
+              <pre className="text-sm whitespace-pre-wrap text-muted-foreground font-body">
+                {uploadData.extractedText.slice(0, 3000)}
+                {uploadData.extractedText.length > 3000 &&
+                  "\n\n[… document continues]"}
+              </pre>
+            </ScrollArea>
           </CardContent>
         </Card>
-      )} */}
-
-      {/* Bottom Actions (removed; actions are now at top) */}
+      )}
     </div>
+  );
+}
+
+function StatCard({
+  icon,
+  label,
+  value,
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string | number;
+}) {
+  return (
+    <Card>
+      <CardContent className="flex items-center gap-3 py-3 px-4">
+        {icon}
+        <div>
+          <p className="text-xs text-muted-foreground">{label}</p>
+          <p className="font-semibold text-foreground">{value}</p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }

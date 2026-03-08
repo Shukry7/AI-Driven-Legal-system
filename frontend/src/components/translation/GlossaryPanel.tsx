@@ -1,57 +1,95 @@
-import { useState } from 'react';
-import { Search, Plus, BookOpen, Filter } from 'lucide-react';
+import { useState, useEffect, useCallback } from 'react';
+import { Search, Plus, BookOpen, Filter, Loader2, ChevronLeft, ChevronRight, Home, ChevronsLeft, ChevronsRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-
-const glossaryTerms = [
-  { id: 1, en: 'Plaintiff', si: 'පැමිණිලිකරු', ta: 'வாதி', category: 'Civil Law' },
-  { id: 2, en: 'Defendant', si: 'විත්තිකරු', ta: 'பிரதிவாதி', category: 'Civil Law' },
-  { id: 3, en: 'District Court', si: 'දිසා අධිකරණය', ta: 'மாவட்ட நீதிமன்றம்', category: 'Courts' },
-  { id: 4, en: 'Supreme Court', si: 'ශ්‍රේෂ්ඨාධිකරණය', ta: 'உச்ச நீதிமன்றம்', category: 'Courts' },
-  { id: 5, en: 'Appeal', si: 'අභියාචනය', ta: 'மேல்முறையீடு', category: 'Civil Law' },
-  { id: 6, en: 'Judgment', si: 'තීන්දුව', ta: 'தீர்ப்பு', category: 'General Legal' },
-  { id: 7, en: 'Contract', si: 'ගිවිසුම', ta: 'ஒப்பந்தம்', category: 'Contract Law' },
-  { id: 8, en: 'Agreement', si: 'එකඟතාවය', ta: 'உடன்படிக்கை', category: 'Contract Law' },
-  { id: 9, en: 'Breach', si: 'කඩකිරීම', ta: 'மீறல்', category: 'Contract Law' },
-  { id: 10, en: 'Damages', si: 'වන්දි', ta: 'சேதங்கள்', category: 'Civil Law' },
-  { id: 11, en: 'Injunction', si: 'විනිවිද බලපත්‍ර', ta: 'தடை உத்தரவு', category: 'Civil Law' },
-  { id: 12, en: 'Affidavit', si: 'දිවුරුම් ප්‍රකාශය', ta: 'சத்தியப் பிரமாணம்', category: 'General Legal' },
-  { id: 13, en: 'Petition', si: 'පෙත්සම', ta: 'மனு', category: 'General Legal' },
-  { id: 14, en: 'Statute', si: 'පනත', ta: 'சட்டம்', category: 'General Legal' },
-  { id: 15, en: 'Liability', si: 'වගකීම', ta: 'பொறுப்பு', category: 'Civil Law' }
-];
-
-const categories = ['All', 'Civil Law', 'Contract Law', 'Courts', 'General Legal'];
+import { toast } from 'sonner';
+import { getGlossary } from '@/config/api';
+import type { GlossaryTerm } from '@/config/api';
 
 interface GlossaryPanelProps {
   onBack: () => void;
 }
 
+const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+
 export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('All');
+  const [terms, setTerms] = useState<GlossaryTerm[]>([]);
+  const [categories, setCategories] = useState<string[]>(['All']);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState(25);
+  const [selectedLanguageFilter, setSelectedLanguageFilter] = useState('all');
 
-  const filteredTerms = glossaryTerms.filter(term => {
-    const matchesSearch = 
+  const fetchGlossary = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const category = selectedCategory === 'All' ? undefined : selectedCategory;
+      const search = searchQuery.trim() || undefined;
+      const data = await getGlossary(category, search);
+      setTerms(data.terms || []);
+      if (data.categories) {
+        setCategories(['All', ...data.categories]);
+      }
+    } catch (err: any) {
+      setError(err?.error || 'Failed to load glossary');
+      toast.error('Failed to load glossary');
+    } finally {
+      setLoading(false);
+    }
+  }, [selectedCategory, searchQuery]);
+
+  useEffect(() => {
+    fetchGlossary();
+  }, [fetchGlossary]);
+
+  // Reset page on filter change
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedCategory, selectedLanguageFilter, pageSize]);
+
+  const filteredTerms = terms.filter(term => {
+    const matchesSearch = !searchQuery.trim() ||
       term.en.toLowerCase().includes(searchQuery.toLowerCase()) ||
       term.si.includes(searchQuery) ||
       term.ta.includes(searchQuery);
     const matchesCategory = selectedCategory === 'All' || term.category === selectedCategory;
-    return matchesSearch && matchesCategory;
+    const matchesLang = selectedLanguageFilter === 'all' ||
+      (selectedLanguageFilter === 'has_si' && term.si && term.si.trim() !== '') ||
+      (selectedLanguageFilter === 'has_ta' && term.ta && term.ta.trim() !== '') ||
+      (selectedLanguageFilter === 'missing_si' && (!term.si || term.si.trim() === '')) ||
+      (selectedLanguageFilter === 'missing_ta' && (!term.ta || term.ta.trim() === ''));
+    return matchesSearch && matchesCategory && matchesLang;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredTerms.length / pageSize));
+  const paginatedTerms = filteredTerms.slice((currentPage - 1) * pageSize, currentPage * pageSize);
 
   const categoryCounts = categories.reduce((acc, cat) => {
     acc[cat] = cat === 'All' 
-      ? glossaryTerms.length 
-      : glossaryTerms.filter(t => t.category === cat).length;
+      ? terms.length 
+      : terms.filter(t => t.category === cat).length;
     return acc;
   }, {} as Record<string, number>);
 
   return (
     <div className="space-y-6">
+      {/* Breadcrumb */}
+      <nav className="flex items-center gap-2 text-sm text-muted-foreground">
+        <button onClick={onBack} className="flex items-center gap-1 hover:text-foreground transition-colors">
+          <Home className="w-3.5 h-3.5" />
+          Translations
+        </button>
+        <span>/</span>
+        <span className="text-foreground font-medium">Legal Glossary</span>
+      </nav>
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
@@ -64,7 +102,8 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <Button variant="outline" onClick={onBack}>
+          <Button variant="outline" onClick={onBack} className="gap-2">
+            <ChevronLeft className="w-4 h-4" />
             Back
           </Button>
           <Button className="gap-2">
@@ -78,7 +117,7 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
       <div className="grid grid-cols-4 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <p className="text-2xl font-bold text-foreground">{glossaryTerms.length}</p>
+            <p className="text-2xl font-bold text-foreground">{terms.length}</p>
             <p className="text-sm text-muted-foreground mt-1">Total Terms</p>
           </CardContent>
         </Card>
@@ -90,13 +129,15 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-2xl font-bold text-foreground">4</p>
+            <p className="text-2xl font-bold text-foreground">{categories.length - 1}</p>
             <p className="text-sm text-muted-foreground mt-1">Categories</p>
           </CardContent>
         </Card>
         <Card>
           <CardContent className="pt-6">
-            <p className="text-2xl font-bold text-foreground">98%</p>
+            <p className="text-2xl font-bold text-foreground">
+              {loading ? '—' : '98%'}
+            </p>
             <p className="text-sm text-muted-foreground mt-1">Coverage Rate</p>
           </CardContent>
         </Card>
@@ -128,7 +169,32 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
                 ))}
               </SelectContent>
             </Select>
+            <Select value={selectedLanguageFilter} onValueChange={setSelectedLanguageFilter}>
+              <SelectTrigger className="w-48">
+                <SelectValue placeholder="Language filter" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Languages</SelectItem>
+                <SelectItem value="has_si">Has Sinhala</SelectItem>
+                <SelectItem value="has_ta">Has Tamil</SelectItem>
+                <SelectItem value="missing_si">Missing Sinhala</SelectItem>
+                <SelectItem value="missing_ta">Missing Tamil</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
+          {(searchQuery || selectedCategory !== 'All' || selectedLanguageFilter !== 'all') && (
+            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+              <span>Showing {filteredTerms.length} of {terms.length} terms</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-6 text-xs"
+                onClick={() => { setSearchQuery(''); setSelectedCategory('All'); setSelectedLanguageFilter('all'); }}
+              >
+                Clear filters
+              </Button>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -141,6 +207,15 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
           </CardDescription>
         </CardHeader>
         <CardContent>
+          {loading && (
+            <div className="flex items-center justify-center py-12">
+              <Loader2 className="w-6 h-6 animate-spin text-muted-foreground" />
+              <span className="ml-2 text-sm text-muted-foreground">Loading glossary...</span>
+            </div>
+          )}
+
+          {!loading && (
+          <>
           <div className="overflow-x-auto">
             <table className="w-full">
               <thead>
@@ -160,7 +235,7 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
                 </tr>
               </thead>
               <tbody>
-                {filteredTerms.map((term) => (
+                {paginatedTerms.map((term) => (
                   <tr 
                     key={term.id} 
                     className="border-b border-border last:border-0 hover:bg-muted/50 transition-colors"
@@ -185,7 +260,46 @@ export function GlossaryPanel({ onBack }: GlossaryPanelProps) {
             </table>
           </div>
 
-          {filteredTerms.length === 0 && (
+          {/* Pagination Controls */}
+          {filteredTerms.length > 0 && (
+            <div className="flex items-center justify-between mt-4 pt-4 border-t border-border">
+              <div className="flex items-center gap-3 text-sm text-muted-foreground">
+                <span>Rows per page:</span>
+                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                  <SelectTrigger className="w-20 h-8">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {PAGE_SIZE_OPTIONS.map((size) => (
+                      <SelectItem key={size} value={String(size)}>{size}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                <span>
+                  {(currentPage - 1) * pageSize + 1}–{Math.min(currentPage * pageSize, filteredTerms.length)} of {filteredTerms.length}
+                </span>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === 1} onClick={() => setCurrentPage(1)}>
+                  <ChevronsLeft className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === 1} onClick={() => setCurrentPage(p => p - 1)}>
+                  <ChevronLeft className="w-4 h-4" />
+                </Button>
+                <span className="text-sm text-muted-foreground px-3">Page {currentPage} of {totalPages}</span>
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === totalPages} onClick={() => setCurrentPage(p => p + 1)}>
+                  <ChevronRight className="w-4 h-4" />
+                </Button>
+                <Button variant="outline" size="icon" className="h-8 w-8" disabled={currentPage === totalPages} onClick={() => setCurrentPage(totalPages)}>
+                  <ChevronsRight className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          )}
+          </>
+          )}
+
+          {!loading && filteredTerms.length === 0 && (
             <div className="text-center py-12 text-muted-foreground">
               <p>No terms found matching your criteria</p>
             </div>

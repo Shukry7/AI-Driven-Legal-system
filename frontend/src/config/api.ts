@@ -5,6 +5,7 @@ type UploadResult = {
   success: boolean;
   preview?: string;
   full_text_path?: string;
+  full_text?: string;
   error?: string;
 };
 type AnalyzeResult = any;
@@ -263,7 +264,9 @@ export async function predictClauses(
   });
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Prediction failed" }));
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Prediction failed" }));
     throw new Error(error.detail || "Prediction failed");
   }
 
@@ -287,7 +290,9 @@ export async function predictClausesFromFile(
   });
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Prediction failed" }));
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Prediction failed" }));
     throw new Error(error.detail || "Prediction failed");
   }
 
@@ -324,7 +329,7 @@ export interface FinalizeResult {
 }
 
 export async function acceptSuggestion(
-  decision: SuggestionDecision
+  decision: SuggestionDecision,
 ): Promise<{ success: boolean; decision: any; message: string }> {
   const url = `${API_BASE}/api/accept-suggestion`;
   const formData = new FormData();
@@ -345,7 +350,9 @@ export async function acceptSuggestion(
   });
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Failed to save suggestion decision" }));
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Failed to save suggestion decision" }));
     throw new Error(error.detail || "Failed to save suggestion decision");
   }
 
@@ -353,7 +360,7 @@ export async function acceptSuggestion(
 }
 
 export async function finalizeDocument(
-  filename: string
+  filename: string,
 ): Promise<FinalizeResult> {
   const url = `${API_BASE}/api/finalize-document`;
   const formData = new FormData();
@@ -365,7 +372,9 @@ export async function finalizeDocument(
   });
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Failed to finalize document" }));
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Failed to finalize document" }));
     throw new Error(error.detail || "Failed to finalize document");
   }
 
@@ -377,7 +386,9 @@ export async function downloadDocument(filename: string): Promise<Blob> {
   const res = await fetch(url);
 
   if (!res.ok) {
-    const error = await res.json().catch(() => ({ detail: "Failed to download document" }));
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Failed to download document" }));
     throw new Error(error.detail || "Failed to download document");
   }
 
@@ -851,3 +862,240 @@ export default {
   createEdgesFromSearchResults,
   searchExactAct
 };
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Translation API  (backend: /api/translate/*)
+// ═══════════════════════════════════════════════════════════════════════════
+
+const T_BASE = `${API_BASE}/api/translate`;
+
+// ── Types ────────────────────────────────────────────────────────────────
+
+export interface SourceSection {
+  id: string;
+  type: string;
+  content: string;
+  keywords: string[];
+}
+
+export interface TranslationSection {
+  id: string;
+  type: string;
+  translated_content: string;
+  confidence: number;
+  keywords: string[];
+}
+
+export interface TranslationJobResult {
+  job_id: string;
+  filename: string;
+  source_language: string;
+  target_language: string;
+  mode: string;
+  status: string;
+  progress: number;
+  total_sections: number;
+  completed_sections: number;
+  created_at: string;
+  completed_at?: string;
+  source_sections: SourceSection[];
+  translated_sections: TranslationSection[];
+  raw_source_text: string;
+  raw_translated_text: string;
+  overall_confidence: number;
+  bleu_score: number;
+  processing_time: number;
+  model_used: string;
+  statistics: {
+    sections_translated?: number;
+    total_words?: number;
+    legal_terms_found?: number;
+    pages?: number;
+    glossary_match_rate?: number;
+  };
+  error?: string | null;
+}
+
+export interface TranslationJobSummary {
+  job_id: string;
+  filename: string;
+  source_language: string;
+  target_language: string;
+  status: string;
+  progress: number;
+  created_at: string;
+  processing_time: number;
+  mode: string;
+}
+
+export interface TranslationProgress {
+  job_id: string;
+  status: string;
+  progress: number;
+  completed_sections: number;
+  total_sections: number;
+  error?: string | null;
+  partial_translated_sections?: TranslationSection[];
+}
+
+export interface TranslationStartResult {
+  success: boolean;
+  job_id: string;
+  status: string;
+  filename: string;
+  source_language: string;
+  target_language: string;
+  total_sections: number;
+  model_used: string;
+  source_sections: SourceSection[];
+}
+
+export interface GlossaryTerm {
+  id: string;
+  en: string;
+  si: string;
+  ta: string;
+  category: string;
+}
+
+export interface ModelInfo {
+  model_name: string;
+  base_model: string;
+  supported_languages: string[];
+  status: string;
+  training_data_size: string;
+  avg_speed: string;
+  language_pairs: {
+    pair: string;
+    loaded: boolean;
+    bleu_score: number;
+    legal_term_accuracy: number;
+    avg_time: string;
+  }[];
+  device: string;
+}
+
+// ── Functions ────────────────────────────────────────────────────────────
+
+/** Upload a PDF and start document translation (returns immediately). */
+export async function translateDocument(
+  file: File,
+  sourceLanguage: string,
+  targetLanguage: string,
+  onProgress?: (p: number) => void,
+): Promise<TranslationStartResult> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    const fd = new FormData();
+    fd.append("file", file, file.name);
+    fd.append("source_language", sourceLanguage);
+    fd.append("target_language", targetLanguage);
+
+    xhr.open("POST", `${T_BASE}/document`, true);
+
+    xhr.upload.onprogress = (ev) => {
+      if (ev.lengthComputable && onProgress) {
+        onProgress(Math.round((ev.loaded / ev.total) * 100));
+      }
+    };
+
+    xhr.onload = () => {
+      try {
+        const json = JSON.parse(xhr.responseText || "{}");
+        if (xhr.status >= 200 && xhr.status < 300) resolve(json);
+        else reject(json);
+      } catch {
+        reject({ error: "Invalid JSON" });
+      }
+    };
+    xhr.onerror = () => reject({ error: "Network error" });
+    xhr.send(fd);
+  });
+}
+
+/** Translate raw text (returns immediately with job_id). */
+export async function translateText(
+  text: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+): Promise<TranslationStartResult> {
+  const fd = new FormData();
+  fd.append("text", text);
+  fd.append("source_language", sourceLanguage);
+  fd.append("target_language", targetLanguage);
+
+  const res = await fetch(`${T_BASE}/text`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const err = await res
+      .json()
+      .catch(() => ({ detail: "Translation failed" }));
+    throw new Error(err.detail || "Translation failed");
+  }
+  return res.json();
+}
+
+/** Poll translation progress (light-weight). */
+export async function getTranslationProgress(
+  jobId: string,
+): Promise<TranslationProgress> {
+  const res = await fetch(`${T_BASE}/progress/${jobId}`);
+  if (!res.ok) throw new Error("Progress fetch failed");
+  return res.json();
+}
+
+/** Get full completed job data. */
+export async function getTranslationJob(
+  jobId: string,
+): Promise<TranslationJobResult> {
+  const res = await fetch(`${T_BASE}/job/${jobId}`);
+  if (!res.ok) throw new Error("Job not found");
+  return res.json();
+}
+
+/** List recent translation jobs. */
+export async function getTranslationHistory(): Promise<{
+  jobs: TranslationJobSummary[];
+}> {
+  const res = await fetch(`${T_BASE}/history`);
+  if (!res.ok) return { jobs: [] };
+  return res.json();
+}
+
+/** Export a translated document (returns Blob). */
+export async function exportTranslation(
+  jobId: string,
+  format: string = "txt",
+): Promise<Blob> {
+  const res = await fetch(`${T_BASE}/export/${jobId}?format=${format}`);
+  if (!res.ok) throw new Error("Export failed");
+  return res.blob();
+}
+
+/** Get legal glossary terms (filtered). */
+export async function getGlossary(
+  category?: string,
+  search?: string,
+): Promise<{ terms: GlossaryTerm[]; categories: string[] }> {
+  const params = new URLSearchParams();
+  if (category) params.set("category", category);
+  if (search) params.set("search", search);
+  const res = await fetch(`${T_BASE}/glossary?${params}`);
+  if (!res.ok) return { terms: [], categories: [] };
+  return res.json();
+}
+
+/** Get model info / performance metrics. */
+export async function getModelInfo(): Promise<ModelInfo> {
+  const res = await fetch(`${T_BASE}/model-info`);
+  if (!res.ok) throw new Error("Model info failed");
+  return res.json();
+}
+
+/** Delete a translation job. */
+export async function deleteTranslationJob(
+  jobId: string,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${T_BASE}/job/${jobId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error("Delete failed");
+  return res.json();
+}

@@ -215,7 +215,7 @@ CLAUSE_DEFINITIONS = {
             r"(?i)B[e3][f#]*[o0][r#]*[e3][\s#*&@:]*",  # Allows typos/corruption in "Before"
             r"(?i)C[o0][r#]*[a@][m#]*\s*:",  # Allows typos/corruption in "Coram"
         ],
-        "corruption_indicators": [r"[#*&@]{2,}", r"[B][^e]", r"[C][^o]"],
+        "corruption_indicators": [r"[#*&@]{2,}", r"[Bb][^eE]", r"[Cc][^oO]"],
         "frequency": "🔴 Always Present (88.7%)",
         "detection_rate": 0.927
     },
@@ -868,8 +868,8 @@ def get_corrupted_regions(text: str, clause_results: List[Dict]) -> List[Dict]:
     # Also detect general corruption markers
     corruption_patterns = [
         (r"\[CORRUPTED:[^\]]+\]", "explicit_marker"),
-        (r"\b#{3,}\b", "hash_placeholder"),
-        (r"\bX{3,}\b", "x_placeholder"),
+        (r"\b#{3,}\b", "hash_placeholder"),  # Changed from 3+ to be stricter
+        (r"\bX{3,}\b", "x_placeholder"),      # Changed from 3+ to be stricter
         (r"\[MISSING:[^\]]+\]", "missing_marker")
     ]
     

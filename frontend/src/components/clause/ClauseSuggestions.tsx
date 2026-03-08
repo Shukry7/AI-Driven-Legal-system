@@ -56,6 +56,13 @@ interface MissingClause {
   placeholderText?: string;
   inputType?: 'text' | 'date' | 'currency' | 'signature' | 'number';
   userInputValue?: string;
+  // NEW: Insertion point information
+  insertionPoint?: {
+    lineEstimate?: number;
+    positionDescription?: string;
+    markerBefore?: string;
+    markerAfter?: string;
+  };
 }
 
 interface CorruptedClause {
@@ -416,7 +423,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                       <div
                         key={idx}
                         className={`py-1 px-2 rounded ${
-                          isNew || isReplaced ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 font-medium' : ''
+                          isNew || isReplaced ? 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300' : ''
                         }`}
                       >
                         {line || '\u00A0'}
@@ -978,6 +985,33 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                             </div>
                           ) : (
                             <div className="space-y-4">
+                              {/* Insertion Point Information */}
+                              {clause.insertionPoint && clause.insertionPoint.positionDescription && (
+                                <div className="bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg p-3">
+                                  <div className="flex items-start gap-2">
+                                    <Info className="w-4 h-4 text-blue-600 mt-0.5 flex-shrink-0" />
+                                    <div className="flex-1">
+                                      <p className="text-xs font-semibold text-blue-800 dark:text-blue-200 mb-1">
+                                        📍 Insertion Location
+                                      </p>
+                                      <p className="text-sm text-blue-700 dark:text-blue-300">
+                                        {clause.insertionPoint.positionDescription}
+                                      </p>
+                                      {clause.insertionPoint.lineEstimate && (
+                                        <p className="text-xs text-blue-600 dark:text-blue-400 mt-1">
+                                          Estimated line: ~{clause.insertionPoint.lineEstimate}
+                                        </p>
+                                      )}
+                                      {clause.insertionPoint.markerAfter && (
+                                        <p className="text-xs text-blue-600/70 dark:text-blue-400/70 mt-1">
+                                          Before: {clause.insertionPoint.markerAfter}
+                                        </p>
+                                      )}
+                                    </div>
+                                  </div>
+                                </div>
+                              )}
+                              
                               <div className="bg-card border-2 border-accent/20 rounded-lg p-4">
                                 <div className="flex items-start justify-between mb-3">
                                   <p className="text-xs font-semibold text-muted-foreground uppercase">
