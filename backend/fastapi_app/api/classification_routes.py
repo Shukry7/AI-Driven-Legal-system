@@ -6,8 +6,16 @@ from fastapi.responses import JSONResponse, HTMLResponse
 from pydantic import BaseModel
 from typing import Optional
 import logging
+import sys
+import re
+from pathlib import Path
+
+# Add backend to path for imports
+backend_path = Path(__file__).parent.parent.parent
+sys.path.insert(0, str(backend_path))
 
 from fastapi_app.services.classifier import classifier
+from app.services.pdf_service import pdf_bytes_to_text
 
 logger = logging.getLogger(__name__)
 
@@ -524,37 +532,283 @@ async def classify_text(input_data: TextInput):
 @router.post("/classify/file")
 async def classify_file(file: UploadFile = File(...)):
     """
-    Classify risk for uploaded text file.
+    Classify risk for uploaded file (PDF or TXT).
     
-    Accepts .txt files and performs the same two-stage analysis.
+    Accepts .pdf and .txt files and performs the same two-stage analysis.
+    For PDFs, extracts text automatically with OCR fallback if needed.
     """
     try:
         # Validate file type
-        if not file.filename.endswith('.txt'):
+        if not (file.filename.endswith('.txt') or file.filename.endswith('.pdf')):
             raise HTTPException(
                 status_code=400,
-                detail="Only .txt files are supported"
+                detail="Only .txt and .pdf files are supported"
             )
         
         # Read file content
         content = await file.read()
-        text = content.decode('utf-8')
+        
+        # Extract text based on file type
+        if file.filename.endswith('.pdf'):
+            logger.info(f"Extracting text from PDF: {file.filename}")
+            
+            # Use same PDF extraction as translation section (which works well)
+            ok, raw_text = pdf_bytes_to_text(content)
+            
+            if not ok:
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"PDF extraction failed: {raw_text}"
+                )
+            
+            # Strip formatting markers (same as translation section does)
+            text = re.sub(r"<<F:[^>]+>>", "", raw_text)
+            text = re.sub(r"<</F>>", "", text)
+            text = re.sub(r"<<BOLD>>|<</BOLD>>", "", text)
+            
+            logger.info(f"Successfully extracted {len(text)} characters from PDF")
+        else:
+            # TXT file
+            try:
+                text = content.decode('utf-8')
+            except UnicodeDecodeError:
+                raise HTTPException(
+                    status_code=400,
+                    detail="File encoding not supported. Please use UTF-8 encoded text files."
+                )
         
         if not text.strip():
-            raise HTTPException(status_code=400, detail="File is empty")
+            raise HTTPException(status_code=400, detail="File is empty or text extraction failed")
         
-        logger.info(f"Received file: {file.filename}, {len(text)} characters")
+        logger.info(f"Processing file: {file.filename}, {len(text)} characters")
         
         # Run analysis pipeline
         results = classifier.analyze_text(text)
         
+        # Add the extracted text to the response for display
+        results["document_text"] = text
+        
         return JSONResponse(content=results)
         
-    except UnicodeDecodeError:
-        raise HTTPException(
-            status_code=400,
-            detail="File encoding not supported. Please use UTF-8 encoded text files."
-        )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error in file classification: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# CLASSIFICATION RESULTS MANAGEMENT
+# ═══════════════════════════════════════════════════════════════════════════
+
+# Directory for storing classification results
+RESULTS_DIR = Path(backend_path) / "classification_results"
+RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+
+import json
+import datetime
+from fastapi.responses import FileResponse
+
+
+@router.post("/save")
+async def save_classification(request: dict):
+    """
+    Save classification results for later retrieval.
+    
+    Request body:
+    {
+        "filename": str,
+        "result": ClassificationResult object
+    }
+    """
+    try:
+        filename = request.get("filename", "unknown")
+        result = request.get("result", {})
+        
+        # Generate unique ID
+        timestamp = datetime.datetime.now()
+        result_id = timestamp.strftime("%Y%m%d_%H%M%S") + "_" + filename.replace(" ", "_")[:50]
+        
+        # Save to JSON file
+        result_file = RESULTS_DIR / f"{result_id}.json"
+        with open(result_file, 'w', encoding='utf-8') as f:
+            json.dump({
+                "id": result_id,
+                "filename": filename,
+                "timestamp": timestamp.isoformat(),
+                "result": result
+            }, f, indent=2, ensure_ascii=False)
+        
+        logger.info(f"Saved classification result: {result_id}")
+        return JSONResponse(content={"success": True, "id": result_id})
+    
+    except Exception as e:
+        logger.error(f"Error saving classification: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/recent")
+async def get_recent_classifications():
+    """
+    Get list of recent classification results.
+    
+    Returns last 10 classifications ordered by timestamp (newest first).
+    """
+    try:
+        RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+        
+        classifications = []
+        for result_file in RESULTS_DIR.glob("*.json"):
+            try:
+                with open(result_file, 'r', encoding='utf-8') as f:
+                    data = json.load(f)
+                    result = data.get("result", {})
+                    risk_summary = result.get("risk_summary", {})
+                    
+                    classifications.append({
+                        "id": data.get("id"),
+                        "filename": data.get("filename"),
+                        "timestamp": data.get("timestamp"),
+                        "totalClauses": result.get("total_clauses", 0),
+                        "riskSummary": risk_summary
+                    })
+            except Exception as e:
+                logger.warning(f"Error reading {result_file}: {e}")
+                continue
+        
+        # Sort by timestamp descending
+        classifications.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+        
+        return JSONResponse(content={
+            "success": True,
+            "classifications": classifications[:10]
+        })
+    
+    except Exception as e:
+        logger.error(f"Error loading recent classifications: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/result/{result_id}")
+async def get_classification_result(result_id: str):
+    """
+    Get full classification result by ID.
+    """
+    try:
+        result_file = RESULTS_DIR / f"{result_id}.json"
+        if not result_file.exists():
+            raise HTTPException(status_code=404, detail="Classification result not found")
+        
+        with open(result_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        return JSONResponse(content={
+            "success": True,
+            "result": data.get("result")
+        })
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error loading classification result: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.delete("/delete/{result_id}")
+async def delete_classification(result_id: str):
+    """
+    Delete a saved classification result.
+    """
+    try:
+        result_file = RESULTS_DIR / f"{result_id}.json"
+        if result_file.exists():
+            result_file.unlink()
+            logger.info(f"Deleted classification: {result_id}")
+        
+        return JSONResponse(content={"success": True})
+    
+    except Exception as e:
+        logger.error(f"Error deleting classification: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/export/{result_id}/{format}")
+async def export_classification(result_id: str, format: str):
+    """
+    Export classification result in different formats (pdf, json, txt).
+    """
+    try:
+        result_file = RESULTS_DIR / f"{result_id}.json"
+        if not result_file.exists():
+            raise HTTPException(status_code=404, detail="Classification result not found")
+        
+        with open(result_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        result = data.get("result", {})
+        filename = data.get("filename", "classification")
+        
+        if format == "json":
+            # Export as JSON
+            export_file = RESULTS_DIR / f"{result_id}_export.json"
+            with open(export_file, 'w', encoding='utf-8') as f:
+                json.dump(result, f, indent=2, ensure_ascii=False)
+            
+            return FileResponse(
+                export_file,
+                media_type="application/json",
+                filename=f"{filename}_classification.json"
+            )
+        
+        elif format == "txt":
+            # Export as plain text with clauses
+            export_file = RESULTS_DIR / f"{result_id}_export.txt"
+            with open(export_file, 'w', encoding='utf-8') as f:
+                f.write(f"LEGAL RISK CLASSIFICATION REPORT\n")
+                f.write(f"{'=' * 80}\n\n")
+                f.write(f"Document: {filename}\n")
+                f.write(f"Total Clauses: {result.get('total_clauses', 0)}\n\n")
+                
+                # Risk summary
+                risk_summary = result.get('risk_summary', {})
+                f.write(f"Risk Summary:\n")
+                f.write(f"  High Risk: {risk_summary.get('High', 0)} clauses\n")
+                f.write(f"  Medium Risk: {risk_summary.get('Medium', 0)} clauses\n")
+                f.write(f"  Low Risk: {risk_summary.get('Low', 0)} clauses\n\n")
+                
+                # Clauses
+                f.write(f"{'=' * 80}\n")
+                f.write(f"CLASSIFIED CLAUSES\n")
+                f.write(f"{'=' * 80}\n\n")
+                
+                for clause in result.get('clauses', []):
+                    risk = clause.get('risk', 'Unknown')
+                    confidence = clause.get('confidence', 0)
+                    text = clause.get('text', '')
+                    
+                    f.write(f"[{risk.upper()} RISK - {confidence}% Confidence]\n")
+                    f.write(f"{text}\n")
+                    f.write(f"{'-' * 80}\n\n")
+            
+            return FileResponse(
+                export_file,
+                media_type="text/plain",
+                filename=f"{filename}_classification.txt"
+            )
+        
+        elif format == "pdf":
+            # For PDF, reuse the existing PDF download functionality
+            # Just return the clauses data and let frontend handle it
+            raise HTTPException(
+                status_code=400,
+                detail="PDF export should be done from the workspace view"
+            )
+        
+        else:
+            raise HTTPException(status_code=400, detail=f"Unsupported format: {format}")
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error exporting classification: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp, Home, Database, CheckCheck } from 'lucide-react';
+import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp, Home, Database, CheckCheck, HelpCircle, Play } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -258,7 +258,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     { id: 2, name: 'Identifying clauses', status: 'pending', icon: '🔍' },
     { id: 3, name: 'Validating structure', status: 'pending', icon: '✓' },
     { id: 4, name: 'Checking completeness', status: 'pending', icon: '📋' },
-    { id: 5, name: 'Generating report', status: 'pending', icon: '📊' }
+    { id: 5, name: 'AI is Generating Suggestions...', status: 'pending', icon: '🧠' }
   ];
 
   const [processSteps, setProcessSteps] = useState(steps);
@@ -437,14 +437,10 @@ Judge: [MISSING: Third Judge Signature - Signature required]
           updateStepStatus(4, 'complete');
           updateStepStatus(5, 'processing');
           setProgress(95);
-        }, 7500) as unknown as number);
-        timeoutsRef.ids.push(setTimeout(() => {
-          updateStepStatus(5, 'complete');
-          setProgress(100);
-          setAnalysisComplete(true);
+          // Don't set analyzing to false yet - let predictions complete step 5
           setAnalysisRunning(false);
-          setAnalyzing(false);
-          // clear refs
+          setAnalysisComplete(true);
+          // clear timeout refs since analysis steps are done
           timeoutsRef.ids = [];
 
           // Auto-mode: if predictions came with the response, load them
@@ -457,8 +453,12 @@ Judge: [MISSING: Third Judge Signature - Signature required]
             }
             setSuggestionStatuses(statuses);
             setShowPredictionsPanel(true);
+            // Complete step 5 and analyzing immediately since predictions are already loaded
+            updateStepStatus(5, 'complete');
+            setProgress(100);
+            setAnalyzing(false);
           }
-        }, 10000) as unknown as number);
+        }, 7500) as unknown as number);
       } else {
         console.error('analyzeClauses failed', resp);
       }
@@ -476,6 +476,15 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       .then(cfg => setPredictionConfig(cfg))
       .catch(err => console.warn('Failed to fetch prediction config:', err));
   }, []);
+
+  // ─── Auto-fetch predictions when analysis completes ──────────────────────
+  useEffect(() => {
+    if (analysisComplete && !predictions && savedTextFilename && !predictionsLoading) {
+      // Automatically fetch AI suggestions when analysis completes
+      updateStepStatus(5, 'processing');
+      handleGetAISuggestions(false);
+    }
+  }, [analysisComplete, predictions, savedTextFilename]);
 
   // ─── AI Prediction Handlers ──────────────────────────────────────────────
   const handleGetAISuggestions = async (forceRefresh: boolean = false) => {
@@ -495,9 +504,16 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       }
       setSuggestionStatuses(statuses);
       setShowPredictionsPanel(true);
+      // Complete step 5 when predictions are loaded
+      updateStepStatus(5, 'complete');
+      setProgress(100);
+      setAnalyzing(false);
     } catch (err: any) {
       console.error('Prediction error:', err);
       setPredictionsError(err.message || 'Failed to get AI suggestions');
+      // Still complete step 5 on error to avoid infinite loading
+      updateStepStatus(5, 'complete');
+      setAnalyzing(false);
     } finally {
       setPredictionsLoading(false);
     }
@@ -1662,16 +1678,35 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
       <div className="space-y-6">
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="font-heading text-2xl font-bold text-foreground">
+          <h2 className="font-heading text-2xl font-bold text-foreground flex items-center gap-2">
             Document Analysis
+            <Popover>
+              <PopoverTrigger asChild>
+                <button className="text-muted-foreground hover:text-foreground transition-colors">
+                  <HelpCircle className="w-5 h-5" />
+                </button>
+              </PopoverTrigger>
+              <PopoverContent className="w-80">
+                <div className="space-y-2">
+                  <h4 className="font-semibold text-sm">How it works</h4>
+                  <p className="text-xs text-muted-foreground">
+                    Our AI analyzes your legal document to identify clauses, detect issues, and automatically suggest fixes for missing or corrupted content.
+                  </p>
+                </div>
+              </PopoverContent>
+            </Popover>
           </h2>
-          <p className="text-muted-foreground mt-1">
-            Analyzing: {file.name}
+          <p className="text-muted-foreground mt-1 text-sm">
+            <FileText className="w-4 h-4 inline mr-1" />
+            {file.name}
           </p>
         </div>
         <div className="flex items-center gap-2">
           {!analysisComplete && !analysisRunning && (
-            <Button onClick={startAnalysis}>Start AI Analysis</Button>
+            <Button onClick={startAnalysis} size="lg" className="bg-gradient-to-r from-blue-600 to-violet-600 hover:from-blue-700 hover:to-violet-700">
+              <Play className="w-4 h-4 mr-2" />
+              Start AI Analysis
+            </Button>
           )}
           {analysisComplete && results && (
             <>
@@ -1703,13 +1738,54 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
       </div>
 
       {/* Analysis Progress - shown only when analyzing */}
+      {!analyzing && !analysisComplete && (
+        <Card className="w-full border-dashed border-2">
+          <CardContent className="py-12">
+            <div className="text-center space-y-4">
+              <div className="flex justify-center">
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-blue-100 to-violet-100 dark:from-blue-900 dark:to-violet-900 flex items-center justify-center">
+                  <Brain className="w-8 h-8 text-blue-600 dark:text-blue-400" />
+                </div>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold mb-2">Ready to Analyze</h3>
+                <p className="text-sm text-muted-foreground max-w-md mx-auto">
+                  Click "Start AI Analysis" to begin. The AI will extract text, identify clauses, validate structure, and automatically suggest fixes for any issues.
+                </p>
+              </div>
+              <div className="flex justify-center gap-6 pt-4">
+                <div className="text-center">
+                  <div className="w-12 h-12 rounded-lg bg-green-100 dark:bg-green-900/30 flex items-center justify-center mx-auto mb-2">
+                    <CheckCircle className="w-6 h-6 text-green-600" />
+                  </div>
+                  <p className="text-xs font-medium">Validate Clauses</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-12 h-12 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mx-auto mb-2">
+                    <Brain className="w-6 h-6 text-blue-600" />
+                  </div>
+                  <p className="text-xs font-medium">AI Suggestions</p>
+                </div>
+                <div className="text-center">
+                  <div className="w-12 h-12 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center mx-auto mb-2">
+                    <Download className="w-6 h-6 text-violet-600" />
+                  </div>
+                  <p className="text-xs font-medium">Generate Report</p>
+                </div>
+              </div>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {analyzing && (
-        <Card className="w-full">
+        <Card className="w-full border-blue-200 dark:border-blue-800">
           <CardHeader>
             <CardTitle className="text-lg flex items-center gap-2">
-              <Loader2 className="animate-spin text-accent" />
-              Analysis Progress
+              <Loader2 className="animate-spin text-blue-600" />
+              Analysis in Progress
             </CardTitle>
+            <p className="text-sm text-muted-foreground mt-1">Please wait while the AI processes your document...</p>
           </CardHeader>
           <CardContent className="space-y-4">
             <Progress value={progress} className="w-full" />
@@ -1747,11 +1823,23 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
       )}
 
       {/* Analysis Summary - Horizontal Layout */}
-      {analysisComplete && results && (
+      {analysisComplete && results && predictions && (
         <>
         <Card>
           <CardHeader>
-            <CardTitle className="text-lg">Analysis Summary</CardTitle>
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <CheckCircle className="w-5 h-5 text-green-600" />
+                  Analysis Complete
+                </CardTitle>
+                <p className="text-sm text-muted-foreground mt-1">Review the findings below and accept or edit AI suggestions</p>
+              </div>
+              <Badge variant="secondary" className="text-xs">
+                <CheckCheck className="w-3 h-3 mr-1" />
+                Analysis Complete
+              </Badge>
+            </div>
           </CardHeader>
           <CardContent>
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
@@ -1816,32 +1904,20 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-4 mt-6">
+            <div className="mt-6">
               <Dialog open={showClauseDetailsDialog} onOpenChange={setShowClauseDetailsDialog}>
                 <DialogTrigger asChild>
                   <Button variant="outline" size="lg" className="w-full">
                     <List className="w-5 h-5 mr-2" />
-                    View Clause Details
+                    View Detailed Clause Breakdown
                   </Button>
                 </DialogTrigger>
                 {renderClauseDetailsDialog()}
               </Dialog>
-              {/* AI Suggestions Button (Manual mode) */}
-              {!predictions && (
-                <Button
-                  size="lg"
-                  onClick={() => handleGetAISuggestions(false)}
-                  disabled={predictionsLoading}
-                  className="w-full bg-violet-600 hover:bg-violet-700 text-white"
-                >
-                  {predictionsLoading ? (
-                    <Loader2 className="w-5 h-5 mr-2 animate-spin" />
-                  ) : (
-                    <Sparkles className="w-5 h-5 mr-2" />
-                  )}
-                  {predictionsLoading ? 'Getting AI Suggestions...' : 'Get AI Suggestions'}
-                </Button>
-              )}
+              <p className="text-xs text-muted-foreground text-center mt-2">
+                <Info className="w-3 h-3 inline mr-1" />
+                Click to see a detailed breakdown of all present, missing, and corrupted clauses
+              </p>
             </div>
           </CardContent>
         </Card>
@@ -1895,28 +1971,35 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
 
       {/* ─── AI Suggestions Panel ─────────────────────────────────────────── */}
       {analysisComplete && predictions && predictions.total_missing > 0 && (
-        <Card className="border-violet-200 dark:border-violet-800">
-          <CardHeader className="pb-3">
+        <Card className="border-violet-200 dark:border-violet-800 shadow-md">
+          <CardHeader className="pb-3 bg-gradient-to-r from-violet-50 to-purple-50 dark:from-violet-950/30 dark:to-purple-950/30">
             <div className="flex items-center justify-between">
-              <CardTitle className="text-lg flex items-center gap-2">
-                <Brain className="w-5 h-5 text-violet-600" />
-                AI Clause Suggestions
-                <Badge variant="outline" className="ml-2 text-violet-600 border-violet-300">
-                  {predictions.total_missing} suggestions
-                </Badge>
-                {predictions.source && (
-                  <Badge variant="secondary" className="text-xs">
-                    {predictions.source === 'cache' ? 'cached' : predictions.source === 'llm' ? 'AI generated' : predictions.source}
+              <div>
+                <CardTitle className="text-lg flex items-center gap-2">
+                  <Brain className="w-5 h-5 text-violet-600" />
+                  AI Clause Suggestions
+                  <Badge variant="outline" className="ml-2 text-violet-600 border-violet-300">
+                    {predictions.total_missing} suggestions
                   </Badge>
-                )}
-              </CardTitle>
+                  {predictions.source && (
+                    <Badge variant="secondary" className="text-xs">
+                      {predictions.source === 'cache' ? '⚡ cached' : predictions.source === 'llm' ? '🤖 AI generated' : predictions.source}
+                    </Badge>
+                  )}
+                </CardTitle>
+                <p className="text-xs text-muted-foreground mt-1 flex items-center gap-1">
+                  <Info className="w-3 h-3" />
+                  Review each suggestion and choose to accept, edit, or reject
+                </p>
+              </div>
               <div className="flex items-center gap-2">
                 <Button
                   variant="ghost"
                   size="sm"
                   onClick={() => handleGetAISuggestions(true)}
                   disabled={predictionsLoading}
-                  title="Refresh AI suggestions"
+                  title="Refresh AI suggestions to get new recommendations"
+                  className="hover:bg-violet-100 dark:hover:bg-violet-900/30"
                 >
                   <RefreshCw className={`w-4 h-4 ${predictionsLoading ? 'animate-spin' : ''}`} />
                 </Button>
@@ -1924,6 +2007,8 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                   variant="ghost"
                   size="sm"
                   onClick={() => setShowPredictionsPanel(!showPredictionsPanel)}
+                  title={showPredictionsPanel ? 'Collapse suggestions panel' : 'Expand suggestions panel'}
+                  className="hover:bg-violet-100 dark:hover:bg-violet-900/30"
                 >
                   {showPredictionsPanel ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
                 </Button>
@@ -1933,11 +2018,11 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
             {(() => {
               const stats = getPredictionStats();
               return stats.total > 0 ? (
-                <div className="flex gap-4 mt-2 text-xs">
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-amber-400 inline-block" /> {stats.pending} pending</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-green-500 inline-block" /> {stats.accepted} accepted</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-blue-500 inline-block" /> {stats.edited} edited</span>
-                  <span className="flex items-center gap-1"><span className="w-2 h-2 rounded-full bg-red-500 inline-block" /> {stats.rejected} rejected</span>
+                <div className="flex flex-wrap gap-4 mt-3 text-xs bg-white dark:bg-slate-900 p-3 rounded-lg border">
+                  <span className="flex items-center gap-1.5 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-amber-400 inline-block" /> {stats.pending} Pending Review</span>
+                  <span className="flex items-center gap-1.5 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-green-500 inline-block" /> {stats.accepted} Accepted</span>
+                  <span className="flex items-center gap-1.5 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-blue-500 inline-block" /> {stats.edited} Edited</span>
+                  <span className="flex items-center gap-1.5 font-medium"><span className="w-2.5 h-2.5 rounded-full bg-red-500 inline-block" /> {stats.rejected} Rejected</span>
                 </div>
               ) : null;
             })()}
@@ -1970,11 +2055,25 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                               variant={suggestion.predictability === 'FULL' ? 'default' : 'secondary'}
                               className="text-xs"
                             >
-                              {suggestion.predictability === 'FULL' ? 'Full Prediction' : 'Partial'}
+                              {suggestion.predictability === 'FULL' ? '✓ Full Prediction' : 'Partial'}
                             </Badge>
-                            <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${confidenceBg} ${confidenceColor}`}>
-                              {suggestion.confidence}% confidence
-                            </span>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button className={`text-xs font-semibold px-2 py-0.5 rounded-full ${confidenceBg} ${confidenceColor} hover:opacity-80 transition-opacity cursor-help`}>
+                                  {suggestion.confidence}% confidence
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="w-64">
+                                <div className="space-y-2">
+                                  <h4 className="font-semibold text-sm">Confidence Score</h4>
+                                  <p className="text-xs text-muted-foreground">
+                                    {suggestion.confidence >= 80 ? 'High confidence - This suggestion is highly reliable based on similar documents.' : 
+                                     suggestion.confidence >= 50 ? 'Medium confidence - Review this suggestion carefully before accepting.' :
+                                     'Low confidence - Please verify this suggestion thoroughly.'}
+                                  </p>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
                           </div>
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Freq: {suggestion.frequency} | Position: {suggestion.position}
@@ -2023,30 +2122,38 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
 
                       {/* Action buttons */}
                       {status === 'pending' && !isEditing && (
-                        <div className="flex gap-2 pt-1">
-                          <Button
-                            size="sm"
-                            onClick={() => handleAcceptSuggestion(clauseKey)}
-                            className="flex-1 bg-green-600 hover:bg-green-700 text-white"
-                          >
-                            <CheckCircle className="w-3 h-3 mr-1" /> Accept
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="default"
-                            onClick={() => handleEditSuggestion(clauseKey)}
-                            className="flex-1"
-                          >
-                            <Edit3 className="w-3 h-3 mr-1" /> Edit
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="destructive"
-                            onClick={() => handleRejectSuggestion(clauseKey)}
-                            className="flex-1"
-                          >
-                            <XCircle className="w-3 h-3 mr-1" /> Reject
-                          </Button>
+                        <div className="space-y-2 pt-2">
+                          <div className="flex gap-2">
+                            <Button
+                              size="sm"
+                              onClick={() => handleAcceptSuggestion(clauseKey)}
+                              className="flex-1 bg-green-600 hover:bg-green-700 text-white shadow-sm"
+                              title="Accept this suggestion as-is"
+                            >
+                              <CheckCircle className="w-3 h-3 mr-1" /> Accept
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="default"
+                              onClick={() => handleEditSuggestion(clauseKey)}
+                              className="flex-1 shadow-sm"
+                              title="Modify this suggestion before accepting"
+                            >
+                              <Edit3 className="w-3 h-3 mr-1" /> Edit
+                            </Button>
+                            <Button
+                              size="sm"
+                              variant="destructive"
+                              onClick={() => handleRejectSuggestion(clauseKey)}
+                              className="flex-1 shadow-sm"
+                              title="Reject this suggestion"
+                            >
+                              <XCircle className="w-3 h-3 mr-1" /> Reject
+                            </Button>
+                          </div>
+                          <p className="text-xs text-muted-foreground text-center">
+                            💡 Tip: Edit if you want to customize the suggestion
+                          </p>
                         </div>
                       )}
                     </div>
@@ -2085,11 +2192,16 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
 
       {/* No Missing Predictable Clauses */}
       {predictions && predictions.total_missing === 0 && (
-        <Card className="border-green-200 dark:border-green-800">
-          <CardContent className="py-4">
-            <div className="flex items-center gap-3 text-green-600">
-              <CheckCircle className="w-5 h-5" />
-              <p className="font-semibold text-sm">All predictable clauses are present in this document!</p>
+        <Card className="border-green-200 dark:border-green-800 bg-green-50/50 dark:bg-green-950/20">
+          <CardContent className="py-6">
+            <div className="flex items-center gap-4 text-green-600">
+              <div className="w-12 h-12 rounded-full bg-green-100 dark:bg-green-900/50 flex items-center justify-center">
+                <CheckCircle className="w-6 h-6" />
+              </div>
+              <div>
+                <p className="font-semibold text-base">🎉 All clauses are present!</p>
+                <p className="text-sm text-muted-foreground mt-1">Your document contains all the required predictable clauses. No AI suggestions needed.</p>
+              </div>
             </div>
           </CardContent>
         </Card>
@@ -2098,14 +2210,23 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
       {/* Predictions Loading */}
       {predictionsLoading && !predictions && (
         <Card className="border-violet-200 dark:border-violet-800">
-          <CardContent className="py-6">
-            <div className="flex flex-col items-center gap-3">
+          <CardContent className="py-8">
+            <div className="flex flex-col items-center gap-4">
               <div className="relative">
-                <Brain className="w-10 h-10 text-violet-400 animate-pulse" />
-                <Sparkles className="w-4 h-4 text-violet-600 absolute -top-1 -right-1 animate-bounce" />
+                <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-100 to-purple-100 dark:from-violet-900 dark:to-purple-900 flex items-center justify-center">
+                  <Brain className="w-8 h-8 text-violet-600 animate-pulse" />
+                </div>
+                <Sparkles className="w-5 h-5 text-violet-600 absolute -top-1 -right-1 animate-bounce" />
               </div>
-              <p className="font-semibold text-sm text-violet-600">AI is analyzing missing clauses...</p>
-              <p className="text-xs text-muted-foreground">Extracting context and generating suggestions</p>
+              <div className="text-center space-y-2">
+                <p className="font-semibold text-base text-violet-600">AI is Generating Suggestions...</p>
+                <p className="text-sm text-muted-foreground max-w-md">Analyzing document context and generating intelligent clause suggestions based on legal precedents</p>
+              </div>
+              <div className="flex gap-2 mt-2">
+                <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }}></div>
+                <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }}></div>
+                <div className="w-2 h-2 bg-violet-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></div>
+              </div>
               <Loader2 className="w-5 h-5 animate-spin text-violet-500" />
             </div>
           </CardContent>

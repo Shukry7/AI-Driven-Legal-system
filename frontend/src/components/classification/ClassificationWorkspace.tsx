@@ -5,6 +5,8 @@ import {
   TrendingUp,
   Loader2,
   Download,
+  Eye,
+  Save,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import jsPDF from "jspdf";
@@ -32,6 +34,8 @@ import {
   type ClassificationResult,
 } from "@/config/api";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { useClassification } from "./ClassificationContext";
+import { useToast } from "@/hooks/use-toast";
 
 // Local type for normalized clause results (with lowercase risk)
 interface NormalizedClause extends Omit<ClauseResult, "risk"> {
@@ -50,24 +54,36 @@ interface FileData {
 
 interface ClassificationWorkspaceProps {
   file?: File;
-  fileData?: FileData;
-  onComplete: () => void;
+  text?: string;
+  mode?: "document" | "text";
+  existingResult?: ClassificationResult | null;
+  filename: string;
+  onComplete: (result: ClassificationResult) => void;
+  onViewSummary: () => void;
   onCancel: () => void;
 }
 
 export function ClassificationWorkspace({
   file,
-  fileData,
+  text,
+  mode = "document",
+  existingResult,
+  filename,
   onComplete,
+  onViewSummary,
   onCancel,
 }: ClassificationWorkspaceProps) {
-  const fileName = file ? file.name : fileData?.filename || "Unknown Document";
-  const fileDate =
-    fileData?.uploadDate || new Date().toISOString().split("T")[0];
+  const fileName = filename || "Unknown Document";
+  const fileDate = new Date().toISOString().split("T")[0];
+  const { saveClassification } = useClassification();
+  const { toast } = useToast();
 
   const [documentText, setDocumentText] = useState<string>("");
   const [clauses, setClauses] = useState<NormalizedClause[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(!existingResult);
+  const [saving, setSaving] = useState(false);
+  const [classificationResult, setClassificationResult] =
+    useState<ClassificationResult | null>(existingResult || null);
   const [error, setError] = useState<string | null>(null);
   const [riskStats, setRiskStats] = useState({
     high: 0,
@@ -82,9 +98,32 @@ export function ClassificationWorkspace({
   );
   const [dialogOpen, setDialogOpen] = useState(false);
 
-  // Fetch classification on component mount
+  // Fetch classification on component mount or load existing result
   useEffect(() => {
-    const performClassification = async () => {
+    const loadClassification = async () => {
+      // If we have an existing result (loaded from recent), use it
+      if (existingResult) {
+        setLoading(false);
+        const normalizedClauses: NormalizedClause[] =
+          existingResult.clauses.map((clause) => ({
+            ...clause,
+            risk: clause.risk.toLowerCase() as "high" | "medium" | "low",
+          }));
+        setClauses(normalizedClauses);
+        setDocumentText(existingResult.document_text || "");
+        setRiskStats({
+          high: existingResult.risk_summary.High,
+          medium: existingResult.risk_summary.Medium,
+          low: existingResult.risk_summary.Low,
+          total: existingResult.total_clauses,
+        });
+        setClassificationResult(existingResult);
+        return;
+      }
+
+      // Otherwise, perform new classification
+      if (!file && !text) return;
+
       setLoading(true);
       setError(null);
 
@@ -92,24 +131,32 @@ export function ClassificationWorkspace({
         let result: ClassificationResult;
         let textContent = "";
 
-        // If we have fileData with extracted text, use that
-        if (fileData?.extractedText) {
-          textContent = fileData.extractedText;
+        // Handle text mode
+        if (mode === "text" && text) {
+          textContent = text;
           setDocumentText(textContent);
           result = await classifyText(textContent);
         }
-        // If we have a file, classify it
+        // Handle file mode
         else if (file) {
-          // For now, read the file and send as text
-          // In production, you might want to use classifyFile for PDFs
-          textContent = await file.text();
+          result = await classifyFile(file);
+
+          // Use extracted text from backend if available (PDF case)
+          if (result.document_text) {
+            textContent = result.document_text;
+          }
+          // For text files, read locally as fallback
+          else if (file.type === "text/plain" || file.name.endsWith(".txt")) {
+            textContent = await file.text();
+          } else {
+            throw new Error("No text content available for display");
+          }
+
           setDocumentText(textContent);
-          result = await classifyText(textContent);
         } else {
           throw new Error("No file or text provided");
         }
 
-        // Update state with results
         // Normalize risk values to lowercase for UI consistency
         const normalizedClauses: NormalizedClause[] = result.clauses.map(
           (clause) => ({
@@ -125,6 +172,8 @@ export function ClassificationWorkspace({
           low: result.risk_summary.Low,
           total: result.total_clauses,
         });
+        setClassificationResult(result);
+        onComplete(result);
       } catch (err: any) {
         console.error("Classification error:", err);
         setError(
@@ -136,12 +185,33 @@ export function ClassificationWorkspace({
       }
     };
 
-    performClassification();
-  }, [file, fileData]);
+    loadClassification();
+  }, [file, text, mode, existingResult]);
 
   const handleClauseClick = (clause: NormalizedClause) => {
     setSelectedClause(clause);
     setDialogOpen(true);
+  };
+
+  const handleSave = async () => {
+    if (!classificationResult) return;
+
+    setSaving(true);
+    try {
+      await saveClassification(filename, classificationResult);
+      toast({
+        title: "Success",
+        description: "Classification saved successfully",
+      });
+    } catch (err: any) {
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: err.message || "Failed to save classification",
+      });
+    } finally {
+      setSaving(false);
+    }
   };
 
   const getHighlightClass = (risk: string) => {
@@ -513,11 +583,9 @@ export function ClassificationWorkspace({
         <div className="flex items-center text-muted-foreground mt-2">
           <FileText className="w-4 h-4 mr-2" />
           <span className="text-sm">{fileName}</span>
-          {fileData && (
-            <span className="text-xs ml-3 text-muted-foreground">
-              • Uploaded: {fileDate} • {fileData.pages} pages
-            </span>
-          )}
+          <span className="text-xs ml-3 text-muted-foreground">
+            • {fileDate}
+          </span>
         </div>
       </div>
 
@@ -658,8 +726,30 @@ export function ClassificationWorkspace({
           <Download className="w-4 h-4" />
           Download PDF
         </Button>
-        <Button onClick={onComplete} className="flex-1">
-          Save Analysis
+        <Button
+          onClick={handleSave}
+          disabled={saving || !classificationResult}
+          className="flex-1 gap-2"
+        >
+          {saving ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Saving...
+            </>
+          ) : (
+            <>
+              <Save className="w-4 h-4" />
+              Save Result
+            </>
+          )}
+        </Button>
+        <Button
+          onClick={onViewSummary}
+          disabled={!classificationResult}
+          className="flex-1 gap-2"
+        >
+          <Eye className="w-4 h-4" />
+          View Summary
         </Button>
       </div>
 
