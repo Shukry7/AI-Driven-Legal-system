@@ -1,14 +1,18 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
+import { toast } from 'sonner';
 import LineageMap from './LineageMap';
 import ErrorBoundary from './ErrorBoundry';
 import CaseDetailsPanel from './CaseDetailsPanel';
+import FileSelectionDialog from './FileSelectionDialog';
+import ImportDialog from './ImportDialog';
 import { 
   analyzeAct, 
   uploadAndAnalyzeLineage,
   convertSearchResultsToCaseNodes,
   createEdgesFromSearchResults,
   type ActSearchResultItem,
-  searchExactAct
+  searchExactAct,
+  listUploadedFiles
 } from '@/config/api';
 import type { CaseNode, ActTreatment } from '@/config/api';
 import { 
@@ -23,7 +27,13 @@ import {
   Table as TableIcon,
   Scale,
   ChartNetwork,
-  Loader2
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Info,
+  XCircle,
+  FolderOpen,
+  FileUp
 } from 'lucide-react';
 import { Button } from '../ui/button';
 
@@ -38,14 +48,58 @@ export default function LegalLineageModule() {
   const [processedFilename, setProcessedFilename] = useState<string>('');
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [searchResults, setSearchResults] = useState<ActSearchResultItem[]>([]);
-  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [availableFiles, setAvailableFiles] = useState<string[]>([]);
+  
+  // Dialog states
+  const [showFileSelection, setShowFileSelection] = useState(false);
+  const [showImportDialog, setShowImportDialog] = useState(false);
 
-  // Function to process Faizal's PDF (hardcoded filename)
-  async function handleProcessPDF() {
-    const filename = 'SC_CHC APPEAL.pdf'; // Faizal's PDF filename
+  // Check for available files in uploads folder on component mount
+  useEffect(() => {
+    checkAvailableFiles();
+  }, []);
+
+  // Function to check available files
+  const checkAvailableFiles = async () => {
+    try {
+      const files = await listUploadedFiles();
+      setAvailableFiles(files);
+    } catch (error) {
+      console.error('Error checking available files:', error);
+    }
+  };
+
+  // Function to handle Process button click
+  const handleProcessClick = async () => {
+    const files = await listUploadedFiles();
+    setAvailableFiles(files);
     
+    if (files.length === 0) {
+      toast.warning('No files available', {
+        description: 'Please import a file first',
+        icon: <Info className="h-4 w-4" />,
+      });
+      return;
+    }
+    
+    if (files.length === 1) {
+      // Auto-process the single file
+      await handleProcessPDF(files[0]);
+    } else {
+      // Show selection dialog for multiple files
+      setShowFileSelection(true);
+    }
+  };
+
+  // Function to process selected PDF
+  async function handleProcessPDF(filename: string) {
     setProcessing(true);
     setView('table');
+    
+    const toastId = toast.loading('Processing PDF file...', {
+      description: `Analyzing ${filename}`,
+    });
+    
     try {
       const result = await analyzeAct(filename);
       setActsList(result.nodes);
@@ -54,21 +108,33 @@ export default function LegalLineageModule() {
       setGraphNodes([]);
       setGraphEdges([]);
       setSearchResults([]);
-    } catch (error) {
+      
+      toast.success('PDF processed successfully!', {
+        id: toastId,
+        description: `Found ${result.nodes.length} acts in ${result.filename}`,
+        icon: <CheckCircle2 className="h-4 w-4" />,
+      });
+    } catch (error: any) {
       console.error('Error processing PDF:', error);
+      toast.error('Failed to process PDF', {
+        id: toastId,
+        description: error.message || 'An unexpected error occurred',
+        icon: <XCircle className="h-4 w-4" />,
+      });
     } finally {
       setProcessing(false);
     }
   }
 
-  // Function to handle file upload and analysis
-  async function handleFileUpload(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  // Function to handle file upload
+  async function handleFileUpload(file: File) {
     setUploadedFile(file);
     setProcessing(true);
     setView('table');
+
+    const toastId = toast.loading('Uploading and analyzing file...', {
+      description: file.name,
+    });
 
     try {
       const result = await uploadAndAnalyzeLineage(file);
@@ -78,17 +144,51 @@ export default function LegalLineageModule() {
       setGraphNodes([]);
       setGraphEdges([]);
       setSearchResults([]);
-    } catch (error) {
+      
+      // Refresh available files list
+      await checkAvailableFiles();
+      
+      toast.success('File uploaded and analyzed successfully!', {
+        id: toastId,
+        description: `Found ${result.nodes.length} acts in ${result.filename}`,
+        icon: <CheckCircle2 className="h-4 w-4" />,
+      });
+    } catch (error: any) {
       console.error('Error uploading file:', error);
+      toast.error('Failed to upload and analyze file', {
+        id: toastId,
+        description: error.message || 'An unexpected error occurred',
+        icon: <XCircle className="h-4 w-4" />,
+      });
     } finally {
       setProcessing(false);
     }
   }
 
-  // Handle viewing a specific act in the graph - now with search
+  // Handle Google Drive import (placeholder)
+  const handleDriveImport = () => {
+    toast.info('Google Drive integration coming soon', {
+      description: 'This feature will be available in the next update',
+    });
+    setShowImportDialog(false);
+  };
+
+  // Handle link import (placeholder)
+  const handleLinkImport = () => {
+    toast.info('Link import coming soon', {
+      description: 'This feature will be available in the next update',
+    });
+    setShowImportDialog(false);
+  };
+
+  // Handle viewing a specific act in the graph
   async function handleViewAct(act: CaseNode) {
     setSelectedAct(act);
     setSearchLoading(true);
+    
+    const toastId = toast.loading('Searching for similar acts...', {
+      description: `Looking for "${act.title}" in database`,
+    });
     
     try {
       // Use EXACT search only - no fuzzy matching
@@ -102,12 +202,33 @@ export default function LegalLineageModule() {
       setGraphNodes(nodes);
       setGraphEdges(edges);
       setView('map');
-    } catch (error) {
+      
+      if (searchResponse.results.length > 0) {
+        toast.success(`Found ${searchResponse.results.length} similar acts`, {
+          id: toastId,
+          description: `Displaying lineage map with ${nodes.length - 1} related cases`,
+          icon: <CheckCircle2 className="h-4 w-4" />,
+        });
+      } else {
+        toast.info('No similar acts found', {
+          id: toastId,
+          description: 'Displaying single act view',
+          icon: <Info className="h-4 w-4" />,
+        });
+      }
+    } catch (error: any) {
       console.error('Error searching for exact act:', error);
+      
       // Fallback to single node view if search fails
       setGraphNodes([act]);
       setGraphEdges([]);
       setView('map');
+      
+      toast.error('Failed to search for similar acts', {
+        id: toastId,
+        description: error.message || 'Displaying single act view',
+        icon: <XCircle className="h-4 w-4" />,
+      });
     } finally {
       setSearchLoading(false);
     }
@@ -116,11 +237,25 @@ export default function LegalLineageModule() {
   // Handle clicking on a graph node
   function handleNodeSelect(node: CaseNode) {
     setSelectedAct(node);
+    toast.info(`Selected: ${node.title}`, {
+      description: `Node ID: ${node.id}`,
+      duration: 2000,
+    });
   }
 
-  // Trigger file input click
-  function triggerFileUpload() {
-    fileInputRef.current?.click();
+  // Handle export graph
+  function handleExportGraph() {
+    try {
+      const evt = new CustomEvent('exportGraph');
+      window.dispatchEvent(evt);
+      toast.success('Exporting graph...', {
+        description: 'Your download will start shortly',
+      });
+    } catch (error: any) {
+      toast.error('Failed to export graph', {
+        description: error.message || 'An unexpected error occurred',
+      });
+    }
   }
 
   // Get treatment color class
@@ -136,6 +271,23 @@ export default function LegalLineageModule() {
 
   return (
     <div className="min-h-screen bg-bg-primary">
+      {/* Dialogs */}
+      <FileSelectionDialog
+        isOpen={showFileSelection}
+        onClose={() => setShowFileSelection(false)}
+        files={availableFiles}
+        onSelect={handleProcessPDF}
+        title="Select a PDF file to process"
+      />
+
+      <ImportDialog
+        isOpen={showImportDialog}
+        onClose={() => setShowImportDialog(false)}
+        onFileSelect={handleFileUpload}
+        onDriveImport={handleDriveImport}
+        onLinkImport={handleLinkImport}
+      />
+
       <div className="relative z-10 max-w-7xl mx-auto p-6">
         {/* Hero Section */}
         <div className="mb-8 p-8 rounded-2xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg shadow-blue-100/30">
@@ -155,17 +307,18 @@ export default function LegalLineageModule() {
           <div className="flex justify-center gap-4">
             {/* Process uploaded file button */}
             <Button
-              onClick={handleProcessPDF}
+              onClick={handleProcessClick}
               disabled={processing}
+              className="min-w-[200px]"
             >
               {processing ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
                   Processing...
                 </>
               ) : (
                 <>
-                  <FileText className="w-5 h-5" />
+                  <FolderOpen className="w-5 h-5 mr-2" />
                   Process uploaded file
                 </>
               )}
@@ -173,20 +326,22 @@ export default function LegalLineageModule() {
 
             {/* Import file button */}
             <Button
-              onClick={triggerFileUpload}
+              onClick={() => setShowImportDialog(true)}
               disabled={processing}
-              variant="outline"
+              variant="secondary"
             >
-              <Upload className="w-5 h-5" />
-              Import file
+              {processing ? (
+                <>
+                  <Loader2 className="w-5 h-5 mr-2 animate-spin" />
+                  Uploading...
+                </>
+              ) : (
+                <>
+                  <FileUp className="w-5 h-5 mr-2" />
+                  Import file
+                </>
+              )}
             </Button>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf"
-              onChange={handleFileUpload}
-              className="hidden"
-            />
           </div>
 
           {processedFilename && !processing && (
@@ -194,7 +349,7 @@ export default function LegalLineageModule() {
               <CircleCheckBig className="h-5 w-5 text-primary" />
               <span>
                 Processed: {processedFilename}
-                {uploadedFile && ` (${uploadedFile.name})`}
+                {uploadedFile && ` (uploaded: ${uploadedFile.name})`}
               </span>
             </div>
           )}
@@ -248,10 +403,10 @@ export default function LegalLineageModule() {
                     <p className="text-sm text-slate-600">
                       {uploadedFile 
                         ? `Uploading and analyzing: ${uploadedFile.name}...` 
-                        : 'Extracting act treatments...'}
+                        : 'Processing file...'}
                     </p>
                     <div className="mt-3 w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-gradient-to-r from-indigo-500 to-teal-500 animate-progress"></div>
+                      <div className="h-full bg-gradient-to-r from-indigo-500 to-teal-500 animate-ping"></div>
                     </div>
                   </div>
                 </div>
@@ -268,6 +423,11 @@ export default function LegalLineageModule() {
                       Acts Found ({actsList.length})
                     </h3>
                   </div>
+                  {actsList.length > 0 && (
+                    <span className="text-xs text-slate-500">
+                      Click View to see lineage
+                    </span>
+                  )}
                 </div>
                 
                 {actsList.length > 0 ? (
@@ -400,10 +560,7 @@ export default function LegalLineageModule() {
                 </h3>
                 <div className="space-y-3">
                   <button
-                    onClick={() => {
-                      const evt = new CustomEvent('exportGraph');
-                      window.dispatchEvent(evt);
-                    }}
+                    onClick={handleExportGraph}
                     className="w-full p-4 bg-gradient-to-r from-white to-slate-50 border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-lg transition-all duration-300 group"
                   >
                     <div className="flex items-center gap-3">
@@ -417,7 +574,14 @@ export default function LegalLineageModule() {
                     </div>
                   </button>
                   
-                  <button className="w-full p-4 bg-gradient-to-r from-white to-slate-50 border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-lg transition-all duration-300 group">
+                  <button 
+                    onClick={() => {
+                      toast.info('Share feature coming soon', {
+                        description: 'This feature will be available in the next update',
+                      });
+                    }}
+                    className="w-full p-4 bg-gradient-to-r from-white to-slate-50 border border-slate-200 rounded-xl hover:border-indigo-300 hover:shadow-lg transition-all duration-300 group"
+                  >
                     <div className="flex items-center gap-3">
                       <div className="p-2 bg-gradient-to-r from-amber-100 to-orange-100 rounded-lg group-hover:scale-110 transition-transform">
                         <Share2 className="w-5 h-5 text-amber-600" />
