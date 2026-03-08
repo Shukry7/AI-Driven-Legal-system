@@ -76,6 +76,7 @@ export default function LegalLineageModule() {
     
     if (files.length === 0) {
       toast.warning('No files available', {
+        position: 'top-right',
         description: 'Please import a file first',
         icon: <Info className="h-4 w-4" />,
       });
@@ -110,16 +111,18 @@ export default function LegalLineageModule() {
       setSearchResults([]);
       
       toast.success('PDF processed successfully!', {
+        position: 'top-right',
         id: toastId,
         description: `Found ${result.nodes.length} acts in ${result.filename}`,
-        icon: <CheckCircle2 className="h-4 w-4" />,
+        icon: <CheckCircle2 className="text-green-500 h-4 w-4" />,
       });
     } catch (error: any) {
       console.error('Error processing PDF:', error);
       toast.error('Failed to process PDF', {
+        position: 'top-right',
         id: toastId,
         description: error.message || 'An unexpected error occurred',
-        icon: <XCircle className="h-4 w-4" />,
+        icon: <XCircle className="text-red-500 h-4 w-4" />,
       });
     } finally {
       setProcessing(false);
@@ -149,16 +152,18 @@ export default function LegalLineageModule() {
       await checkAvailableFiles();
       
       toast.success('File uploaded and analyzed successfully!', {
+        position: 'top-right',
         id: toastId,
         description: `Found ${result.nodes.length} acts in ${result.filename}`,
-        icon: <CheckCircle2 className="h-4 w-4" />,
+        icon: <CheckCircle2 className="text-green-500 h-4 w-4" />,
       });
     } catch (error: any) {
       console.error('Error uploading file:', error);
       toast.error('Failed to upload and analyze file', {
+        position: 'top-right',
         id: toastId,
         description: error.message || 'An unexpected error occurred',
-        icon: <XCircle className="h-4 w-4" />,
+        icon: <XCircle className="text-red-500 h-4 w-4" />,
       });
     } finally {
       setProcessing(false);
@@ -168,6 +173,7 @@ export default function LegalLineageModule() {
   // Handle Google Drive import (placeholder)
   const handleDriveImport = () => {
     toast.info('Google Drive integration coming soon', {
+      position: 'top-right',
       description: 'This feature will be available in the next update',
     });
     setShowImportDialog(false);
@@ -176,6 +182,7 @@ export default function LegalLineageModule() {
   // Handle link import (placeholder)
   const handleLinkImport = () => {
     toast.info('Link import coming soon', {
+      position: 'top-right',
       description: 'This feature will be available in the next update',
     });
     setShowImportDialog(false);
@@ -187,6 +194,7 @@ export default function LegalLineageModule() {
     setSearchLoading(true);
     
     const toastId = toast.loading('Searching for similar acts...', {
+      position: 'top-right',
       description: `Looking for "${act.title}" in database`,
     });
     
@@ -205,12 +213,14 @@ export default function LegalLineageModule() {
       
       if (searchResponse.results.length > 0) {
         toast.success(`Found ${searchResponse.results.length} similar acts`, {
+          position: 'top-right',
           id: toastId,
           description: `Displaying lineage map with ${nodes.length - 1} related cases`,
-          icon: <CheckCircle2 className="h-4 w-4" />,
+          icon: <CheckCircle2 className="text-green-500 h-4 w-4" />,
         });
       } else {
         toast.info('No similar acts found', {
+          position: 'top-right',
           id: toastId,
           description: 'Displaying single act view',
           icon: <Info className="h-4 w-4" />,
@@ -225,9 +235,10 @@ export default function LegalLineageModule() {
       setView('map');
       
       toast.error('Failed to search for similar acts', {
+        position: 'top-right',
         id: toastId,
         description: error.message || 'Displaying single act view',
-        icon: <XCircle className="h-4 w-4" />,
+        icon: <XCircle className="text-red-500 h-4 w-4" />,
       });
     } finally {
       setSearchLoading(false);
@@ -238,6 +249,7 @@ export default function LegalLineageModule() {
   function handleNodeSelect(node: CaseNode) {
     setSelectedAct(node);
     toast.info(`Selected: ${node.title}`, {
+      position: 'top-right',
       description: `Node ID: ${node.id}`,
       duration: 2000,
     });
@@ -249,10 +261,12 @@ export default function LegalLineageModule() {
       const evt = new CustomEvent('exportGraph');
       window.dispatchEvent(evt);
       toast.success('Exporting graph...', {
+        position: 'top-right',
         description: 'Your download will start shortly',
       });
     } catch (error: any) {
       toast.error('Failed to export graph', {
+        position: 'top-right',
         description: error.message || 'An unexpected error occurred',
       });
     }
@@ -386,10 +400,10 @@ export default function LegalLineageModule() {
               <div className="mb-6 p-6 bg-gradient-to-r from-indigo-50 to-teal-50/50 backdrop-blur-sm border border-indigo-100 rounded-2xl shadow-sm animate-pulse-subtle">
                 <div className="flex items-center gap-4">
                   <div className="relative">
-                    <div className="w-14 h-14 rounded-full bg-gradient-to-r from-indigo-500 to-teal-400 animate-spin-slow">
+                    <div className="w-14 h-14 rounded-full bg-gradient-to-r from-violet-950 to-teal-600 animate-spin-slow">
                       <div className="absolute inset-2 bg-white rounded-full"></div>
                     </div>
-                    <Scale className="w-6 h-6 text-indigo-600 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
+                    <Scale className="w-6 h-6 text-purple-950 absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2" />
                   </div>
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -577,6 +591,7 @@ export default function LegalLineageModule() {
                   <button 
                     onClick={() => {
                       toast.info('Share feature coming soon', {
+                        position: 'top-right',
                         description: 'This feature will be available in the next update',
                       });
                     }}
