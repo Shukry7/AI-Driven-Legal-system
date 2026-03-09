@@ -8,6 +8,7 @@ import {
   Eye,
   Save,
   CheckCircle2,
+  MousePointerClick,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import jsPDF from "jspdf";
@@ -19,13 +20,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import {
-  Dialog,
-  DialogContent,
-  DialogDescription,
-  DialogHeader,
-  DialogTitle,
-} from "@/components/ui/dialog";
 import { Badge } from "@/components/ui/badge";
 import { Progress } from "@/components/ui/progress";
 import {
@@ -100,7 +94,6 @@ export function ClassificationWorkspace({
   const [selectedClause, setSelectedClause] = useState<NormalizedClause | null>(
     null,
   );
-  const [dialogOpen, setDialogOpen] = useState(false);
   const [processingStep, setProcessingStep] = useState(0);
 
   // Classification processing steps for progress indicators
@@ -287,7 +280,6 @@ export function ClassificationWorkspace({
 
   const handleClauseClick = (clause: NormalizedClause) => {
     setSelectedClause(clause);
-    setDialogOpen(true);
   };
 
   const handleSave = async () => {
@@ -566,8 +558,30 @@ export function ClassificationWorkspace({
         clause.end_char,
       );
 
+      // Skip empty, whitespace-only, or very short artifact text (PDF artifacts like "|", "18")
+      const tightText = originalText.trim();
+      if (!tightText || tightText.length < 3 || !/[a-zA-Z]/.test(tightText)) {
+        lastIndex = clause.end_char;
+        return;
+      }
+
+      // Compute tight bounds — exclude leading/trailing whitespace from the highlight
+      // so wide "empty-looking" blocks don't appear when the model spans whitespace regions
+      const leadingWs = originalText.length - originalText.trimStart().length;
+      const trailingWs = originalText.length - originalText.trimEnd().length;
+      const tightStart = clause.start_char + leadingWs;
+      const tightEnd = clause.end_char - trailingWs;
+
       // Add the clause (highlighted or not)
       if (shouldHighlight) {
+        // Render leading whitespace outside the mark so it keeps proper layout
+        if (leadingWs > 0) {
+          parts.push(
+            <span key={`lead-${clause.start_char}`}>
+              {documentText.substring(clause.start_char, tightStart)}
+            </span>,
+          );
+        }
         parts.push(
           <mark
             key={`clause-${clause.id}`}
@@ -579,9 +593,17 @@ export function ClassificationWorkspace({
               clause.confidence
             }% confidence) - Click for details`}
           >
-            {originalText}
+            {tightText}
           </mark>,
         );
+        // Render trailing whitespace outside the mark
+        if (trailingWs > 0) {
+          parts.push(
+            <span key={`trail-${clause.end_char}`}>
+              {documentText.substring(tightEnd, clause.end_char)}
+            </span>,
+          );
+        }
       } else {
         parts.push(<span key={`clause-${clause.id}`}>{originalText}</span>);
       }
@@ -858,28 +880,220 @@ export function ClassificationWorkspace({
         </CardContent>
       </Card>
 
-      {/* Document Content */}
-      <Card>
-        <CardHeader>
-          <div className="space-y-2">
-            <CardTitle className="text-base">Judgment Document</CardTitle>
-            {clauses.length > 0 && filter !== "original" && (
-              <p className="text-xs text-muted-foreground">
-                ℹ️ Click on any highlighted clause to view detailed risk
-                analysis
-              </p>
+      {/* Two Column Layout: Document + Details Panel */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Left: Document Content */}
+        <Card className="lg:col-span-1">
+          <CardHeader>
+            <div className="space-y-2">
+              <CardTitle className="text-base">Judgment Document</CardTitle>
+              {clauses.length > 0 && filter !== "original" && (
+                <p className="text-xs text-muted-foreground">
+                  ℹ️ Click on any highlighted clause to view detailed risk
+                  analysis
+                </p>
+              )}
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div
+              className="prose max-w-none text-foreground text-sm"
+              style={{ lineHeight: "1.2" }}
+            >
+              {highlightDocument()}
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Right: Clause Details Panel */}
+        <Card className="lg:col-span-1 lg:sticky lg:top-6 h-fit">
+          <CardHeader>
+            <CardTitle className="text-base">Clause Details</CardTitle>
+          </CardHeader>
+          <CardContent>
+            {!selectedClause ? (
+              <div className="flex flex-col items-center justify-center py-12 text-center space-y-4">
+                <div className="w-16 h-16 rounded-full bg-accent/10 flex items-center justify-center">
+                  <MousePointerClick className="w-8 h-8 text-muted-foreground" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="font-semibold text-foreground">
+                    No Clause Selected
+                  </h3>
+                  <p className="text-sm text-muted-foreground max-w-sm">
+                    Click on any highlighted clause in the document to view its
+                    detailed risk analysis and insights
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {/* Clause Text */}
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-2">
+                    Clause Text
+                  </h3>
+                  <p className="text-sm text-muted-foreground bg-accent/5 p-3 rounded-lg border">
+                    "
+                    {documentText.substring(
+                      selectedClause.start_char,
+                      selectedClause.end_char,
+                    )}
+                    "
+                  </p>
+                </div>
+
+                {/* Risk Level & Confidence */}
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-2">
+                      Risk Level
+                    </h3>
+                    <Badge
+                      variant={
+                        selectedClause.risk === "high"
+                          ? "destructive"
+                          : "default"
+                      }
+                      className={`text-sm capitalize ${
+                        selectedClause.risk === "medium"
+                          ? "bg-yellow-500 hover:bg-yellow-600"
+                          : selectedClause.risk === "low"
+                            ? "bg-green-500 hover:bg-green-600"
+                            : ""
+                      }`}
+                    >
+                      {selectedClause.risk} Risk
+                    </Badge>
+                  </div>
+
+                  <div>
+                    <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1">
+                      <TrendingUp className="w-4 h-4" />
+                      Confidence Score
+                    </h3>
+                    <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-2xl font-bold text-foreground">
+                          {selectedClause.confidence}%
+                        </span>
+                        <span className="text-xs text-muted-foreground">
+                          {selectedClause.confidence >= 90
+                            ? "Very High"
+                            : selectedClause.confidence >= 80
+                              ? "High"
+                              : selectedClause.confidence >= 70
+                                ? "Moderate"
+                                : "Low"}
+                        </span>
+                      </div>
+                      <Progress
+                        value={selectedClause.confidence}
+                        className="h-2"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Key Factors */}
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-3">
+                    Key Risk Factors
+                  </h3>
+                  <div className="space-y-2">
+                    {selectedClause.keyFactors.map((factor, index) => (
+                      <div
+                        key={index}
+                        className="flex items-start gap-2 text-sm"
+                      >
+                        <div
+                          className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
+                            selectedClause.risk === "high"
+                              ? "bg-red-500"
+                              : selectedClause.risk === "medium"
+                                ? "bg-yellow-500"
+                                : "bg-green-500"
+                          }`}
+                        />
+                        <span className="text-foreground">{factor}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+
+                {/* Probability Breakdown */}
+                <div>
+                  <h3 className="text-sm font-semibold text-foreground mb-3">
+                    Risk Probability Breakdown
+                  </h3>
+                  <div className="space-y-3">
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-red-600 font-medium">
+                          High Risk
+                        </span>
+                        <span className="text-muted-foreground">
+                          {selectedClause.probabilities.High}%
+                        </span>
+                      </div>
+                      <Progress
+                        value={selectedClause.probabilities.High}
+                        className="h-2 [&>div]:bg-red-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-yellow-600 font-medium">
+                          Medium Risk
+                        </span>
+                        <span className="text-muted-foreground">
+                          {selectedClause.probabilities.Medium}%
+                        </span>
+                      </div>
+                      <Progress
+                        value={selectedClause.probabilities.Medium}
+                        className="h-2 [&>div]:bg-yellow-500"
+                      />
+                    </div>
+                    <div className="space-y-1">
+                      <div className="flex items-center justify-between text-sm">
+                        <span className="text-green-600 font-medium">
+                          Low Risk
+                        </span>
+                        <span className="text-muted-foreground">
+                          {selectedClause.probabilities.Low}%
+                        </span>
+                      </div>
+                      <Progress
+                        value={selectedClause.probabilities.Low}
+                        className="h-2 [&>div]:bg-green-500"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Model Information */}
+                <div className="pt-4 border-t">
+                  <div className="text-xs text-muted-foreground space-y-1">
+                    <p>
+                      <span className="font-medium">Model:</span> Legal-BERT
+                      (Fine-tuned)
+                    </p>
+                    <p>
+                      <span className="font-medium">Stage 1:</span> Clause
+                      Segmentation (BIO Tagging)
+                    </p>
+                    <p>
+                      <span className="font-medium">Stage 2:</span> Risk
+                      Classification (Semantic Analysis)
+                    </p>
+                  </div>
+                </div>
+              </div>
             )}
-          </div>
-        </CardHeader>
-        <CardContent>
-          <div
-            className="prose max-w-none text-foreground text-sm"
-            style={{ lineHeight: "1.2" }}
-          >
-            {highlightDocument()}
-          </div>
-        </CardContent>
-      </Card>
+          </CardContent>
+        </Card>
+      </div>
 
       {/* Actions */}
       <div className="flex gap-3">
@@ -920,190 +1134,6 @@ export function ClassificationWorkspace({
           View Summary
         </Button>
       </div>
-
-      {/* Clause Details Dialog */}
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle className="flex items-center gap-2">
-              <AlertCircle
-                className={`w-5 h-5 ${
-                  selectedClause?.risk === "high"
-                    ? "text-red-500"
-                    : selectedClause?.risk === "medium"
-                      ? "text-yellow-500"
-                      : "text-green-500"
-                }`}
-              />
-              Clause Risk Analysis
-            </DialogTitle>
-            <DialogDescription>
-              Detailed risk assessment and AI model insights
-            </DialogDescription>
-          </DialogHeader>
-
-          {selectedClause && (
-            <div className="space-y-6">
-              {/* Clause Text */}
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-2">
-                  Clause Text
-                </h3>
-                <p className="text-sm text-muted-foreground bg-accent/5 p-3 rounded-lg border">
-                  "
-                  {documentText.substring(
-                    selectedClause.start_char,
-                    selectedClause.end_char,
-                  )}
-                  "
-                </p>
-              </div>
-
-              {/* Risk Level & Confidence */}
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground mb-2">
-                    Risk Level
-                  </h3>
-                  <Badge
-                    variant={
-                      selectedClause.risk === "high" ? "destructive" : "default"
-                    }
-                    className={`text-sm capitalize ${
-                      selectedClause.risk === "medium"
-                        ? "bg-yellow-500 hover:bg-yellow-600"
-                        : selectedClause.risk === "low"
-                          ? "bg-green-500 hover:bg-green-600"
-                          : ""
-                    }`}
-                  >
-                    {selectedClause.risk} Risk
-                  </Badge>
-                </div>
-
-                <div>
-                  <h3 className="text-sm font-semibold text-foreground mb-2 flex items-center gap-1">
-                    <TrendingUp className="w-4 h-4" />
-                    Confidence Score
-                  </h3>
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="text-2xl font-bold text-foreground">
-                        {selectedClause.confidence}%
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {selectedClause.confidence >= 90
-                          ? "Very High"
-                          : selectedClause.confidence >= 80
-                            ? "High"
-                            : selectedClause.confidence >= 70
-                              ? "Moderate"
-                              : "Low"}
-                      </span>
-                    </div>
-                    <Progress
-                      value={selectedClause.confidence}
-                      className="h-2"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Key Factors */}
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-3">
-                  Key Risk Factors
-                </h3>
-                <div className="space-y-2">
-                  {selectedClause.keyFactors.map((factor, index) => (
-                    <div key={index} className="flex items-start gap-2 text-sm">
-                      <div
-                        className={`w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0 ${
-                          selectedClause.risk === "high"
-                            ? "bg-red-500"
-                            : selectedClause.risk === "medium"
-                              ? "bg-yellow-500"
-                              : "bg-green-500"
-                        }`}
-                      />
-                      <span className="text-foreground">{factor}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {/* Probability Breakdown */}
-              <div>
-                <h3 className="text-sm font-semibold text-foreground mb-3">
-                  Risk Probability Breakdown
-                </h3>
-                <div className="space-y-3">
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-red-600 font-medium">
-                        High Risk
-                      </span>
-                      <span className="text-muted-foreground">
-                        {selectedClause.probabilities.High}%
-                      </span>
-                    </div>
-                    <Progress
-                      value={selectedClause.probabilities.High}
-                      className="h-2 [&>div]:bg-red-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-yellow-600 font-medium">
-                        Medium Risk
-                      </span>
-                      <span className="text-muted-foreground">
-                        {selectedClause.probabilities.Medium}%
-                      </span>
-                    </div>
-                    <Progress
-                      value={selectedClause.probabilities.Medium}
-                      className="h-2 [&>div]:bg-yellow-500"
-                    />
-                  </div>
-                  <div className="space-y-1">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="text-green-600 font-medium">
-                        Low Risk
-                      </span>
-                      <span className="text-muted-foreground">
-                        {selectedClause.probabilities.Low}%
-                      </span>
-                    </div>
-                    <Progress
-                      value={selectedClause.probabilities.Low}
-                      className="h-2 [&>div]:bg-green-500"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              {/* Model Information */}
-              <div className="pt-4 border-t">
-                <div className="text-xs text-muted-foreground space-y-1">
-                  <p>
-                    <span className="font-medium">Model:</span> Legal-BERT
-                    (Fine-tuned)
-                  </p>
-                  <p>
-                    <span className="font-medium">Stage 1:</span> Clause
-                    Segmentation (BIO Tagging)
-                  </p>
-                  <p>
-                    <span className="font-medium">Stage 2:</span> Risk
-                    Classification (Semantic Analysis)
-                  </p>
-                </div>
-              </div>
-            </div>
-          )}
-        </DialogContent>
-      </Dialog>
     </div>
   );
 }
