@@ -398,3 +398,42 @@ async def download_judgment_text(filename: str):
     except Exception as e:
         logger.error(f"Error extracting text from {filename}: {e}")
         raise HTTPException(status_code=500, detail="Failed to extract text")
+    
+@router.post("/lineage/search-acts-by-keyword")
+async def search_acts_by_keyword(request: dict):
+    """
+    Search for acts by keyword in the processed acts database.
+    Returns matching act names for autocomplete/suggestions.
+    """
+    keyword = request.get('keyword', '').strip()
+    if not keyword or len(keyword) < 2:
+        return {"results": []}
+    
+    logger.info(f"🔍 Searching acts by keyword: '{keyword}'")
+    
+    try:
+        from fastapi_app.services.lineage_analysis_service import load_processed_acts_data
+        
+        data = load_processed_acts_data()
+        if not data:
+            return {"results": []}
+        
+        keyword_lower = keyword.lower()
+        matches = set()
+        
+        # Search through all acts in all files
+        for file_data in data.get('files', []):
+            for act_data in file_data.get('acts', []):
+                act_name = act_data.get('act_name', '')
+                if act_name and keyword_lower in act_name.lower():
+                    matches.add(act_name)
+        
+        # Convert to list and sort
+        results = sorted(list(matches))
+        
+        logger.info(f"✅ Found {len(results)} matching act names")
+        return {"results": results}
+        
+    except Exception as e:
+        logger.error(f"Error searching acts by keyword: {e}")
+        return {"results": []}

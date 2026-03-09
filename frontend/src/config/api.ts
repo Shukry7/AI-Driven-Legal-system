@@ -503,6 +503,10 @@ export interface ActSearchResponse {
   message?: string;
 }
 
+export interface KeywordSearchResponse {
+  results: string[];
+}
+
 const createCaseNodesFromTreatments = (
   filename: string,
   treatments: ActTreatmentResult[],
@@ -909,6 +913,28 @@ export async function listUploadedFiles(): Promise<string[]> {
     return await response.json();
   } catch (error) {
     console.error("Error listing uploaded files:", error);
+    return [];
+  }
+}
+
+export async function searchActsByKeyword(keyword: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/search-acts-by-keyword`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ keyword }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to search acts: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.results || [];
+  } catch (error) {
+    console.error('Error searching acts by keyword:', error);
     return [];
   }
 }
