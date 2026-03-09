@@ -2115,13 +2115,13 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
               <div>
                 <CardTitle className="text-lg flex items-center gap-2">
                   <Brain className="w-5 h-5 text-violet-600" />
-                  AI Clause Suggestions
+                  AI Clause Predictions
                   <Badge variant="outline" className="ml-2 text-violet-600 border-violet-300">
                     {predictions.total_missing} suggestions
                   </Badge>
                   {predictions.source && (
                     <Badge variant="secondary" className="text-xs">
-                      {predictions.source === 'cache' ? '⚡ cached' : predictions.source === 'llm' ? '🤖 AI generated' : predictions.source}
+                      {predictions.source === 'cache' ? '⚡ cached' : predictions.source === 'llm' ? '🤖 AI Predicted' : predictions.source}
                     </Badge>
                   )}
                 </CardTitle>
@@ -2292,6 +2292,9 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                           </div>
                           <p className="text-xs text-muted-foreground text-center">
                             💡 Tip: Edit if you want to customize the suggestion
+                          </p>
+                          <p className="text-xs text-amber-700 dark:text-amber-300 text-center">
+                            ⚠ Sometimes the suggested insertion position may be inaccurate — please verify the document after accepting.
                           </p>
                         </div>
                       )}
