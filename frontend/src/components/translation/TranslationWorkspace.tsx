@@ -33,9 +33,15 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn } from "@/lib/utils";
+import { normalizeSinhalaUnicode } from "@/lib/sinhalaUnicode";
+import {
+  downloadTranslationPdf,
+  downloadTranslationTxt,
+  downloadTranslationJson,
+} from "@/lib/translationPdfService";
 import { toast } from "sonner";
 import { useTranslation } from "./TranslationContext";
-import { exportTranslation, getGlossary } from "@/config/api";
+import { getGlossary } from "@/config/api";
 import type {
   TranslationJobResult,
   SourceSection,
@@ -92,12 +98,19 @@ export function TranslationWorkspace({
   const [error, setError] = useState<string | null>(null);
   const hasStarted = useRef(false);
 
-  // On mount, kick off translation (or show existing result)
+  // On mount, kick off translation (or show existing result, or resume in-progress job)
   useEffect(() => {
     if (existingResult) {
       setResult(existingResult);
       return;
     }
+    
+    // If resuming an in-progress job, just set the activeJobId - don't start a new translation
+    if (uploadData.resumingJobId) {
+      setActiveJobId(uploadData.resumingJobId);
+      return;
+    }
+    
     if (hasStarted.current) return;
     hasStarted.current = true;
     (async () => {
@@ -154,8 +167,12 @@ export function TranslationWorkspace({
           source_sections: tracked.sourceSections || [],
           translated_sections: partialSections,
           raw_source_text: "",
-          raw_translated_text: partialSections.map(s => s.translated_content).join(" "),
-          overall_confidence: partialSections.reduce((sum, s) => sum + (s.confidence || 0), 0) / Math.max(partialSections.length, 1),
+          raw_translated_text: partialSections
+            .map((s) => s.translated_content)
+            .join(" "),
+          overall_confidence:
+            partialSections.reduce((sum, s) => sum + (s.confidence || 0), 0) /
+            Math.max(partialSections.length, 1),
           bleu_score: 0,
           processing_time: 0,
           model_used: "",
@@ -166,7 +183,9 @@ export function TranslationWorkspace({
           },
         };
         setResult(partialResult);
-        toast.info(`Translation stopped — showing ${partialSections.length} completed sections`);
+        toast.info(
+          `Translation stopped — showing ${partialSections.length} completed sections`,
+        );
       } else {
         setError(tracked.error || "Translation failed");
         toast.error("Translation failed");
@@ -194,53 +213,139 @@ export function TranslationWorkspace({
   const translatedSections = result?.translated_sections || [];
 
   // Progressive sections while translating
-  const progressiveSourceSections = activeJob?.sourceSections || [];
+  // Fall back to uploadData.sourceSections for resumed jobs
+  const progressiveSourceSections = activeJob?.sourceSections || uploadData.sourceSections || [];
   const progressiveTranslatedSections = activeJob?.partialSections || [];
 
   // ── Export ─────────────────────────────────────────────────────────────
   const handleExport = async (format: string) => {
     if (!result) return;
     try {
-      const blob = await exportTranslation(result.job_id, format);
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement("a");
-      a.href = url;
-      a.download = `${result.filename || "translation"}.${format}`;
-      a.click();
-      URL.revokeObjectURL(url);
-      toast.success(`Exported as ${format.toUpperCase()}`);
-    } catch {
+      // Use client-side PDF generation for proper Sinhala/Tamil Unicode support
+      if (format === "pdf") {
+        await downloadTranslationPdf(result, true);
+        toast.success("Exported as PDF");
+      } else if (format === "txt") {
+        downloadTranslationTxt(result, true);
+        toast.success("Exported as TXT");
+      } else if (format === "json") {
+        downloadTranslationJson(result);
+        toast.success("Exported as JSON");
+      }
+    } catch (err) {
+      console.error("Export failed:", err);
       toast.error("Export failed");
     }
   };
 
   // ── Highlight glossary terms in text ───────────────────────────────────
+  // Helper: Check if character is a Sinhala script character (U+0D80–U+0DFF)
+  // Also includes Zero-Width Joiner/Non-Joiner used in conjuncts
+  const isSinhalaChar = (char: string) => {
+    if (!char) return false;
+    const code = char.charCodeAt(0);
+    // Sinhala range (U+0D80–U+0DFF) OR Zero-Width Joiner/Non-Joiner (used in conjuncts)
+    return (code >= 0x0d80 && code <= 0x0dff) || code === 0x200d || code === 0x200c;
+  };
+
+  // Helper: Check if character is a Tamil script character (U+0B80–U+0BFF)
+  // Also includes Zero-Width Joiner/Non-Joiner
+  const isTamilChar = (char: string) => {
+    if (!char) return false;
+    const code = char.charCodeAt(0);
+    // Tamil range (U+0B80–U+0BFF) OR Zero-Width Joiner/Non-Joiner
+    return (code >= 0x0b80 && code <= 0x0bff) || code === 0x200d || code === 0x200c;
+  };
+
+  // Helper: Check if character is part of a word in the given language
+  const isWordChar = (char: string, lang: "en" | "si" | "ta") => {
+    if (!char) return false;
+    const code = char.charCodeAt(0);
+    
+    // Common combining marks and joiners that are part of words
+    if (code === 0x200d || code === 0x200c) return true; // ZWJ, ZWNJ
+    
+    if (lang === "en") {
+      return /[a-zA-Z]/.test(char);
+    } else if (lang === "si") {
+      return code >= 0x0d80 && code <= 0x0dff;
+    } else if (lang === "ta") {
+      return code >= 0x0b80 && code <= 0x0bff;
+    }
+    return false;
+  };
+
   const highlightGlossary = (text: string, lang: "en" | "si" | "ta") => {
     if (!glossaryTerms.length || !text) return text;
 
-    // Collect all terms for this language, sorted longest-first to avoid partial matches
-    const termEntries = glossaryTerms
-      .map((t) => ({ text: t[lang], term: t }))
-      .filter((e) => e.text && e.text.length >= 2)
-      .sort((a, b) => b.text.length - a.text.length);
+    // Normalize Unicode to NFC form for consistent matching
+    // Also apply Sinhala ZWJ normalization for proper conjunct display
+    let normalizedText = text.normalize("NFC");
+    if (lang === "si") {
+      normalizedText = normalizeSinhalaUnicode(normalizedText);
+    }
 
-    if (!termEntries.length) return text;
+    // Collect all terms for this language, splitting semicolon-separated alternatives
+    // and sorting longest-first to avoid partial matches
+    const termEntries: { text: string; term: GlossaryTerm }[] = [];
+
+    for (const t of glossaryTerms) {
+      const rawTerm = t[lang];
+      if (!rawTerm) continue;
+
+      // Split by semicolon to handle alternative translations (e.g., "term1; term2")
+      const variations = rawTerm
+        .split(/[;]/)
+        .map((v) => v.trim())
+        .filter((v) => v.length >= 2);
+
+      for (const variation of variations) {
+        termEntries.push({ text: variation.normalize("NFC"), term: t });
+      }
+    }
+
+    // Sort by length (longest first) to prioritize longer matches
+    termEntries.sort((a, b) => b.text.length - a.text.length);
+
+    if (!termEntries.length) return normalizedText;
 
     // Find all match positions (non-overlapping, longest-first)
     const matches: { start: number; end: number; term: GlossaryTerm }[] = [];
-    const textLower = text.toLowerCase();
+    
+    // For case-insensitive matching (primarily for English)
+    const textLower = normalizedText.toLowerCase();
 
     for (const entry of termEntries) {
-      const termLower = entry.text.toLowerCase();
+      const termNormalized = entry.text;
+      const termLower = termNormalized.toLowerCase();
+
+      // Skip very short terms that might cause too many false positives
+      if (termNormalized.length < 3) continue;
+
       let searchFrom = 0;
       while (searchFrom < textLower.length) {
+        // Case-insensitive search
         const idx = textLower.indexOf(termLower, searchFrom);
         if (idx === -1) break;
-        const end = idx + entry.text.length;
+
+        const end = idx + termNormalized.length;
+        const charBefore = idx > 0 ? normalizedText[idx - 1] : "";
+        const charAfter = end < normalizedText.length ? normalizedText[end] : "";
+
+        let isValidBoundary = true;
+
+        // Check word boundaries - term must be surrounded by non-word characters for that language
+        const isWordBoundaryBefore = !charBefore || !isWordChar(charBefore, lang);
+        const isWordBoundaryAfter = !charAfter || !isWordChar(charAfter, lang);
+        isValidBoundary = isWordBoundaryBefore && isWordBoundaryAfter;
+
+        if (!isValidBoundary) {
+          searchFrom = idx + 1;
+          continue;
+        }
+
         // Check no overlap with existing matches
-        const overlaps = matches.some(
-          (m) => idx < m.end && end > m.start,
-        );
+        const overlaps = matches.some((m) => idx < m.end && end > m.start);
         if (!overlaps) {
           matches.push({ start: idx, end, term: entry.term });
         }
@@ -248,7 +353,7 @@ export function TranslationWorkspace({
       }
     }
 
-    if (matches.length === 0) return text;
+    if (matches.length === 0) return normalizedText;
 
     // Sort by position
     matches.sort((a, b) => a.start - b.start);
@@ -257,7 +362,7 @@ export function TranslationWorkspace({
     let cursor = 0;
     matches.forEach((m, i) => {
       if (m.start > cursor) {
-        parts.push(text.slice(cursor, m.start));
+        parts.push(normalizedText.slice(cursor, m.start));
       }
       parts.push(
         <span
@@ -265,12 +370,13 @@ export function TranslationWorkspace({
           className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-0.5 rounded cursor-help"
           title={`EN: ${m.term.en}\nSI: ${m.term.si}\nTA: ${m.term.ta}`}
         >
-          {text.slice(m.start, m.end)}
+          {normalizedText.slice(m.start, m.end)}
         </span>,
       );
       cursor = m.end;
     });
-    if (cursor < text.length) parts.push(text.slice(cursor));
+    if (cursor < normalizedText.length)
+      parts.push(normalizedText.slice(cursor));
     return <>{parts}</>;
   };
 
@@ -279,12 +385,17 @@ export function TranslationWorkspace({
     <div className="space-y-4">
       {/* Breadcrumb */}
       <nav className="flex items-center gap-2 text-sm text-muted-foreground">
-        <button onClick={onBack} className="flex items-center gap-1 hover:text-foreground transition-colors">
+        <button
+          onClick={onBack}
+          className="flex items-center gap-1 hover:text-foreground transition-colors"
+        >
           <Home className="w-3.5 h-3.5" />
           Translations
         </button>
         <span>/</span>
-        <span className="text-foreground font-medium">Translation Workspace</span>
+        <span className="text-foreground font-medium">
+          Translation Workspace
+        </span>
       </nav>
 
       {/* Header actions */}
@@ -367,7 +478,8 @@ export function TranslationWorkspace({
               <div className="flex-1">
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm font-medium">
-                    Translating section {(activeJob.completedSections || 0) + 1} of {activeJob.totalSections}…
+                    Translating section {(activeJob.completedSections || 0) + 1}{" "}
+                    of {activeJob.totalSections}…
                   </span>
                   <span className="text-sm text-muted-foreground">
                     {activeJob.completedSections}/{activeJob.totalSections}{" "}
@@ -553,26 +665,15 @@ export function TranslationWorkspace({
                               result.target_language as "si" | "ta",
                             )}
                           </p>
-                          {sec.keywords?.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {sec.keywords.map((kw) => (
-                                <Badge
-                                  key={kw}
-                                  variant="secondary"
-                                  className="text-xs"
-                                >
-                                  {kw}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="p-4">
                       <p className="text-sm whitespace-pre-wrap">
-                        {result.raw_translated_text}
+                        {result.target_language === "si"
+                          ? normalizeSinhalaUnicode(result.raw_translated_text || "")
+                          : result.raw_translated_text}
                       </p>
                     </div>
                   )}
@@ -597,7 +698,10 @@ export function TranslationWorkspace({
           <Card className="h-[600px] flex flex-col">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
-                Source ({langLabel[uploadData.sourceLanguage] || uploadData.sourceLanguage})
+                Source (
+                {langLabel[uploadData.sourceLanguage] ||
+                  uploadData.sourceLanguage}
+                )
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 overflow-hidden p-0">
@@ -618,7 +722,9 @@ export function TranslationWorkspace({
                         <Badge variant="outline" className="text-xs capitalize">
                           {sec.type}
                         </Badge>
-                        <span className="text-xs text-muted-foreground">§{idx + 1}</span>
+                        <span className="text-xs text-muted-foreground">
+                          §{idx + 1}
+                        </span>
                       </div>
                       <p className="text-sm whitespace-pre-wrap">
                         {highlightGlossary(sec.content, "en")}
@@ -634,7 +740,10 @@ export function TranslationWorkspace({
           <Card className="h-[600px] flex flex-col">
             <CardHeader className="pb-2">
               <CardTitle className="text-base">
-                Translated ({langLabel[uploadData.targetLanguage] || uploadData.targetLanguage})
+                Translated (
+                {langLabel[uploadData.targetLanguage] ||
+                  uploadData.targetLanguage}
+                )
               </CardTitle>
             </CardHeader>
             <CardContent className="flex-1 overflow-hidden p-0">
@@ -659,10 +768,18 @@ export function TranslationWorkspace({
                           onClick={() => setSelectedSection(idx)}
                         >
                           <div className="flex items-center justify-between mb-1">
-                            <Badge variant="outline" className="text-xs capitalize">
+                            <Badge
+                              variant="outline"
+                              className="text-xs capitalize"
+                            >
                               {translated.type}
                             </Badge>
-                            <Badge className={cn("text-xs", confidenceBadge(translated.confidence))}>
+                            <Badge
+                              className={cn(
+                                "text-xs",
+                                confidenceBadge(translated.confidence),
+                              )}
+                            >
                               {Math.round(translated.confidence * 100)}%
                             </Badge>
                           </div>
@@ -672,15 +789,6 @@ export function TranslationWorkspace({
                               uploadData.targetLanguage as "si" | "ta",
                             )}
                           </p>
-                          {translated.keywords?.length > 0 && (
-                            <div className="flex flex-wrap gap-1 mt-2">
-                              {translated.keywords.map((kw) => (
-                                <Badge key={kw} variant="secondary" className="text-xs">
-                                  {kw}
-                                </Badge>
-                              ))}
-                            </div>
-                          )}
                         </div>
                       );
                     }
@@ -725,7 +833,7 @@ export function TranslationWorkspace({
                               fd.append("section_index", String(idx));
                               await fetch(
                                 `${import.meta.env.VITE_API_BASE_URL || ""}/api/translate/skip-section/${activeJobId}`,
-                                { method: "POST", body: fd }
+                                { method: "POST", body: fd },
                               );
                               toast.info(`Section ${idx + 1} will be skipped`);
                             } catch {

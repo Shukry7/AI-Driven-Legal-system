@@ -67,7 +67,7 @@ export async function analyzeByFilename(
   const url = `${API_BASE}/analyze-clauses`;
   const formData = new FormData();
   formData.append("filename", filename);
-  
+
   const res = await fetch(url, {
     method: "POST",
     body: formData,
@@ -148,6 +148,7 @@ export interface ClassificationResult {
     classification_model: string;
     device: string;
   };
+  document_text?: string; // Extracted text from PDFs
 }
 
 export async function classifyText(
@@ -400,14 +401,14 @@ export async function downloadDocument(filename: string): Promise<Blob> {
 // ========== Legal Lineage Types ==========
 export interface CaseNode {
   id: string;
-  title: string;  // This will be case_title for display in graph
+  title: string; // This will be case_title for display in graph
   year?: number;
   summary?: string;
   citations?: number;
   citedBy?: number;
   isCentral?: boolean;
   acts?: ActTreatment[];
-  source?: 'current' | 'database';
+  source?: "current" | "database";
   file_id?: string;
   filename?: string;
   case_title?: string;
@@ -415,7 +416,7 @@ export interface CaseNode {
 
 export interface ActTreatment {
   act: string;
-  treatment: 'APPLIED' | 'DISTINGUISHED' | 'FOLLOWED' | 'OVERRULED';
+  treatment: "APPLIED" | "DISTINGUISHED" | "FOLLOWED" | "OVERRULED";
   confidence: number;
   act_id?: string;
   context_preview?: string;
@@ -429,7 +430,12 @@ export interface ActTreatment {
   }>;
 }
 
-export type RelationType = 'cites' | 'followed' | 'distinguished' | 'limited' | 'overruled';
+export type RelationType =
+  | "cites"
+  | "followed"
+  | "distinguished"
+  | "limited"
+  | "overruled";
 
 export interface CitationEdge {
   id?: string;
@@ -470,7 +476,7 @@ export interface SearchResult {
 export interface ActSearchRequest {
   act_name: string;
   min_similarity?: number;
-  search_type?: 'similar' | 'exact' | 'treatment';
+  search_type?: "similar" | "exact" | "treatment";
 }
 
 export interface ActSearchResultItem {
@@ -496,11 +502,11 @@ export interface ActSearchResponse {
 
 const createCaseNodesFromTreatments = (
   filename: string,
-  treatments: ActTreatmentResult[]
+  treatments: ActTreatmentResult[],
 ): CaseNode[] => {
   // Group treatments by act to create nodes
   const actMap = new Map<string, CaseNode>();
-  
+
   treatments.forEach((t, index) => {
     if (!actMap.has(t.act)) {
       // Extract file_id from filename (remove .pdf)
@@ -526,51 +532,54 @@ const createCaseNodesFromTreatments = (
       });
     }
   });
-  
+
   return Array.from(actMap.values());
 };
 
 // Create citation edges between acts based on relationships
 const createEdgesFromTreatments = (
   treatments: ActTreatmentResult[],
-  nodes: CaseNode[]
+  nodes: CaseNode[],
 ): CitationEdge[] => {
   const edges: CitationEdge[] = [];
-  const nodeMap = new Map(nodes.map(n => [n.title, n]));
-  
+  const nodeMap = new Map(nodes.map((n) => [n.title, n]));
+
   // Create edges between related acts
   for (let i = 0; i < treatments.length; i++) {
     for (let j = i + 1; j < treatments.length; j++) {
       const sourceNode = nodeMap.get(treatments[i].act);
       const targetNode = nodeMap.get(treatments[j].act);
-      
+
       if (sourceNode && targetNode) {
         edges.push({
           id: `edge-${i}-${j}`,
           source: sourceNode.id,
           target: targetNode.id,
-          relation: 'cites',
+          relation: "cites",
           weight: (treatments[i].confidence + treatments[j].confidence) / 2,
-          confidence: Math.min(treatments[i].confidence, treatments[j].confidence)
+          confidence: Math.min(
+            treatments[i].confidence,
+            treatments[j].confidence,
+          ),
         });
       }
     }
   }
-  
+
   return edges;
 };
 
-export async function analyzeAct(filename: string): Promise<{ 
+export async function analyzeAct(filename: string): Promise<{
   filename: string;
   results: ActTreatmentResult[];
-  nodes: CaseNode[]; 
-  edges: CitationEdge[] 
+  nodes: CaseNode[];
+  edges: CitationEdge[];
 }> {
   try {
     const response = await fetch(`${API_BASE}/api/lineage/analyze-lineage`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ filename }),
     });
@@ -580,11 +589,11 @@ export async function analyzeAct(filename: string): Promise<{
     }
 
     const data = await response.json();
-    
+
     // Transform backend response to frontend format
     const nodes = createCaseNodesFromTreatments(data.filename, data.results);
     const edges = createEdgesFromTreatments(data.results, nodes);
-    
+
     return {
       filename: data.filename,
       results: data.results,
@@ -592,7 +601,7 @@ export async function analyzeAct(filename: string): Promise<{
       edges,
     };
   } catch (error) {
-    console.error('Error analyzing file:', error);
+    console.error("Error analyzing file:", error);
     throw error;
   }
 }
@@ -605,9 +614,9 @@ export async function analyzeUploadedFile(filename: string): Promise<{
 }> {
   try {
     const response = await fetch(`${API_BASE}/api/lineage/analyze-lineage`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({ filename }),
     });
@@ -617,11 +626,11 @@ export async function analyzeUploadedFile(filename: string): Promise<{
     }
 
     const data = await response.json();
-    
+
     // Transform to frontend format
     const nodes = createCaseNodesFromTreatments(data.filename, data.results);
     const edges = createEdgesFromTreatments(data.results, nodes);
-    
+
     return {
       filename: data.filename,
       results: data.results,
@@ -629,7 +638,7 @@ export async function analyzeUploadedFile(filename: string): Promise<{
       edges,
     };
   } catch (error) {
-    console.error('Error analyzing file:', error);
+    console.error("Error analyzing file:", error);
     throw error;
   }
 }
@@ -641,11 +650,11 @@ export async function uploadAndAnalyzeLineage(file: File): Promise<{
   edges: CitationEdge[];
 }> {
   const formData = new FormData();
-  formData.append('file', file);
+  formData.append("file", file);
 
   try {
     const response = await fetch(`${API_BASE}/api/lineage/upload-and-analyze`, {
-      method: 'POST',
+      method: "POST",
       body: formData,
     });
 
@@ -654,11 +663,11 @@ export async function uploadAndAnalyzeLineage(file: File): Promise<{
     }
 
     const data = await response.json();
-    
+
     // Transform to frontend format
     const nodes = createCaseNodesFromTreatments(data.filename, data.results);
     const edges = createEdgesFromTreatments(data.results, nodes);
-    
+
     return {
       filename: data.filename,
       results: data.results,
@@ -666,59 +675,63 @@ export async function uploadAndAnalyzeLineage(file: File): Promise<{
       edges,
     };
   } catch (error) {
-    console.error('Error uploading and analyzing:', error);
+    console.error("Error uploading and analyzing:", error);
     throw error;
   }
 }
 
-export async function searchLineageCases(query: string): Promise<SearchResult[]> {
+export async function searchLineageCases(
+  query: string,
+): Promise<SearchResult[]> {
   try {
-    const response = await fetch(`${API_BASE}/api/lineage/search?q=${encodeURIComponent(query)}`);
-    
+    const response = await fetch(
+      `${API_BASE}/api/lineage/search?q=${encodeURIComponent(query)}`,
+    );
+
     if (!response.ok) {
       throw new Error(`Failed to search cases: ${response.statusText}`);
     }
 
     return await response.json();
   } catch (error) {
-    console.error('Error searching cases:', error);
+    console.error("Error searching cases:", error);
     return [];
   }
 }
 
-export async function fetchLineageGraph(caseId: string): Promise<{ 
-  nodes: CaseNode[]; 
-  edges: CitationEdge[] 
+export async function fetchLineageGraph(caseId: string): Promise<{
+  nodes: CaseNode[];
+  edges: CitationEdge[];
 }> {
   try {
     const response = await fetch(`${API_BASE}/api/lineage/lineage/${caseId}`);
-    
+
     if (!response.ok) {
       throw new Error(`Failed to fetch lineage: ${response.statusText}`);
     }
 
     return await response.json();
   } catch (error) {
-    console.error('Error fetching lineage:', error);
+    console.error("Error fetching lineage:", error);
     return { nodes: [], edges: [] };
   }
 }
 
 export async function searchSimilarActs(
-  actName: string, 
+  actName: string,
   minSimilarity: number = 0.6,
-  searchType: 'similar' | 'exact' | 'treatment' = 'similar'
+  searchType: "similar" | "exact" | "treatment" = "similar",
 ): Promise<ActSearchResponse> {
   try {
     const response = await fetch(`${API_BASE}/api/lineage/search-act`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         act_name: actName,
         min_similarity: minSimilarity,
-        search_type: searchType
+        search_type: searchType,
       }),
     });
 
@@ -728,17 +741,17 @@ export async function searchSimilarActs(
 
     return await response.json();
   } catch (error) {
-    console.error('Error searching acts:', error);
+    console.error("Error searching acts:", error);
     throw error;
   }
 }
 
 export function convertSearchResultsToCaseNodes(
   searchResults: ActSearchResultItem[],
-  mainActName: string
+  mainActName: string,
 ): CaseNode[] {
   const nodes: CaseNode[] = [];
-  
+
   // Create main node (the act we searched for)
   const mainNode: CaseNode = {
     id: `act-0`,
@@ -753,7 +766,7 @@ export function convertSearchResultsToCaseNodes(
     acts: []
   };
   nodes.push(mainNode);
-  
+
   // Create nodes for each similar act found
   searchResults.forEach((result, index) => {
     const nodeId = `act-${index + 1}`;
@@ -777,7 +790,7 @@ export function convertSearchResultsToCaseNodes(
       citations: 0,
       citedBy: 0,
       isCentral: false,
-      source: 'database',
+      source: "database",
       file_id: result.file_id,
       filename: fullFilename,  // Use the constructed filename
       case_title: result.case_title,
@@ -794,21 +807,21 @@ export function convertSearchResultsToCaseNodes(
     };
     nodes.push(node);
   });
-  
+
   return nodes;
 }
 // Helper function to create edges between main act and similar acts
 export function createEdgesFromSearchResults(
   mainActName: string,
   searchResults: ActSearchResultItem[],
-  nodes: CaseNode[]
+  nodes: CaseNode[],
 ): CitationEdge[] {
   const edges: CitationEdge[] = [];
   const mainNodeId = `act-0`;
-  
+
   searchResults.forEach((result, index) => {
     const targetNodeId = `act-${index + 1}`;
-    const targetNode = nodes.find(n => n.id === targetNodeId);
+    const targetNode = nodes.find((n) => n.id === targetNodeId);
     if (targetNode) {
       edges.push({
         id: `edge-main-to-${index}`,
@@ -816,24 +829,26 @@ export function createEdgesFromSearchResults(
         target: targetNode.id,
         relation: result.treatment.toLowerCase() as any,
         weight: result.confidence,
-        confidence: result.confidence
+        confidence: result.confidence,
       });
     }
   });
-  
+
   return edges;
 }
 
-export async function searchExactAct(actName: string): Promise<ActSearchResponse> {
+export async function searchExactAct(
+  actName: string,
+): Promise<ActSearchResponse> {
   try {
     const response = await fetch(`${API_BASE}/api/lineage/search-act`, {
-      method: 'POST',
+      method: "POST",
       headers: {
-        'Content-Type': 'application/json',
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         act_name: actName,
-        search_type: 'exact'
+        search_type: "exact",
       }),
     });
 
@@ -843,7 +858,7 @@ export async function searchExactAct(actName: string): Promise<ActSearchResponse
 
     return await response.json();
   } catch (error) {
-    console.error('Error searching acts:', error);
+    console.error("Error searching acts:", error);
     throw error;
   }
 }
@@ -890,7 +905,7 @@ export async function listUploadedFiles(): Promise<string[]> {
     }
     return await response.json();
   } catch (error) {
-    console.error('Error listing uploaded files:', error);
+    console.error("Error listing uploaded files:", error);
     return [];
   }
 }
@@ -904,12 +919,12 @@ export interface SaveToDatabaseResult {
 
 export async function saveToDatabase(
   filename: string,
-  analysisData?: any
+  analysisData?: any,
 ): Promise<SaveToDatabaseResult> {
   const url = `${API_BASE}/api/save-to-database`;
   const formData = new FormData();
   formData.append("filename", filename);
-  
+
   if (analysisData) {
     formData.append("analysis_data", JSON.stringify(analysisData));
   }
@@ -931,7 +946,7 @@ export async function saveToDatabase(
 
 export async function listDatabaseDocuments(
   limit: number = 50,
-  skip: number = 0
+  skip: number = 0,
 ): Promise<{ success: boolean; documents: any[]; count: number }> {
   const url = `${API_BASE}/api/database-documents?limit=${limit}&skip=${skip}`;
   const res = await fetch(url);
@@ -946,9 +961,7 @@ export async function listDatabaseDocuments(
   return res.json();
 }
 
-export async function getDatabaseDocument(
-  fileId: string
-): Promise<Blob> {
+export async function getDatabaseDocument(fileId: string): Promise<Blob> {
   const url = `${API_BASE}/api/database-document/${encodeURIComponent(fileId)}`;
   const res = await fetch(url);
 

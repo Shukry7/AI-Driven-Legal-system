@@ -451,6 +451,19 @@ def calculate_insertion_point(text: str, clause_key: str) -> Dict[str, Any]:
         insertion_info["line_estimate"] = int(total_lines * 0.92)
         insertion_info["position_description"] = "Before end of judgment (estimated)"
         
+    elif clause_key == "conclusion_section":
+        # Insert before judge concurrence block, in last 10-15% of document
+        start_idx = int(total_lines * 0.85)
+        for i in range(start_idx, total_lines):
+            if re.search(r'(I\s+agree|JUDGE\s+OF\s+THE)', lines[i], re.IGNORECASE):
+                insertion_info["line_estimate"] = max(0, i - 2)
+                insertion_info["position_description"] = "Before judge concurrence blocks"
+                insertion_info["marker_after"] = "Judge concurrence section"
+                return insertion_info
+        # Fallback: 90% into document
+        insertion_info["line_estimate"] = int(total_lines * 0.90)
+        insertion_info["position_description"] = "Before end of judgment (estimated)"
+        
     elif clause_key == "cost_order":
         # Insert right before judge concurrence
         start_idx = int(total_lines * 0.85)
@@ -481,6 +494,36 @@ def calculate_insertion_point(text: str, clause_key: str) -> Dict[str, Any]:
         # Fallback: 20% into document
         insertion_info["line_estimate"] = int(total_lines * 0.20)
         insertion_info["position_description"] = "After procedural history (estimated)"
+    
+    elif clause_key == "factual_background_label":
+        # Insert after procedural history/leave to appeal, around 20-25%
+        insertion_info["line_estimate"] = int(total_lines * 0.22)
+        insertion_info["position_description"] = "After procedural history, before facts section"
+    
+    elif clause_key == "issue_analysis":
+        # Insert in early-middle section, around 30-35%
+        insertion_info["line_estimate"] = int(total_lines * 0.32)
+        insertion_info["position_description"] = "In middle section (after facts, before arguments)"
+    
+    elif clause_key == "lower_court_findings":
+        # Insert in early-middle section, around 35-40%
+        insertion_info["line_estimate"] = int(total_lines * 0.37)
+        insertion_info["position_description"] = "In middle section (after issue analysis)"
+    
+    elif clause_key == "legal_framework":
+        # Insert in middle section, around 40-45%
+        insertion_info["line_estimate"] = int(total_lines * 0.42)
+        insertion_info["position_description"] = "In middle section (legal provisions area)"
+    
+    elif clause_key == "appellant_argument":
+        # Insert in middle section, around 45-50%
+        insertion_info["line_estimate"] = int(total_lines * 0.47)
+        insertion_info["position_description"] = "In middle section (argument area)"
+    
+    elif clause_key == "respondent_argument":
+        # Insert in later-middle section, around 55-60%
+        insertion_info["line_estimate"] = int(total_lines * 0.57)
+        insertion_info["position_description"] = "In middle section (after appellant arguments)"
     
     return insertion_info
 
@@ -1222,17 +1265,17 @@ def _generate_fallback_suggestions(
     
     fallback_templates = {
         "judge_concurrence": lambda ctx: _fallback_judge_concurrence(ctx),
-        "conclusion_section": "For the foregoing reasons, [the appeal/application is dismissed/allowed]. [Costs order].",
-        "disposition_formula": "The appeal is [dismissed/allowed] [with/without costs].",
-        "procedural_history": "The [Plaintiff/Appellant] instituted action in the [Court] bearing No. [case number]. Being aggrieved by the judgment of the [Court], the [Party] preferred this appeal.",
-        "leave_to_appeal": "This Court granted special leave to appeal on [date] on the following question(s) of law:\n\n(a) [Question of law]",
-        "lower_court_findings": "The learned [Judge] held that [finding]. Accordingly, judgment was entered [in favour of/against] the [Party].",
+        "conclusion_section": "For the foregoing reasons set out above, and having considered the submissions of both parties and the applicable law, [the appeal/application is hereby dismissed/allowed]. The judgment of the [lower court] dated [date] is [affirmed/set aside].",
+        "disposition_formula": "The appeal is [dismissed/allowed] [with/without costs]. The judgment of the [Court of Appeal/High Court/District Court] dated [date] is hereby [affirmed/set aside].",
+        "procedural_history": "The [Plaintiff/Appellant] instituted action in the [District Court/High Court] bearing No. [case number] seeking [relief]. Being aggrieved by the judgment of the [Court] dated [date], the [Party] preferred this appeal to the Supreme Court.",
+        "leave_to_appeal": "This Court granted special leave to appeal on [date] on the following question(s) of law:\n\n(a) [Question of law pertaining to the interpretation of statutory provisions]\n(b) [Question relating to the application of legal principles]",
+        "lower_court_findings": "The learned [District Judge/High Court Judge] held that [finding regarding the main issue]. Accordingly, judgment was entered [in favour of/against] the [Party] with directions that [order or relief granted by the lower court].",
         "factual_background_label": "The Facts",
-        "appellant_argument": "Learned Counsel for the Appellant submitted that [argument]. It was further contended that [argument].",
-        "respondent_argument": "Learned Counsel for the Respondent submitted that [counter-argument]. It was further urged that [counter-argument].",
-        "legal_framework": "The relevant legal provisions applicable to this case are as follows: [Section/Article] of the [Act/Ordinance] provides that [provision text].",
-        "issue_analysis": "The following issues arise for determination in this appeal:\n\n(a) [Issue 1]\n(b) [Issue 2]",
-        "cost_order": "without costs",
+        "appellant_argument": "Learned Counsel for the Appellant submitted that [the lower court erred in its interpretation]. It was further contended that [the legal principles were misapplied]. The Appellant urged that [the judgment should be set aside].",
+        "respondent_argument": "Learned Counsel for the Respondent submitted that [the lower court's findings were correct]. It was further urged that [the appeal lacks merit]. The Respondent maintained that [the judgment should be affirmed].",
+        "legal_framework": "The relevant legal provisions applicable to this case are as follows: Section [X] of the [Civil Procedure Code/Evidence Ordinance/relevant Act] provides that [key provision]. This provision must be read together with [related sections or case law].",
+        "issue_analysis": "The following issues arise for determination in this appeal:\n\n(a) [Issue 1 relating to the application of law]\n(b) [Issue 2 regarding procedural matters]\n\nEach of these issues will be considered in turn.",
+        "cost_order": "Considering the circumstances of this case and the conduct of the parties, [the appeal is dismissed with costs/without costs/each party to bear their own costs].",
     }
 
     for mc in missing_clauses:

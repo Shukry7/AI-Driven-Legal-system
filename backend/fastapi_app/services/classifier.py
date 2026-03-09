@@ -45,7 +45,8 @@ class LegalRiskClassifier:
         Returns sentence text AND offsets relative to original text.
         
         Handles:
-        - Line breaks (single \n and double \n\n) as sentence boundaries
+        - PDF line breaks (joins mid-sentence line breaks)
+        - Intentional paragraph breaks (blank lines, section headings)
         - Punctuation-based sentence endings (. ! ?)
         - Common legal abbreviations (Mr., Rs., Ltd., etc.)
         
@@ -55,30 +56,95 @@ class LegalRiskClassifier:
         Returns:
             List of dicts: [{"text": str, "start": int, "end": int}, ...]
         """
-        # ── Step 1: Split on line breaks first ──
-        # This handles numbered lists, headings, paragraphs separated by newlines.
-        # We track each line's character offset in the original text.
-        lines_with_offsets = []
-        current_pos = 0
-        for line in text.split('\n'):
+        # ── Step 1: Join lines that are clearly continuations ──
+        # This fixes PDF extraction where sentences are broken across lines
+        # Track both joined text and offset mapping
+        lines = text.split('\n')
+        paragraphs_with_offsets = []
+        current_paragraph_parts = []
+        prev_blank = False
+        char_pos = 0
+        
+        for i, line in enumerate(lines):
             stripped = line.strip()
-            if stripped:  # skip blank lines
-                # Find the actual start of stripped content within the line
-                line_start = text.find(stripped, current_pos)
-                if line_start == -1:
-                    line_start = current_pos
-                lines_with_offsets.append({
-                    "text": stripped,
-                    "start": line_start,
-                    "end": line_start + len(stripped)
+            line_start_in_original = char_pos
+            
+            # Blank line = paragraph boundary
+            if not stripped:
+                if current_paragraph_parts:
+                    joined = ' '.join([p['text'] for p in current_paragraph_parts])
+                    paragraphs_with_offsets.append({
+                        'text': joined,
+                        'start': current_paragraph_parts[0]['start'],
+                        'parts': current_paragraph_parts
+                    })
+                    current_paragraph_parts = []
+                prev_blank = True
+                char_pos += len(line) + 1  # +1 for \n
+                continue
+            
+            # Find where stripped text actually starts in original
+            actual_start = text.find(stripped, char_pos)
+            if actual_start == -1:
+                actual_start = char_pos
+            
+            # If previous line was blank, start new paragraph
+            if prev_blank:
+                current_paragraph_parts = [{'text': stripped, 'start': actual_start}]
+                prev_blank = False
+                char_pos += len(line) + 1
+                continue
+            
+            # Check if this line should start a new paragraph
+            is_new_section = False
+            if current_paragraph_parts:
+                prev_text = current_paragraph_parts[-1]['text']
+                
+                # Check if both current and previous are ALL CAPS (multi-line heading)
+                prev_is_caps = prev_text.isupper() and len(prev_text) < 100
+                curr_is_caps = stripped.isupper() and len(stripped) < 100
+                
+                # If both are ALL CAPS, keep them together (multi-line heading)
+                if prev_is_caps and curr_is_caps:
+                    is_new_section = False
+                else:
+                    # New section if:
+                    # 1. Previous line ends with sentence punctuation + current starts with capital/number
+                    # 2. Current line looks like a heading (ALL CAPS, short) and previous is not
+                    # 3. Current line starts with numbering (1., (a), etc.)
+                    ends_with_sentence = prev_text.rstrip().endswith(('.', '!', '?', ':'))
+                    starts_capital = stripped and stripped[0].isupper()
+                    is_heading = curr_is_caps and not prev_is_caps
+                    is_numbered = re.match(r'^\s*(\d+\.|\([a-z]\)|\([0-9]+\))', stripped)
+                    
+                    if ends_with_sentence and (starts_capital or is_numbered):
+                        is_new_section = True
+                    elif is_heading:
+                        is_new_section = True
+            
+            if is_new_section:
+                joined = ' '.join([p['text'] for p in current_paragraph_parts])
+                paragraphs_with_offsets.append({
+                    'text': joined,
+                    'start': current_paragraph_parts[0]['start'],
+                    'parts': current_paragraph_parts
                 })
-            # Move past this line + the \n character
-            current_pos += len(line) + 1  # +1 for the \n
+                current_paragraph_parts = [{'text': stripped, 'start': actual_start}]
+            else:
+                current_paragraph_parts.append({'text': stripped, 'start': actual_start})
+            
+            prev_blank = False
+            char_pos += len(line) + 1
         
-        if not lines_with_offsets:
-            lines_with_offsets = [{"text": text.strip(), "start": 0, "end": len(text.strip())}]
+        if current_paragraph_parts:
+            joined = ' '.join([p['text'] for p in current_paragraph_parts])
+            paragraphs_with_offsets.append({
+                'text': joined,
+                'start': current_paragraph_parts[0]['start'],
+                'parts': current_paragraph_parts
+            })
         
-        # ── Step 2: Further split each line on punctuation-based sentence endings ──
+        # ── Step 2: Split paragraphs into sentences ──
         # Common abbreviations that shouldn't trigger sentence breaks
         abbreviations = ['Mr.', 'Mrs.', 'Ms.', 'Dr.', 'Prof.', 'Sr.', 'Jr.', 
                         'Inc.', 'Ltd.', 'Corp.', 'Co.', 'vs.', 'etc.', 'e.g.', 'i.e.',
@@ -86,12 +152,15 @@ class LegalRiskClassifier:
         
         result = []
         
-        for line_info in lines_with_offsets:
-            line_text = line_info["text"]
-            line_start = line_info["start"]
+        for para_info in paragraphs_with_offsets:
+            paragraph = para_info['text']
+            para_start = para_info['start']
+            
+            if not paragraph.strip():
+                continue
             
             # Protect abbreviations by temporarily replacing them
-            protected = line_text
+            protected = paragraph
             placeholders = {}
             for i, abbr in enumerate(abbreviations):
                 placeholder = f"__ABBR{i}__"
@@ -118,48 +187,49 @@ class LegalRiskClassifier:
             if current_sentence.strip():
                 sentences.append(current_sentence.strip())
             
-            # Restore abbreviations
-            restored_sentences = []
+            # Restore abbreviations and find offsets
+            search_from = para_start
             for sentence in sentences:
                 for placeholder, abbr in placeholders.items():
                     sentence = sentence.replace(placeholder, abbr)
-                restored_sentences.append(sentence)
-            
-            # Map each sub-sentence back to its offset within the original text
-            sub_search_start = line_start
-            for sentence in restored_sentences:
-                if len(sentence.strip()) <= 5:
+                
+                if len(sentence.strip()) <= 10:
                     continue  # skip very short fragments
-                    
-                idx = text.find(sentence, sub_search_start)
+                
+                # Find offset in original text starting from paragraph position
+                # Try to find the sentence in original text (handling joined lines)
+                sentence_clean = sentence.strip()
+                
+                # Search in the original text starting from where we expect it
+                idx = text.find(sentence_clean, search_from)
+                
                 if idx == -1:
-                    stripped_s = sentence.strip()
-                    idx = text.find(stripped_s, sub_search_start)
-                    if idx != -1:
-                        sentence = stripped_s
+                    # If exact match not found, try finding first few words
+                    # This handles cases where joining lines changed spacing
+                    words = sentence_clean.split()[:5]  # First 5 words
+                    search_phrase = ' '.join(words)
+                    idx = text.find(search_phrase, search_from)
                 
                 if idx != -1:
                     result.append({
-                        "text": sentence,
+                        "text": sentence_clean,
                         "start": idx,
-                        "end": idx + len(sentence)
+                        "end": idx + len(sentence_clean)
                     })
-                    sub_search_start = idx + len(sentence)
+                    search_from = idx + len(sentence_clean)
                 else:
+                    # Fallback: estimate position
                     result.append({
-                        "text": sentence,
-                        "start": sub_search_start,
-                        "end": sub_search_start + len(sentence)
+                        "text": sentence_clean,
+                        "start": search_from,
+                        "end": search_from + len(sentence_clean)
                     })
-                    sub_search_start += len(sentence)
-        
-        # Final filter: remove anything too short to be meaningful
-        result = [r for r in result if len(r["text"].strip()) > 10]
+                    search_from += len(sentence_clean)
         
         if not result:
             result = [{"text": text.strip(), "start": 0, "end": len(text.strip())}]
         
-        logger.info(f"Split text into {len(result)} sentences with offsets (line-break aware)")
+        logger.info(f"Split text into {len(result)} sentences (PDF-aware, joined line breaks)")
         return result
     
     def segment_clauses(self, text: str) -> List[Dict]:
@@ -233,6 +303,7 @@ class LegalRiskClassifier:
     ) -> List[Dict]:
         """
         Extract clauses with exact character offsets using the tokenizer's offset_mapping.
+        Now captures ALL text including gaps (O-tagged regions) to ensure 100% coverage.
         
         Args:
             tokens: List of tokens
@@ -247,6 +318,7 @@ class LegalRiskClassifier:
         clauses = []
         clause_start_char = None
         clause_end_char = None
+        current_label_type = None  # Track if we're in CLAUSE or O region
         
         for i, (token, label) in enumerate(zip(tokens, labels)):
             # Skip special tokens
@@ -261,7 +333,7 @@ class LegalRiskClassifier:
                 continue
             
             if label == "B-CLAUSE":
-                # Save previous clause if exists
+                # Save previous region if exists (could be CLAUSE or O)
                 if clause_start_char is not None:
                     clause_text = sentence[clause_start_char:clause_end_char].strip()
                     if clause_text:
@@ -270,21 +342,34 @@ class LegalRiskClassifier:
                             "start": sentence_start + clause_start_char,
                             "end": sentence_start + clause_end_char
                         })
-                # Start new clause
+                # Start new clause region
                 clause_start_char = token_start
                 clause_end_char = token_end
+                current_label_type = "CLAUSE"
                 
             elif label == "I-CLAUSE":
-                if clause_start_char is not None:
+                if clause_start_char is not None and current_label_type == "CLAUSE":
+                    # Continue existing clause
                     clause_end_char = token_end
                 else:
-                    # I-CLAUSE without B-CLAUSE, start new clause
+                    # I-CLAUSE without B-CLAUSE or after O, start new clause
+                    if clause_start_char is not None:
+                        # Save previous O region
+                        clause_text = sentence[clause_start_char:clause_end_char].strip()
+                        if clause_text:
+                            clauses.append({
+                                "text": clause_text,
+                                "start": sentence_start + clause_start_char,
+                                "end": sentence_start + clause_end_char
+                            })
                     clause_start_char = token_start
                     clause_end_char = token_end
+                    current_label_type = "CLAUSE"
                     
             elif label == "O":
-                # Save current clause if exists
-                if clause_start_char is not None:
+                # O-tagged text (gaps between clauses) - KEEP THESE NOW
+                if clause_start_char is not None and current_label_type == "CLAUSE":
+                    # Save current clause region
                     clause_text = sentence[clause_start_char:clause_end_char].strip()
                     if clause_text:
                         clauses.append({
@@ -292,10 +377,20 @@ class LegalRiskClassifier:
                             "start": sentence_start + clause_start_char,
                             "end": sentence_start + clause_end_char
                         })
-                    clause_start_char = None
-                    clause_end_char = None
+                    # Start new O region
+                    clause_start_char = token_start
+                    clause_end_char = token_end
+                    current_label_type = "O"
+                elif clause_start_char is not None and current_label_type == "O":
+                    # Continue existing O region
+                    clause_end_char = token_end
+                else:
+                    # Start new O region
+                    clause_start_char = token_start
+                    clause_end_char = token_end
+                    current_label_type = "O"
         
-        # Add last clause if exists
+        # Add last region if exists (could be CLAUSE or O)
         if clause_start_char is not None:
             clause_text = sentence[clause_start_char:clause_end_char].strip()
             if clause_text:
@@ -316,6 +411,194 @@ class LegalRiskClassifier:
                 })
         
         return clauses
+    
+    def segment_clauses_hybrid(self, text: str) -> List[Dict]:
+        """
+        HYBRID APPROACH: Combines Legal-BERT ML predictions with rule-based post-processing.
+        
+        Improvements over pure ML:
+        1. Fixes word boundary violations (prevents mid-word splits like "pla intiff")
+        2. Fills coverage gaps (ensures 100% text coverage)
+        3. Merges clauses split mid-sentence (reduces unwanted splits)
+        4. Uses punctuation as splitting guidelines
+        
+        Args:
+            text: Input text to segment
+            
+        Returns:
+            List of dicts: [{"text": str, "start": int, "end": int}, ...]
+        """
+        import re
+        
+        # Step 1: Get ML predictions
+        ml_clauses = self.segment_clauses(text)
+        
+        if not ml_clauses:
+            return [{"text": text, "start": 0, "end": len(text)}]
+        
+        # Step 2: Fix word boundary violations
+        # Adjust clause boundaries that split words
+        fixed_clauses = []
+        for clause in ml_clauses:
+            start = clause["start"]
+            end = clause["end"]
+            
+            # Fix start boundary if it's mid-word
+            # Move backwards to find the start of the word
+            if start > 0:
+                # If current position is alphanumeric and previous is too, we're mid-word
+                if start < len(text) and text[start].isalnum() and text[start - 1].isalnum():
+                    # Move back to word boundary (whitespace or punctuation)
+                    while start > 0 and text[start - 1].isalnum():
+                        start -= 1
+            
+            # Fix end boundary if it's mid-word
+            # Move forward to find the end of the word
+            if end < len(text) and end > 0:
+                # If previous position is alphanumeric and current is too, we're mid-word
+                if text[end - 1].isalnum() and text[end].isalnum():
+                    # Move forward to word boundary (whitespace or punctuation)
+                    while end < len(text) and text[end].isalnum():
+                        end += 1
+            
+            fixed_clauses.append({
+                "text": text[start:end],
+                "start": start,
+                "end": end
+            })
+        
+        # Step 3: Sort clauses by start position
+        sorted_clauses = sorted(fixed_clauses, key=lambda c: c["start"])
+        
+        # Step 4: Fill coverage gaps
+        filled_clauses = []
+        last_end = 0
+        
+        for clause in sorted_clauses:
+            # Check for gap before this clause
+            if clause["start"] > last_end:
+                gap_text = text[last_end:clause["start"]]
+                # Only add gap if it contains non-whitespace
+                if gap_text.strip():
+                    filled_clauses.append({
+                        "text": gap_text,
+                        "start": last_end,
+                        "end": clause["start"]
+                    })
+            
+            # Add the clause
+            filled_clauses.append(clause)
+            last_end = clause["end"]
+        
+        # Fill final gap if exists
+        if last_end < len(text):
+            gap_text = text[last_end:len(text)]
+            if gap_text.strip():
+                filled_clauses.append({
+                    "text": gap_text,
+                    "start": last_end,
+                    "end": len(text)
+                })
+        
+        # Step 5: Merge clauses split mid-sentence (no proper punctuation between them)
+        merged_clauses = []
+        i = 0
+        
+        while i < len(filled_clauses):
+            current = filled_clauses[i]
+            
+            # Try to merge with next clause if they shouldn't be split
+            while i + 1 < len(filled_clauses):
+                next_clause = filled_clauses[i + 1]
+                
+                # Check if we should merge
+                current_text = current["text"].rstrip()
+                next_text = next_clause["text"].lstrip()
+                
+                if not current_text or not next_text:
+                    # Skip empty clauses
+                    i += 1
+                    continue
+                
+                last_char = current_text[-1]
+                first_char = next_text[0] if next_text else ""
+                
+                # Calculate gap between clauses
+                gap_size = next_clause["start"] - current["end"]
+                gap_content = text[current["end"]:next_clause["start"]]
+                
+                # DON'T MERGE safeguards:
+                # 1. Large gap (multiple newlines = paragraph break)
+                # 2. Next clause is section header (all caps, short, likely a title)
+                if gap_content.count('\n') >= 2:
+                    # Multiple newlines suggest paragraph/section break
+                    break
+                
+                # Check if next clause is a section header (all caps, short)
+                next_stripped = next_text.strip()
+                if len(next_stripped) < 60 and next_stripped.isupper():
+                    # Likely a section header like "ANALYSIS AND FINDINGS"
+                    break
+                
+                # Merge conditions:
+                # 1. Current ends without proper punctuation AND next starts with lowercase
+                # 2. Current ends with conjunction (and, or, but) AND next starts lowercase
+                # 3. Gap between clauses is very small (< 5 chars, likely just whitespace)
+                should_merge = False
+                
+                # Check punctuation
+                if last_char not in ".!?,;:" and first_char.islower():
+                    should_merge = True
+                
+                # Check for conjunctions at end (but require lowercase continuation)
+                words = current_text.split()
+                if words and words[-1].lower() in ["and", "or", "but", "while", "when", "if", "because"]:
+                    # Only merge if next starts with lowercase (true continuation)
+                    # This prevents "if any" from merging with section headers
+                    if first_char.islower():
+                        should_merge = True
+                
+                # Check for very small gap (likely whitespace only)
+                if gap_size < 5 and not gap_content.strip():
+                    # Only merge if it makes sense (not crossing major boundaries)
+                    if last_char not in ".!?":
+                        should_merge = True
+                
+                if should_merge:
+                    # Merge: extend current clause to include next clause
+                    current = {
+                        "text": text[current["start"]:next_clause["end"]],
+                        "start": current["start"],
+                        "end": next_clause["end"]
+                    }
+                    i += 1  # Skip the next clause as it's now merged
+                else:
+                    # Don't merge, stop trying
+                    break
+            
+            merged_clauses.append(current)
+            i += 1
+        
+        # Step 6: Final cleanup - remove very short clauses (< 5 chars) that are just whitespace/punctuation
+        final_clauses = []
+        for clause in merged_clauses:
+            if len(clause["text"].strip()) >= 5:  # Keep only substantial text
+                final_clauses.append(clause)
+            elif clause["text"].strip():  # Short but has content
+                # Try to merge with previous clause if exists
+                if final_clauses:
+                    prev = final_clauses[-1]
+                    final_clauses[-1] = {
+                        "text": text[prev["start"]:clause["end"]],
+                        "start": prev["start"],
+                        "end": clause["end"]
+                    }
+                else:
+                    final_clauses.append(clause)
+        
+        logger.info(f"Hybrid segmentation: {len(ml_clauses)} ML clauses → {len(filled_clauses)} after filling gaps → {len(final_clauses)} after merging")
+        
+        return final_clauses if final_clauses else [{"text": text, "start": 0, "end": len(text)}]
     
     def _extract_clauses_from_bio(self, tokens: List[str], labels: List[str]) -> List[str]:
         """
@@ -415,16 +698,18 @@ class LegalRiskClassifier:
         Now returns character offsets (start_char, end_char) for each clause
         so the frontend can highlight exact original text.
         
+        Uses HYBRID approach (ML + Rules) for better coverage and accuracy.
+        
         Args:
             text: Input legal text
             
         Returns:
             Dictionary with segmented clauses, risk classifications, and character offsets
         """
-        logger.info("Starting two-stage analysis pipeline...")
+        logger.info("Starting two-stage analysis pipeline (HYBRID mode)...")
         
-        # Stage 1: Segment clauses (now returns offsets)
-        clause_infos = self.segment_clauses(text)
+        # Stage 1: Segment clauses using HYBRID approach (ML + Rules)
+        clause_infos = self.segment_clauses_hybrid(text)
         
         if not clause_infos:
             logger.warning("No clauses detected")
