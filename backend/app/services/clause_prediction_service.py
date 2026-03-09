@@ -674,47 +674,63 @@ def build_clause_prompt(clause_key: str, context: Dict[str, Any]) -> str:
 - Full bench: {', '.join(judge_names) if judge_names else 'Unknown judges'}
 - Court: {court}
 
-**Examples from actual judgments:**
+**ABSOLUTELY CRITICAL - READ CAREFULLY:**
 
-Example 1 (2 concurring judges):
-"K. Sripavan, J.
+You MUST generate EXACTLY this format - NO EXCEPTIONS:
+
+[Judge Name], J.
+I agree.
+
+JUDGE OF THE {court.upper()}
+
+
+[Judge Name], J.
+I agree.
+
+JUDGE OF THE {court.upper()}
+
+**WHAT YOU MUST DO:**
+✅ Generate separate blocks for EACH non-authoring judge
+✅ Each block contains exactly 3 lines: [Name], J. | I agree. | JUDGE OF THE {court.upper()}
+✅ Separate blocks with TWO blank lines (one empty line between blocks)
+✅ Use ONLY "I agree." - nothing else
+✅ Skip the author judge ({author}) - they do NOT get a concurrence block
+
+**WHAT YOU MUST NOT DO - THESE ARE ALL WRONG:**
+❌ "We, the undersigned judges, concur with the findings..."
+❌ "Concur with the judgment delivered herein..."
+❌ "I hereby concur with the above judgment..."
+❌ "I agree with the above" (wrong - must be just "I agree.")
+❌ Any statement starting with "We" or "Each of us"
+❌ Any paragraph format - MUST be individual blocks
+❌ Any collective statements about judges agreeing together
+
+**REAL EXAMPLE FROM AN ACTUAL JUDGMENT:**
+
+P.A. Ratnayake, J.
 I agree.
 
 JUDGE OF THE SUPREME COURT
 
 
-S.I. Imam, J.
-I agree.
-
-JUDGE OF THE SUPREME COURT"
-
-Example 2 (with Chief Justice):
-"N.G. Amaratunga, J.
+A.L. Amaranath, J.
 I agree.
 
 JUDGE OF THE SUPREME COURT
 
 
-P.A. Ratnayake, PC., J.
+K. Sripavan, J.
 I agree.
 
-JUDGE OF THE SUPREME COURT"
+JUDGE OF THE SUPREME COURT
 
-**Rules:**
-1. The authoring judge ({author}) does NOT get an "I agree" block
-2. Each NON-authoring judge gets their own concurrence block
-3. Format for each:
-   [Judge Full Name with designation]
-   I agree.
-   
-   JUDGE OF THE {court.upper()}
+Notice: Each judge gets their OWN block. They are NOT grouped. There is no "We" or group statements.
 
-4. Separate each judge's block with double line breaks
-5. Use exact names as provided from the bench
-6. Title is always "JUDGE OF THE {court.upper()}" (or "CHIEF JUSTICE OF SRI LANKA" if CJ)
+**YOUR TASK:**
+Generate concurrence blocks for these judges: {', '.join(judge_names) if judge_names else '[judge names]'}
+Skip: {author}
 
-**Your task:**
-Generate the judge concurrence blocks for all non-authoring judges. Use exact formatting from examples."""
+Output ONLY the judge concurrence blocks - nothing before, nothing after, just the blocks."""
 
     elif clause_key == "conclusion_section":
         return f"""Generate a conclusion section for a Sri Lankan Supreme Court judgment.
@@ -1017,6 +1033,31 @@ MISSING CLAUSES TO PREDICT:
 {''.join(clause_descriptions)}
 
 ════════════════════════════════════════════════════════════
+SPECIAL INSTRUCTION FOR judge_concurrence:
+════════════════════════════════════════════════════════════
+IF "judge_concurrence" is in the missing clauses list above:
+- MUST generate SEPARATE BLOCKS for each judge
+- MUST NOT generate a collective "We, the undersigned judges..." statement
+- Format MUST be: [Judge Name], J. on one line, "I agree." on next line, blank line, "JUDGE OF THE SUPREME COURT" on next line
+- MUST separate each judge's block with TWO blank lines
+- MUST only include non-authoring judges (skip the judgment author)
+- Example of CORRECT format:
+  K. Sripavan, J.
+  I agree.
+  
+  JUDGE OF THE SUPREME COURT
+  
+  
+  S.I. Imam, J.
+  I agree.
+  
+  JUDGE OF THE SUPREME COURT
+- Example of WRONG format (reject these):
+  ✗ "We, the undersigned judges, concur with the findings..."
+  ✗ "I hereby concur with the above judgment..."
+  ✗ "Concur with the conclusions reached herein..."
+
+════════════════════════════════════════════════════════════
 INSTRUCTIONS:
 ════════════════════════════════════════════════════════════
 Respond with a JSON object where each key is a clause key from the list above.
@@ -1034,7 +1075,8 @@ CRITICAL RULES for anchor_text:
 4. The anchor should be logically close to where the missing clause belongs
 5. For clauses at the very start: use the first sentence with position "before"
 6. For clauses at the very end: use the last sentence with position "after"
-7. DO NOT create or invent text - ONLY copy what exists in the document
+7. **SPECIAL RULE for judge_concurrence: ALWAYS goes at the ABSOLUTE END of the document. Use the last complete sentence from the document as anchor_text with position "after"**
+8. DO NOT create or invent text - ONLY copy what exists in the document
 
 EXAMPLE:
 If the document contains: "The Petitioner made an application in terms of Section 87(3)"
@@ -1090,6 +1132,24 @@ JSON Output:"""
         
         suggestions = json.loads(response_text)
         logger.info(f"✅ LLM returned suggestions for {len(suggestions)} clauses")
+        
+        # Handle if LLM returned a list instead of object - convert to dict by clause_key
+        if isinstance(suggestions, list):
+            logger.warning("⚠️ LLM returned a list instead of object, converting to dict format...")
+            suggestions_dict = {}
+            for item in suggestions:
+                if isinstance(item, dict) and "clause_key" in item:
+                    clause_key = item.pop("clause_key")
+                    suggestions_dict[clause_key] = item
+                elif isinstance(item, dict) and len(item) == 1:
+                    # If it's a dict with single key-value pair, use that
+                    clause_key = list(item.keys())[0]
+                    suggestions_dict[clause_key] = item[clause_key]
+            if suggestions_dict:
+                suggestions = suggestions_dict
+                logger.info(f"✅ Converted list to dict with {len(suggestions)} clauses")
+            else:
+                raise ValueError("Could not convert list response to dict format")
         
         # Validate that responses have required fields
         for key, sug in suggestions.items():

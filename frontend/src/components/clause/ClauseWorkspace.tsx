@@ -533,13 +533,23 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         confidence: suggestion.confidence,
       });
       
-      // NEW: Use position-based insertion from OpenAI
+      // Format the clause for insertion
       const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, suggestion.suggestion);
-      const insertPosition = findInsertionPositionFromAnchor(
-        modifiedDocumentText, 
-        suggestion.anchor_text || '', 
-        suggestion.insertion_position || 'end'
-      );
+      
+      // SPECIAL CASE: Judge concurrence ALWAYS goes at the very end
+      let insertPosition: number;
+      if (clauseKey === 'judge_concurrence') {
+        insertPosition = modifiedDocumentText.length;
+        console.log('📍 Judge concurrence: forcing insertion at END of document (position:', insertPosition, ')');
+      } else {
+        // For other clauses, use anchor text positioning
+        insertPosition = findInsertionPositionFromAnchor(
+          modifiedDocumentText, 
+          suggestion.anchor_text || '', 
+          (suggestion.position as "before" | "after") || 'after'
+        );
+      }
+      
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
       
@@ -599,13 +609,23 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         edited_text: editedSuggestionText,
       });
 
-      // NEW: Use position-based insertion from OpenAI
+      // Format the clause for insertion
       const formattedText = formatClauseForInsertion(clauseKey, suggestion.clause_name, editedSuggestionText);
-      const insertPosition = findInsertionPositionFromAnchor(
-        modifiedDocumentText, 
-        suggestion.anchor_text || '', 
-        suggestion.insertion_position || 'end'
-      );
+      
+      // SPECIAL CASE: Judge concurrence ALWAYS goes at the very end
+      let insertPosition: number;
+      if (clauseKey === 'judge_concurrence') {
+        insertPosition = modifiedDocumentText.length;
+        console.log('📍 Judge concurrence (edited): forcing insertion at END of document (position:', insertPosition, ')');
+      } else {
+        // For other clauses, use anchor text positioning
+        insertPosition = findInsertionPositionFromAnchor(
+          modifiedDocumentText, 
+          suggestion.anchor_text || '', 
+          (suggestion.position as "before" | "after") || 'after'
+        );
+      }
+      
       const updatedDoc = modifiedDocumentText.substring(0, insertPosition) + formattedText + modifiedDocumentText.substring(insertPosition);
       setModifiedDocumentText(updatedDoc);
 
@@ -664,7 +684,14 @@ Judge: [MISSING: Third Judge Signature - Signature required]
 
   // Helper function to format clause text for insertion
   const formatClauseForInsertion = (clauseKey: string, clauseName: string, text: string): string => {
-    // Wrap the text to multiple lines (10-11 words per line)
+    // Special handling for judge concurrence - preserve exact formatting with newlines
+    if (clauseKey === 'judge_concurrence') {
+      // Judge concurrence blocks already have correct newlines from AI
+      // Just add spacing before and after
+      return `\n\n${text}\n\n`;
+    }
+    
+    // For other clauses, wrap the text to multiple lines (10-11 words per line)
     const wrappedText = wrapTextForInsertion(text, 10);
     
     // Insert with proper spacing, NO labels or headings
@@ -682,13 +709,10 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     console.log('  - Position:', position);
     console.log('  - Document length:', documentText.length);
     
-    // If no anchor text provided, use fallback position
+    // If no anchor text provided, default to middle of document
     if (!anchorText || anchorText.trim().length === 0) {
-      console.warn('⚠️ No anchor text provided, using fallback');
-      if (position === "end") {
-        return documentText.length;
-      }
-      return 0;
+      console.warn('⚠️ No anchor text provided, defaulting to MIDDLE of document');
+      return Math.floor(documentText.length / 2);
     }
 
     // Strip formatting markers from document (same as backend does)
@@ -768,14 +792,10 @@ Judge: [MISSING: Third Judge Signature - Signature required]
     console.error('   Searched for:', anchorText.substring(0, 100));
     console.error('   Falling back based on position hint...');
     
-    // Smart fallback based on position hint
-    if (position === "end" || position === "after") {
-      console.error('   → Using END of document');
-      return documentText.length;
-    } else {
-      console.error('   → Using START of document');
-      return 0;
-    }
+    // Smart fallback: Default to MIDDLE of document for non-critical positioning
+    // This prevents clauses from being inserted at the top when anchor text is not found
+    console.error('   → Using MIDDLE of document (safe fallback)');
+    return Math.floor(documentText.length / 2);
   };
 
   // Helper to map clean doc position back to original doc position (with formatting markers)
