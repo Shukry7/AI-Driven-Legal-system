@@ -3,8 +3,9 @@ import { ClassificationEntry } from "./ClassificationEntry";
 import { ClassificationDocumentUpload } from "./ClassificationDocumentUpload";
 import { ClassificationWorkspace } from "./ClassificationWorkspace";
 import { ClassificationSummary } from "./ClassificationSummary";
+import { ClassificationModelInsights } from "./ClassificationModelInsights";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { FileText, History } from "lucide-react";
+import { FileText, History, BarChart3 } from "lucide-react";
 import { useClassification } from "./ClassificationContext";
 import type { ClassificationResult } from "@/config/api";
 
@@ -69,7 +70,7 @@ export function ClassificationModule() {
     return (
       <div className="space-y-6">
         <Tabs value={activeTab} onValueChange={setActiveTab}>
-          <TabsList className="w-full grid grid-cols-2">
+          <TabsList className="w-full grid grid-cols-3">
             <TabsTrigger value="classify" className="gap-2">
               <FileText className="w-4 h-4" />
               <span>New Classification</span>
@@ -77,6 +78,10 @@ export function ClassificationModule() {
             <TabsTrigger value="recent" className="gap-2">
               <History className="w-4 h-4" />
               <span>Recent Results</span>
+            </TabsTrigger>
+            <TabsTrigger value="insights" className="gap-2">
+              <BarChart3 className="w-4 h-4" />
+              <span>Model Insights</span>
             </TabsTrigger>
           </TabsList>
 
@@ -93,6 +98,12 @@ export function ClassificationModule() {
               onStartNew={handleStartNew}
               onSelectRecent={handleSelectRecent}
               showRecentSection={true}
+            />
+          </TabsContent>
+
+          <TabsContent value="insights" className="mt-6">
+            <ClassificationModelInsights
+              onBack={() => setActiveTab("classify")}
             />
           </TabsContent>
         </Tabs>

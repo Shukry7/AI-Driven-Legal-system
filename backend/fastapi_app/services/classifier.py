@@ -412,6 +412,194 @@ class LegalRiskClassifier:
         
         return clauses
     
+    def segment_clauses_hybrid(self, text: str) -> List[Dict]:
+        """
+        HYBRID APPROACH: Combines Legal-BERT ML predictions with rule-based post-processing.
+        
+        Improvements over pure ML:
+        1. Fixes word boundary violations (prevents mid-word splits like "pla intiff")
+        2. Fills coverage gaps (ensures 100% text coverage)
+        3. Merges clauses split mid-sentence (reduces unwanted splits)
+        4. Uses punctuation as splitting guidelines
+        
+        Args:
+            text: Input text to segment
+            
+        Returns:
+            List of dicts: [{"text": str, "start": int, "end": int}, ...]
+        """
+        import re
+        
+        # Step 1: Get ML predictions
+        ml_clauses = self.segment_clauses(text)
+        
+        if not ml_clauses:
+            return [{"text": text, "start": 0, "end": len(text)}]
+        
+        # Step 2: Fix word boundary violations
+        # Adjust clause boundaries that split words
+        fixed_clauses = []
+        for clause in ml_clauses:
+            start = clause["start"]
+            end = clause["end"]
+            
+            # Fix start boundary if it's mid-word
+            # Move backwards to find the start of the word
+            if start > 0:
+                # If current position is alphanumeric and previous is too, we're mid-word
+                if start < len(text) and text[start].isalnum() and text[start - 1].isalnum():
+                    # Move back to word boundary (whitespace or punctuation)
+                    while start > 0 and text[start - 1].isalnum():
+                        start -= 1
+            
+            # Fix end boundary if it's mid-word
+            # Move forward to find the end of the word
+            if end < len(text) and end > 0:
+                # If previous position is alphanumeric and current is too, we're mid-word
+                if text[end - 1].isalnum() and text[end].isalnum():
+                    # Move forward to word boundary (whitespace or punctuation)
+                    while end < len(text) and text[end].isalnum():
+                        end += 1
+            
+            fixed_clauses.append({
+                "text": text[start:end],
+                "start": start,
+                "end": end
+            })
+        
+        # Step 3: Sort clauses by start position
+        sorted_clauses = sorted(fixed_clauses, key=lambda c: c["start"])
+        
+        # Step 4: Fill coverage gaps
+        filled_clauses = []
+        last_end = 0
+        
+        for clause in sorted_clauses:
+            # Check for gap before this clause
+            if clause["start"] > last_end:
+                gap_text = text[last_end:clause["start"]]
+                # Only add gap if it contains non-whitespace
+                if gap_text.strip():
+                    filled_clauses.append({
+                        "text": gap_text,
+                        "start": last_end,
+                        "end": clause["start"]
+                    })
+            
+            # Add the clause
+            filled_clauses.append(clause)
+            last_end = clause["end"]
+        
+        # Fill final gap if exists
+        if last_end < len(text):
+            gap_text = text[last_end:len(text)]
+            if gap_text.strip():
+                filled_clauses.append({
+                    "text": gap_text,
+                    "start": last_end,
+                    "end": len(text)
+                })
+        
+        # Step 5: Merge clauses split mid-sentence (no proper punctuation between them)
+        merged_clauses = []
+        i = 0
+        
+        while i < len(filled_clauses):
+            current = filled_clauses[i]
+            
+            # Try to merge with next clause if they shouldn't be split
+            while i + 1 < len(filled_clauses):
+                next_clause = filled_clauses[i + 1]
+                
+                # Check if we should merge
+                current_text = current["text"].rstrip()
+                next_text = next_clause["text"].lstrip()
+                
+                if not current_text or not next_text:
+                    # Skip empty clauses
+                    i += 1
+                    continue
+                
+                last_char = current_text[-1]
+                first_char = next_text[0] if next_text else ""
+                
+                # Calculate gap between clauses
+                gap_size = next_clause["start"] - current["end"]
+                gap_content = text[current["end"]:next_clause["start"]]
+                
+                # DON'T MERGE safeguards:
+                # 1. Large gap (multiple newlines = paragraph break)
+                # 2. Next clause is section header (all caps, short, likely a title)
+                if gap_content.count('\n') >= 2:
+                    # Multiple newlines suggest paragraph/section break
+                    break
+                
+                # Check if next clause is a section header (all caps, short)
+                next_stripped = next_text.strip()
+                if len(next_stripped) < 60 and next_stripped.isupper():
+                    # Likely a section header like "ANALYSIS AND FINDINGS"
+                    break
+                
+                # Merge conditions:
+                # 1. Current ends without proper punctuation AND next starts with lowercase
+                # 2. Current ends with conjunction (and, or, but) AND next starts lowercase
+                # 3. Gap between clauses is very small (< 5 chars, likely just whitespace)
+                should_merge = False
+                
+                # Check punctuation
+                if last_char not in ".!?,;:" and first_char.islower():
+                    should_merge = True
+                
+                # Check for conjunctions at end (but require lowercase continuation)
+                words = current_text.split()
+                if words and words[-1].lower() in ["and", "or", "but", "while", "when", "if", "because"]:
+                    # Only merge if next starts with lowercase (true continuation)
+                    # This prevents "if any" from merging with section headers
+                    if first_char.islower():
+                        should_merge = True
+                
+                # Check for very small gap (likely whitespace only)
+                if gap_size < 5 and not gap_content.strip():
+                    # Only merge if it makes sense (not crossing major boundaries)
+                    if last_char not in ".!?":
+                        should_merge = True
+                
+                if should_merge:
+                    # Merge: extend current clause to include next clause
+                    current = {
+                        "text": text[current["start"]:next_clause["end"]],
+                        "start": current["start"],
+                        "end": next_clause["end"]
+                    }
+                    i += 1  # Skip the next clause as it's now merged
+                else:
+                    # Don't merge, stop trying
+                    break
+            
+            merged_clauses.append(current)
+            i += 1
+        
+        # Step 6: Final cleanup - remove very short clauses (< 5 chars) that are just whitespace/punctuation
+        final_clauses = []
+        for clause in merged_clauses:
+            if len(clause["text"].strip()) >= 5:  # Keep only substantial text
+                final_clauses.append(clause)
+            elif clause["text"].strip():  # Short but has content
+                # Try to merge with previous clause if exists
+                if final_clauses:
+                    prev = final_clauses[-1]
+                    final_clauses[-1] = {
+                        "text": text[prev["start"]:clause["end"]],
+                        "start": prev["start"],
+                        "end": clause["end"]
+                    }
+                else:
+                    final_clauses.append(clause)
+        
+        logger.info(f"Hybrid segmentation: {len(ml_clauses)} ML clauses → {len(filled_clauses)} after filling gaps → {len(final_clauses)} after merging")
+        
+        return final_clauses if final_clauses else [{"text": text, "start": 0, "end": len(text)}]
+    
     def _extract_clauses_from_bio(self, tokens: List[str], labels: List[str]) -> List[str]:
         """
         Extract clause texts from BIO-tagged tokens (legacy method).
@@ -510,16 +698,18 @@ class LegalRiskClassifier:
         Now returns character offsets (start_char, end_char) for each clause
         so the frontend can highlight exact original text.
         
+        Uses HYBRID approach (ML + Rules) for better coverage and accuracy.
+        
         Args:
             text: Input legal text
             
         Returns:
             Dictionary with segmented clauses, risk classifications, and character offsets
         """
-        logger.info("Starting two-stage analysis pipeline...")
+        logger.info("Starting two-stage analysis pipeline (HYBRID mode)...")
         
-        # Stage 1: Segment clauses (now returns offsets)
-        clause_infos = self.segment_clauses(text)
+        # Stage 1: Segment clauses using HYBRID approach (ML + Rules)
+        clause_infos = self.segment_clauses_hybrid(text)
         
         if not clause_infos:
             logger.warning("No clauses detected")

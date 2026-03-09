@@ -167,7 +167,9 @@ async def root():
                     "upload_and_analyze": "/api/lineage/analyze-lineage",
                     "search_and_fetch": "/api/lineage/search-act",
                     "get_stats": "/api/lineage/stats",
-                    "list_uploads": "/api/lineage/list-uploads"
+                    "list_uploads": "/api/lineage/list-uploads",
+                    "download_act_judgment_pdf": "/api/lineage/download-judgment/{filename}",
+                    "download_act_judgment_text": "api/lineage/download-judgment-text/{filename}"
                 },
                 "docs": "/docs",
                 "redoc": "/redoc"

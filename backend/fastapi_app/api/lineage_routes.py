@@ -1,6 +1,7 @@
 # backend/fastapi_app/api/lineage_routes.py
 
 from fastapi import APIRouter, HTTPException, UploadFile, File
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 from typing import Dict, List, Optional
 import logging
@@ -337,3 +338,63 @@ async def list_uploads():
     except Exception as e:
         logger.error(f"Error listing uploads: {e}")
         return []
+    
+@router.get("/lineage/download-judgment/{filename}")
+async def download_judgment_pdf(filename: str):
+    """
+    Download a judgment PDF file from raw_judgments folder.
+    """
+    try:
+        # Define the raw_judgments folder path
+        RAW_JUDGMENTS_FOLDER = Path(__file__).parent.parent.parent / "raw_judgments"
+        file_path = RAW_JUDGMENTS_FOLDER / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Return the file as a downloadable response
+        return FileResponse(
+            path=file_path,
+            filename=filename,
+            media_type='application/pdf'
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error downloading PDF {filename}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to download PDF")
+
+@router.get("/lineage/download-judgment-text/{filename}")
+async def download_judgment_text(filename: str):
+    """
+    Download a judgment as text file from raw_judgments folder.
+    """
+    try:
+        RAW_JUDGMENTS_FOLDER = Path(__file__).parent.parent.parent / "raw_judgments"
+        file_path = RAW_JUDGMENTS_FOLDER / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail="File not found")
+        
+        # Read the PDF and extract text (you can reuse your existing extraction function)
+        from fastapi_app.api.lineage_routes import extract_text_from_pdf_like_notebook
+        
+        text_content = extract_text_from_pdf_like_notebook(file_path)
+        
+        if not text_content:
+            raise HTTPException(status_code=500, detail="Failed to extract text from PDF")
+        
+        # Return as text file
+        text_filename = filename.replace('.pdf', '.txt')
+        return Response(
+            content=text_content,
+            media_type='text/plain',
+            headers={
+                'Content-Disposition': f'attachment; filename="{text_filename}"'
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error extracting text from {filename}: {e}")
+        raise HTTPException(status_code=500, detail="Failed to extract text")
