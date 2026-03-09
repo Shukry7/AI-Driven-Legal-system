@@ -33,7 +33,7 @@ export function TranslationFloatingWidget() {
   const visible = jobs.filter((j) => {
     if (j.dismissed) return false;
     if (j.status === "processing" || j.status === "uploading") return true;
-    if (j.status === "completed" || j.status === "failed") {
+    if (j.status === "completed" || j.status === "failed" || j.status === "stopped") {
       return Date.now() - j.startedAt < 10 * 60 * 1000;
     }
     return false;
@@ -145,7 +145,7 @@ function JobRow({
         </div>
 
         <div className="flex items-center gap-1">
-          {(job.status === "completed" || isActive) && (
+          {(job.status === "completed" || job.status === "stopped" || isActive) && (
             <button
               onClick={() => onView(job.jobId)}
               className="p-1 rounded hover:bg-accent/20 transition-colors"
@@ -201,6 +201,14 @@ function JobRow({
         <div className="mt-1.5 flex items-center gap-1 text-xs text-destructive">
           <AlertCircle className="w-3.5 h-3.5" />
           <span className="truncate">{job.error || "Translation failed"}</span>
+        </div>
+      )}
+
+      {/* Stopped */}
+      {job.status === "stopped" && (
+        <div className="mt-1.5 flex items-center gap-1 text-xs text-amber-600">
+          <AlertCircle className="w-3.5 h-3.5" />
+          <span>Stopped — {(job.partialSections?.length || 0) > 0 ? "click to view partial result" : "no sections completed"}</span>
         </div>
       )}
     </div>

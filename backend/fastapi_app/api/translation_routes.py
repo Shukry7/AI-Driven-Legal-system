@@ -271,17 +271,17 @@ async def translation_history(limit: int = Query(20, ge=1, le=100)):
 
 @router.post("/translate/cancel/{job_id}")
 async def cancel_translation(job_id: str):
-    """Mark a running translation job as cancelled/failed."""
+    """Mark a running translation job as stopped by user."""
     from app.services.translation_service import _load_job, _save_job
     job = _load_job(job_id)
     if not job:
         raise HTTPException(404, "Job not found")
-    if job["status"] in ("completed", "failed"):
+    if job["status"] in ("completed", "failed", "stopped"):
         return JSONResponse({"message": "Job already finished", "status": job["status"]})
-    job["status"] = "failed"
-    job["error"] = "Cancelled by user"
+    job["status"] = "stopped"
+    # Don't set error - this was intentional stop, not a failure
     _save_job(job_id, job)
-    return JSONResponse({"message": "Job cancelled", "status": "failed"})
+    return JSONResponse({"message": "Job stopped", "status": "stopped"})
 
 
 # ═══════════════════════════════════════════════════════════════════════════
