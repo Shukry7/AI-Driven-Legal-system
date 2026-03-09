@@ -542,11 +542,11 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         insertPosition = modifiedDocumentText.length;
         console.log('📍 Judge concurrence: forcing insertion at END of document (position:', insertPosition, ')');
       } else {
-        // For other clauses, use anchor text positioning
+        // For other clauses, use anchor text positioning from LLM
         insertPosition = findInsertionPositionFromAnchor(
           modifiedDocumentText, 
           suggestion.anchor_text || '', 
-          (suggestion.position as "before" | "after") || 'after'
+          (suggestion.insertion_position as "before" | "after") || 'after'
         );
       }
       
@@ -618,11 +618,11 @@ Judge: [MISSING: Third Judge Signature - Signature required]
         insertPosition = modifiedDocumentText.length;
         console.log('📍 Judge concurrence (edited): forcing insertion at END of document (position:', insertPosition, ')');
       } else {
-        // For other clauses, use anchor text positioning
+        // For other clauses, use anchor text positioning from LLM
         insertPosition = findInsertionPositionFromAnchor(
           modifiedDocumentText, 
           suggestion.anchor_text || '', 
-          (suggestion.position as "before" | "after") || 'after'
+          (suggestion.insertion_position as "before" | "after") || 'after'
         );
       }
       

@@ -1131,13 +1131,14 @@ JSON Output:"""
         logger.info("="*80 + "\n")
         
         suggestions = json.loads(response_text)
-        logger.info(f"✅ LLM returned suggestions for {len(suggestions)} clauses")
+        logger.info(f"✅ LLM returned response")
+        logger.info(f"Response type: {type(suggestions).__name__}")
         
         # Handle if LLM returned a list instead of object - convert to dict by clause_key
         if isinstance(suggestions, list):
-            logger.warning("⚠️ LLM returned a list instead of object, converting to dict format...")
+            logger.warning(f"⚠️ LLM returned a list ({len(suggestions)} items) instead of object, converting to dict format...")
             suggestions_dict = {}
-            for item in suggestions:
+            for idx, item in enumerate(suggestions):
                 if isinstance(item, dict) and "clause_key" in item:
                     clause_key = item.pop("clause_key")
                     suggestions_dict[clause_key] = item
@@ -1145,20 +1146,87 @@ JSON Output:"""
                     # If it's a dict with single key-value pair, use that
                     clause_key = list(item.keys())[0]
                     suggestions_dict[clause_key] = item[clause_key]
+                else:
+                    logger.warning(f"⚠️ Item {idx} could not be converted: {str(item)[:100]}")
             if suggestions_dict:
                 suggestions = suggestions_dict
-                logger.info(f"✅ Converted list to dict with {len(suggestions)} clauses")
+                logger.info(f"✅ Converted list to dict with {len(suggestions)} clauses: {list(suggestions.keys())}")
             else:
+                logger.error(f"❌ Could not convert list response to dict format - falling back to templates")
                 raise ValueError("Could not convert list response to dict format")
+        
+        # Ensure we have a dict at this point
+        if not isinstance(suggestions, dict):
+            logger.error(f"❌ LLM response is not a dict after conversion: {type(suggestions).__name__}")
+            raise ValueError(f"Expected dict, got {type(suggestions).__name__}")
+        
+        logger.info(f"Total suggestions returned by LLM: {len(suggestions)}")
+        
+        # SPECIAL HANDLING: Flatten nested judge_concurrence structure if present
+        # LLM may return judge_concurrence as: {"judge_name1": {...}, "judge_name2": {...}}
+        # But we need: {"suggestion": "combined_text", "confidence": ..., ...}
+        if "judge_concurrence" in suggestions:
+            jc = suggestions["judge_concurrence"]
+            # Check if judge_concurrence contains nested judge entries (each judge as a key)
+            if isinstance(jc, dict) and jc and "suggestion" not in jc:
+                # This looks like a nested judge structure
+                logger.info(f"⚠️ judge_concurrence has nested structure, flattening...")
+                judge_blocks = []
+                anchor_text = ""
+                position = "after"
+                confidence = 0
+                reasoning = ""
+                
+                for judge_name, judge_data in jc.items():
+                    if isinstance(judge_data, dict):
+                        sugg = judge_data.get("suggestion", "")
+                        if sugg:
+                            judge_blocks.append(sugg.strip())
+                        # Use first valid anchor_text and position found
+                        if not anchor_text:
+                            anchor_text = judge_data.get("anchor_text", "")
+                            position = judge_data.get("position", "after")
+                            confidence = judge_data.get("confidence", 0)
+                            reasoning = judge_data.get("reasoning", "")
+                
+                if judge_blocks:
+                    # Combine all judge blocks with double newlines between them
+                    combined_suggestion = "\n\n".join(judge_blocks)
+                    suggestions["judge_concurrence"] = {
+                        "suggestion": combined_suggestion,
+                        "confidence": confidence,
+                        "reasoning": f"Combined concurrence from {len(judge_blocks)} judges",
+                        "anchor_text": anchor_text,
+                        "position": position
+                    }
+                    logger.info(f"✅ Flattened judge_concurrence: {len(judge_blocks)} judges combined")
+                else:
+                    logger.error(f"❌ No valid judge blocks found in nested judge_concurrence")
+                    suggestions["judge_concurrence"] = {
+                        "suggestion": "[judge_concurrence - no valid entries found]",
+                        "confidence": 0,
+                        "reasoning": "Failed to extract judge concurrence from nested structure",
+                        "anchor_text": "",
+                        "position": "after"
+                    }
         
         # Validate that responses have required fields
         for key, sug in suggestions.items():
+            if not isinstance(sug, dict):
+                logger.warning(f"⚠️ Suggestion for {key} is not a dict (is {type(sug).__name__}), skipping validation")
+                continue
             if "anchor_text" not in sug:
-                logger.warning(f"⚠️ Missing anchor_text for {key}, using fallback")
+                logger.warning(f"⚠️ Missing anchor_text for {key}, setting to empty")
                 sug["anchor_text"] = ""
-                sug["position"] = "end"
             if "position" not in sug:
+                logger.warning(f"⚠️ Missing position for {key}, defaulting to 'after'")
                 sug["position"] = "after"
+            if "suggestion" not in sug:
+                logger.error(f"❌ Missing suggestion text for {key}!")
+                sug["suggestion"] = f"[{key} - suggestion unavailable from LLM]"
+            if "confidence" not in sug:
+                logger.warning(f"⚠️ Missing confidence for {key}, defaulting to 0")
+                sug["confidence"] = 0
         
         return suggestions
 
@@ -1330,9 +1398,9 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
             "context_used": ctx,
             "position": mc["position"],
             "insertion_point": ctx.get("insertion_point", {}),
-            # NEW: Position-based insertion data from OpenAI
+            # Position-based insertion data from OpenAI LLM
             "anchor_text": suggestion_data.get("anchor_text", ""),
-            "insertion_position": suggestion_data.get("position", "end"),  # "before" | "after" | "end"
+            "insertion_position": suggestion_data.get("position", "after"),  # "before" | "after"
         }
 
     return result
