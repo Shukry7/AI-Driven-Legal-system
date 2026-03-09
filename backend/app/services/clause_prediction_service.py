@@ -87,46 +87,6 @@ PREDICTABLE_CLAUSES = {
         "detection_regex": r"(?:(?:[Ll]earned\s+)?(?:Additional\s+)?(?:District|High\s+Court|Commercial\s+High\s+Court|Trial|Magistrate'?s?)\s+(?:Court\s+)?Judge[s]?\s+(?:held|found|concluded|observed|determined|decided|dismissed|allowed|granted|erred|ruled|was\s+of\s+the\s+(?:view|opinion))|(?:the\s+)?(?:High\s+Court|Court\s+of\s+Appeal|District\s+Court|Commercial\s+High\s+Court|Labour\s+Tribunal|Magistrate.s\s+Court)\s+(?:held|found|decided|dismissed|allowed|affirmed|set\s+aside|erred|upheld|ruled|observed|concluded|determined)|(?:the\s+)?(?:impugned|challenged|contested)\s+(?:judgment|order|decree|decision)|(?:the\s+)?(?:learned\s+)?(?:trial\s+)?[Jj]udge\s+(?:held|found|decided|concluded|observed|determined|dismissed|allowed|erred|ruled)|court\s+(?:of\s+first\s+instance|below|a\s+quo))",
         "detection_scope": "full",
     },
-    "factual_background_label": {
-        "name": "Factual Background Label",
-        "predictability": "FULL",
-        "frequency": "18.6%",
-        "position": "10-25% through document",
-        "detection_regex": r"(?:(?:^|\n)\s*(?:Factual\s+[Mm]atrix|Facts?\s+in\s+[Bb]rief|The\s+[Ff]actual\s+[Bb]ackground|Background\s+[Ff]acts?|The\s+[Ff]acts?\s+of\s+the\s+[Cc]ase|Introduction|Brief\s+[Ff]acts|The\s+[Ff]acts|Background|BACKGROUND|THE\s+FACTS|FACTUAL\s+MATRIX|FACTS\s+IN\s+BRIEF|INTRODUCTION|Brief\s+[Bb]ackground|The\s+[Bb]ackground|Factual\s+[Bb]ackground|Consideration\s+of\s+[Ff]acts?)\s*:?\s*\.?\s*(?:\n|$))",
-        "detection_scope": "first_30_percent",
-    },
-    "appellant_argument": {
-        "name": "Appellant Argument Summary",
-        "predictability": "PARTIAL",
-        "frequency": "53.9%",
-        "position": "40-70% through document",
-        "detection_regex": r"(?:(?:[Ll]earned\s+)?[Cc]ounsel\s+for\s+(?:the\s+)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner)s?[\s,]+(?:submitted|contended|argued|urged|maintained|pointed\s+out|stated)|(?:the\s+)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner)s?\s+(?:submitted|contended|argued|urged|maintained|averred|stated)|(?:it\s+was\s+)?(?:submitted|contended|argued|urged)\s+(?:by|on\s+behalf\s+of)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner)|(?:the\s+)?(?:submission|contention|argument)s?\s+(?:of|made\s+by)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner))",
-        "detection_scope": "full",
-    },
-    "respondent_argument": {
-        "name": "Respondent Argument Summary",
-        "predictability": "PARTIAL",
-        "frequency": "41.3%",
-        "position": "45-75% through document",
-        "detection_regex": r"(?:(?:[Ll]earned\s+)?[Cc]ounsel\s+for\s+(?:the\s+)?(?:[Rr]espondent|[Dd]efendant)s?[\s,]+(?:submitted|contended|argued|urged|maintained|pointed\s+out|stated)|(?:the\s+)?(?:[Rr]espondent|[Dd]efendant)s?\s+(?:submitted|contended|argued|urged|maintained|averred|stated)|(?:it\s+was\s+)?(?:submitted|contended|argued|urged)\s+(?:by|on\s+behalf\s+of)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Rr]espondent|[Dd]efendant)|(?:the\s+)?(?:submission|contention|argument)s?\s+(?:of|made\s+by)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Rr]espondent|[Dd]efendant))",
-        "detection_scope": "full",
-    },
-    "legal_framework": {
-        "name": "Legal Framework Introduction",
-        "predictability": "PARTIAL",
-        "frequency": "98.5%",
-        "position": "30-50% through document",
-        "detection_regex": r"(?:(?:[Ss]ection|[Ss]\.)\s+\d+(?:\s*\([^)]*\))?\s+of\s+the|[Aa]rticle\s+\d+(?:\s*\([^)]*\))?\s+of\s+the|(?:the\s+)?(?:relevant|applicable|material|pertinent)\s+(?:legal\s+)?(?:section|provision|law|statute|enactment)|(?:provides?|reads?|states?|stipulates?|enacts?)\s+(?:as\s+follows|that|inter\s+alia)|[Ii]n\s+terms\s+of\s+(?:[Ss]ection|[Aa]rticle|the\s+|[Ss]\.)|(?:Civil|Criminal|Penal|Companies?)\s+(?:Procedure\s+)?(?:Code|Act|Ordinance)|(?:Evidence|Prescription|Limitation|Registration|Trust)\s+(?:Ordinance|Act)|(?:Ordinance|Act|Statute)\s+No\.?\s*\d+)",
-        "detection_scope": "full",
-    },
-    "issue_analysis": {
-        "name": "Issue Analysis Structure",
-        "predictability": "PARTIAL",
-        "frequency": "90.2%",
-        "position": "20-40% through document",
-        "detection_regex": r"(?:(?:the\s+)?(?:following\s+)?(?:issues?|questions?)\s+(?:that\s+)?(?:arise|for\s+(?:consideration|determination|decision|adjudication))|(?:the\s+)?(?:issues?|questions?\s+of\s+law)\s+(?:for|that\s+arise\s+for)\s+(?:determination|consideration)|[Gg]rounds?\s+of\s+appeal\s+(?:urged|are|raised|set\s+out)|(?:question|issue|point)\s+(?:is|to\s+be\s+(?:considered|decided|determined|answered))|(?:the\s+)?(?:main|principal|primary|central|key)\s+(?:question|issue|point)|[Ww]hether\s+(?:the|a|an|or\s+not)|(?:questions?\s+of\s+law)|(?:question|issue)\s+(?:No\.?\s*)?\d|(?:first|second|third|fourth|fifth|next)\s+(?:question|issue|point|ground|contention)|(?:I|[Ww]e)\s+(?:now\s+)?(?:turn|proceed|come)\s+to\s+(?:consider|examine|address|deal)|(?:it\s+is)\s+(?:necessary|important)\s+to\s+(?:consider|examine|determine))",
-        "detection_scope": "full",
-    },
     "cost_order": {
         "name": "Cost Order",
         "predictability": "FULL",
@@ -495,35 +455,10 @@ def calculate_insertion_point(text: str, clause_key: str) -> Dict[str, Any]:
         insertion_info["line_estimate"] = int(total_lines * 0.20)
         insertion_info["position_description"] = "After procedural history (estimated)"
     
-    elif clause_key == "factual_background_label":
-        # Insert after procedural history/leave to appeal, around 20-25%
-        insertion_info["line_estimate"] = int(total_lines * 0.22)
-        insertion_info["position_description"] = "After procedural history, before facts section"
-    
-    elif clause_key == "issue_analysis":
-        # Insert in early-middle section, around 30-35%
-        insertion_info["line_estimate"] = int(total_lines * 0.32)
-        insertion_info["position_description"] = "In middle section (after facts, before arguments)"
-    
     elif clause_key == "lower_court_findings":
         # Insert in early-middle section, around 35-40%
         insertion_info["line_estimate"] = int(total_lines * 0.37)
-        insertion_info["position_description"] = "In middle section (after issue analysis)"
-    
-    elif clause_key == "legal_framework":
-        # Insert in middle section, around 40-45%
-        insertion_info["line_estimate"] = int(total_lines * 0.42)
-        insertion_info["position_description"] = "In middle section (legal provisions area)"
-    
-    elif clause_key == "appellant_argument":
-        # Insert in middle section, around 45-50%
-        insertion_info["line_estimate"] = int(total_lines * 0.47)
-        insertion_info["position_description"] = "In middle section (argument area)"
-    
-    elif clause_key == "respondent_argument":
-        # Insert in later-middle section, around 55-60%
-        insertion_info["line_estimate"] = int(total_lines * 0.57)
-        insertion_info["position_description"] = "In middle section (after appellant arguments)"
+        insertion_info["position_description"] = "In middle section (after facts)"
     
     return insertion_info
 
@@ -645,27 +580,6 @@ def extract_context_for_clause(text: str, clause_key: str) -> Dict[str, Any]:
         context["case_type"] = extract_case_type(text)
         context["outcome"] = extract_outcome(text)
 
-    elif clause_key == "factual_background_label":
-        context["case_type"] = extract_case_type(text)
-
-    elif clause_key == "appellant_argument":
-        context["parties"] = extract_party_names(text)
-        context["counsel"] = extract_counsel_names(text)
-        context["questions_of_law"] = extract_questions_of_law(text)
-
-    elif clause_key == "respondent_argument":
-        context["parties"] = extract_party_names(text)
-        context["counsel"] = extract_counsel_names(text)
-        context["questions_of_law"] = extract_questions_of_law(text)
-
-    elif clause_key == "legal_framework":
-        context["statutes"] = extract_statutes_mentioned(text)
-        context["case_type"] = extract_case_type(text)
-
-    elif clause_key == "issue_analysis":
-        context["case_type"] = extract_case_type(text)
-        context["questions_of_law"] = extract_questions_of_law(text)
-
     elif clause_key == "cost_order":
         context["case_type"] = extract_case_type(text)
         context["outcome"] = extract_outcome(text)
@@ -760,47 +674,63 @@ def build_clause_prompt(clause_key: str, context: Dict[str, Any]) -> str:
 - Full bench: {', '.join(judge_names) if judge_names else 'Unknown judges'}
 - Court: {court}
 
-**Examples from actual judgments:**
+**ABSOLUTELY CRITICAL - READ CAREFULLY:**
 
-Example 1 (2 concurring judges):
-"K. Sripavan, J.
+You MUST generate EXACTLY this format - NO EXCEPTIONS:
+
+[Judge Name], J.
+I agree.
+
+JUDGE OF THE {court.upper()}
+
+
+[Judge Name], J.
+I agree.
+
+JUDGE OF THE {court.upper()}
+
+**WHAT YOU MUST DO:**
+✅ Generate separate blocks for EACH non-authoring judge
+✅ Each block contains exactly 3 lines: [Name], J. | I agree. | JUDGE OF THE {court.upper()}
+✅ Separate blocks with TWO blank lines (one empty line between blocks)
+✅ Use ONLY "I agree." - nothing else
+✅ Skip the author judge ({author}) - they do NOT get a concurrence block
+
+**WHAT YOU MUST NOT DO - THESE ARE ALL WRONG:**
+❌ "We, the undersigned judges, concur with the findings..."
+❌ "Concur with the judgment delivered herein..."
+❌ "I hereby concur with the above judgment..."
+❌ "I agree with the above" (wrong - must be just "I agree.")
+❌ Any statement starting with "We" or "Each of us"
+❌ Any paragraph format - MUST be individual blocks
+❌ Any collective statements about judges agreeing together
+
+**REAL EXAMPLE FROM AN ACTUAL JUDGMENT:**
+
+P.A. Ratnayake, J.
 I agree.
 
 JUDGE OF THE SUPREME COURT
 
 
-S.I. Imam, J.
-I agree.
-
-JUDGE OF THE SUPREME COURT"
-
-Example 2 (with Chief Justice):
-"N.G. Amaratunga, J.
+A.L. Amaranath, J.
 I agree.
 
 JUDGE OF THE SUPREME COURT
 
 
-P.A. Ratnayake, PC., J.
+K. Sripavan, J.
 I agree.
 
-JUDGE OF THE SUPREME COURT"
+JUDGE OF THE SUPREME COURT
 
-**Rules:**
-1. The authoring judge ({author}) does NOT get an "I agree" block
-2. Each NON-authoring judge gets their own concurrence block
-3. Format for each:
-   [Judge Full Name with designation]
-   I agree.
-   
-   JUDGE OF THE {court.upper()}
+Notice: Each judge gets their OWN block. They are NOT grouped. There is no "We" or group statements.
 
-4. Separate each judge's block with double line breaks
-5. Use exact names as provided from the bench
-6. Title is always "JUDGE OF THE {court.upper()}" (or "CHIEF JUSTICE OF SRI LANKA" if CJ)
+**YOUR TASK:**
+Generate concurrence blocks for these judges: {', '.join(judge_names) if judge_names else '[judge names]'}
+Skip: {author}
 
-**Your task:**
-Generate the judge concurrence blocks for all non-authoring judges. Use exact formatting from examples."""
+Output ONLY the judge concurrence blocks - nothing before, nothing after, just the blocks."""
 
     elif clause_key == "conclusion_section":
         return f"""Generate a conclusion section for a Sri Lankan Supreme Court judgment.
@@ -941,90 +871,6 @@ Use formal judicial language:
 
 Generate a concise paragraph (approximately 30-35 words) summarizing what the lower court decided. Use [placeholders] for specific details you cannot determine."""
 
-    elif clause_key == "factual_background_label":
-        case_type = context.get("case_type", "civil_appeal")
-        return f"""Suggest an appropriate section heading label for the factual background section of a Sri Lankan {case_type} judgment.
-
-Choose from these standard labels (pick most appropriate):
-- "The Facts"
-- "Factual Background"
-- "Brief Facts"
-- "Background"
-- "The Facts of the Case"
-
-Output ONLY the heading text, nothing else."""
-
-    elif clause_key == "appellant_argument":
-        parties = context.get("parties", {})
-        counsel = context.get("counsel", {})
-        questions = context.get("questions_of_law", [])
-        grounds_text = "\n".join([f"- {q}" for q in questions]) if questions else "[Grounds not extracted]"
-        return f"""Generate an appellant argument summary for a Sri Lankan Supreme Court judgment.
-
-Appellant/Petitioner: {parties.get('petitioner', '[Party Name]')}
-Counsel for Appellant: {counsel.get('appellant', 'Learned Counsel')}
-Grounds/Questions:
-{grounds_text}
-
-Use this format:
-"Learned [Counsel/President's Counsel] for the [Party role] [submitted/contended/argued] that:
-(1) [Argument based on ground 1]
-(2) [Argument based on ground 2]..."
-
-Use formal judicial language. Generate concise argument points (approximately 30-35 words total). Use [placeholders] for unknowns."""
-
-    elif clause_key == "respondent_argument":
-        parties = context.get("parties", {})
-        counsel = context.get("counsel", {})
-        return f"""Generate a respondent argument summary for a Sri Lankan Supreme Court judgment.
-
-Respondent/Defendant: {parties.get('respondent', '[Party Name]')}
-Counsel for Respondent: {counsel.get('respondent', 'Learned Counsel')}
-
-Use this format:
-"Learned Counsel for the Respondent [submitted/contended/urged] that [counter-argument responding to appellant's position].
-It was further submitted on behalf of the Respondent that [additional counter-argument]."
-
-Generate concise counter-arguments in formal judicial language (approximately 30-35 words). Use [placeholders] for unknowns."""
-
-    elif clause_key == "legal_framework":
-        statutes = context.get("statutes", {})
-        acts = statutes.get("acts", [])[:5]
-        sections = statutes.get("sections", [])[:5]
-        articles = statutes.get("articles", [])[:5]
-        return f"""Generate a legal framework introduction for a Sri Lankan Supreme Court judgment.
-
-Statutes mentioned: {', '.join(acts) if acts else '[No statutes extracted]'}
-Sections: {', '.join(['Section ' + s for s in sections]) if sections else '[None]'}
-Articles: {', '.join(['Article ' + a for a in articles]) if articles else '[None]'}
-Case type: {context.get('case_type', 'civil_appeal')}
-
-Use formal judicial language:
-"The relevant legal provisions applicable to this case are as follows:..."
-or "It is necessary to examine the statutory framework governing..."
-
-Generate a concise paragraph (approximately 30-35 words) introducing the legal framework. Use [placeholders] for provision text you cannot determine."""
-
-    elif clause_key == "issue_analysis":
-        case_type = context.get("case_type", "civil_appeal")
-        questions = context.get("questions_of_law", [])
-        issues_text = "\n".join([f"({chr(97+i)}) {q}" for i, q in enumerate(questions)]) if questions else "[Issues not extracted]"
-        return f"""Generate an issue/question analysis structure for a Sri Lankan Supreme Court judgment.
-
-Case type: {case_type}
-Issues/Questions:
-{issues_text}
-
-Use this format:
-"The following [issues arise for determination / questions of law arise] in this [appeal/application]:
-
-(a) [issue text]
-(b) [issue text]
-
-Each of these [issues/questions] will be considered in turn."
-
-Use formal judicial language. If issues not available, generate template with [placeholders]."""
-
     elif clause_key == "cost_order":
         outcome = context.get("outcome", "unknown")
         case_type = context.get("case_type", "civil_appeal")
@@ -1096,18 +942,18 @@ async def call_openai_batch(
     text: str
 ) -> Dict[str, Dict]:
     """
-    Make a SINGLE batched OpenAI API call for all missing clauses.
-    NOW ENHANCED WITH RAG: Retrieves similar examples from existing legal documents
-    before generating predictions for more accurate and contextually relevant suggestions.
+    NEW APPROACH: Send the ENTIRE document to OpenAI and ask it to:
+    1. Predict missing clauses with proper content
+    2. Specify EXACTLY where each clause should be inserted (anchor text + position)
     
-    Returns dict: clause_key -> { suggestion, confidence, ... }
+    Returns dict: clause_key -> { suggestion, confidence, insertion_anchor, insertion_position, ... }
     """
     logger.info(f"call_openai_batch called for {len(missing_clauses)} clauses")
     logger.info(f"API Key present: {bool(OPENAI_API_KEY)}, Length: {len(OPENAI_API_KEY) if OPENAI_API_KEY else 0}")
     
     if not OPENAI_API_KEY:
         logger.warning("❌ OPENAI_API_KEY not set. Returning fallback suggestions.")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
 
     try:
         from openai import AsyncOpenAI
@@ -1115,25 +961,23 @@ async def call_openai_batch(
         logger.info(f"✅ AsyncOpenAI client created successfully with model: {OPENAI_MODEL}")
     except ImportError:
         logger.error("❌ openai package not installed. Run: pip install openai")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
     except Exception as e:
         logger.error(f"❌ Failed to create AsyncOpenAI client: {type(e).__name__}: {str(e)}")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
 
-    # ═══ RAG INTEGRATION START ═══
-    # Import RAG service and retrieve similar examples for each clause
+    # ═══ RAG INTEGRATION (Optional Examples) ═══
     try:
         from app.RAG.rag_clause_service import get_rag_service
         rag_service = get_rag_service()
         logger.info("🔍 RAG service initialized, retrieving similar examples...")
         
-        # Retrieve similar examples for each missing clause
         rag_examples = {}
         if rag_service.enabled:
             for mc in missing_clauses:
                 key = mc["clause_key"]
                 ctx = contexts.get(key, {"clause_type": key})
-                similar_examples = rag_service.retrieve_similar_clauses(key, ctx, n_results=3)
+                similar_examples = rag_service.retrieve_similar_clauses(key, ctx, n_results=2)
                 if similar_examples:
                     rag_examples[key] = similar_examples
                     logger.info(f"✅ Retrieved {len(similar_examples)} examples for {key}")
@@ -1142,69 +986,119 @@ async def call_openai_batch(
     except Exception as e:
         logger.warning(f"⚠️ RAG retrieval failed: {e}. Proceeding without RAG enhancement.")
         rag_examples = {}
-    # ═══ RAG INTEGRATION END ═══
 
-    # Build a single prompt with all clauses (now with RAG examples)
-    clause_prompts = []
+    # ═══ BUILD NEW PROMPT ═══
+    # List missing clauses with their descriptions
+    clause_descriptions = []
     for mc in missing_clauses:
         key = mc["clause_key"]
-        ctx = contexts.get(key, {"clause_type": key})
+        desc = f"""
+{key} ({mc['clause_name']}):
+- Description: {mc.get('description', 'Missing clause that should be present in legal documents')}
+- Predictability: {mc['predictability']}
+- Typical Position: {mc['position']}"""
         
-        # Use RAG-enhanced prompt if examples available
+        # Add RAG examples if available
         if key in rag_examples and rag_examples[key]:
-            prompt = build_clause_prompt_with_rag(key, ctx, rag_examples[key])
-            logger.info(f"📚 Using RAG-enhanced prompt for {key}")
-        else:
-            prompt = build_clause_prompt(key, ctx)
+            desc += f"\n- Example from similar document: \"{rag_examples[key][0]['text'][:150]}...\""
         
-        clause_prompts.append(f"""
---- CLAUSE: {mc['clause_name']} (key: {key}) ---
-Predictability: {mc['predictability']}
-{prompt}
-""")
+        clause_descriptions.append(desc)
+
+    # Truncate document if too long (keep within token limits)
+    max_doc_length = 15000  # chars, roughly 3750 tokens
+    truncated_text = text if len(text) <= max_doc_length else text[:max_doc_length] + "...[TRUNCATED]"
 
     batch_prompt = f"""You are a legal document analysis AI specializing in Sri Lankan Supreme Court judgments.
 
-For each MISSING clause listed below, generate a concise suggestion in formal judicial language.
-Also assign a confidence score (0-100) for each suggestion.
+I will provide you with:
+1. The FULL DOCUMENT text
+2. A list of MISSING clauses that need to be added
 
-IMPORTANT RULES:
+Your task:
+- For each missing clause, generate the appropriate text content
+- Specify EXACTLY where it should be inserted by providing:
+  * An "anchor_text": A unique sentence or phrase from the document (15-50 words) near where the clause should go
+  * A "position": Either "before" or "after" the anchor text
 - Use formal Sri Lankan judicial language
-- Generate concise paragraph-style content (approximately 30-35 words per clause)
-- Keep it brief but professional and suitable for legal documents
-- If you don't have enough context, use [placeholder] brackets for unknown details
-- For FULL predictability clauses, generate complete text
-- For PARTIAL predictability clauses, generate the structure/template with [placeholders]
-- Output valid JSON only
+- Keep suggestions concise (30-50 words per clause)
 
-Generate suggestions for these {len(missing_clauses)} missing clauses:
+════════════════════════════════════════════════════════════
+DOCUMENT TEXT:
+════════════════════════════════════════════════════════════
+{truncated_text}
 
-{''.join(clause_prompts)}
+════════════════════════════════════════════════════════════
+MISSING CLAUSES TO PREDICT:
+════════════════════════════════════════════════════════════
+{''.join(clause_descriptions)}
 
-Respond with a JSON object. Each key is the clause key, and each value has:
-- "suggestion": the generated text (string)
-- "confidence": confidence score 0-100 (integer)
-- "reasoning": brief explanation of why you generated this (string, 1 sentence)
+════════════════════════════════════════════════════════════
+SPECIAL INSTRUCTION FOR judge_concurrence:
+════════════════════════════════════════════════════════════
+IF "judge_concurrence" is in the missing clauses list above:
+- MUST generate SEPARATE BLOCKS for each judge
+- MUST NOT generate a collective "We, the undersigned judges..." statement
+- Format MUST be: [Judge Name], J. on one line, "I agree." on next line, blank line, "JUDGE OF THE SUPREME COURT" on next line
+- MUST separate each judge's block with TWO blank lines
+- MUST only include non-authoring judges (skip the judgment author)
+- Example of CORRECT format:
+  K. Sripavan, J.
+  I agree.
+  
+  JUDGE OF THE SUPREME COURT
+  
+  
+  S.I. Imam, J.
+  I agree.
+  
+  JUDGE OF THE SUPREME COURT
+- Example of WRONG format (reject these):
+  ✗ "We, the undersigned judges, concur with the findings..."
+  ✗ "I hereby concur with the above judgment..."
+  ✗ "Concur with the conclusions reached herein..."
+
+════════════════════════════════════════════════════════════
+INSTRUCTIONS:
+════════════════════════════════════════════════════════════
+Respond with a JSON object where each key is a clause key from the list above.
+Each value must have:
+- "suggestion": The generated clause text (string)
+- "confidence": Confidence score 0-100 (integer)
+- "reasoning": Brief explanation (1 sentence)
+- "anchor_text": A unique sentence/phrase from the document (15-50 words) that exists near where this clause should be inserted
+- "position": Either "before" or "after" the anchor_text
+
+CRITICAL RULES for anchor_text:
+1. COPY the text EXACTLY from the document above - do NOT paraphrase or change any words
+2. The anchor_text MUST BE A VERBATIM COPY of text that appears in the document
+3. Choose a unique sentence that appears only ONCE in the document
+4. The anchor should be logically close to where the missing clause belongs
+5. For clauses at the very start: use the first sentence with position "before"
+6. For clauses at the very end: use the last sentence with position "after"
+7. **SPECIAL RULE for judge_concurrence: ALWAYS goes at the ABSOLUTE END of the document. Use the last complete sentence from the document as anchor_text with position "after"**
+8. DO NOT create or invent text - ONLY copy what exists in the document
+
+EXAMPLE:
+If the document contains: "The Petitioner made an application in terms of Section 87(3)"
+Then anchor_text should be: "The Petitioner made an application in terms of Section 87(3)"
+NOT: "The petitioner filed an application under Section 87(3)" ← WRONG (paraphrased)
 
 JSON Output:"""
 
     try:
         logger.info(f"Making OpenAI API call with model: {OPENAI_MODEL}")
-        logger.info(f"Requesting suggestions for {len(missing_clauses)} clauses")
+        logger.info(f"Requesting position-based suggestions for {len(missing_clauses)} clauses")
+        logger.info(f"Document length: {len(truncated_text)} chars")
         
-        # Log the full request being sent to OpenAI
+        # Log request info
         logger.info("\n" + "="*80)
-        logger.info("📤 SENDING TO OPENAI LLM")
+        logger.info("📤 SENDING TO OPENAI LLM (POSITION-BASED APPROACH)")
         logger.info("="*80)
         logger.info(f"Model: {OPENAI_MODEL}")
         logger.info(f"Temperature: 0.3")
-        logger.info(f"Max Tokens: 5000")
-        logger.info(f"Number of clauses: {len(missing_clauses)}")
-        logger.info(f"\nClauses requested: {[mc['clause_key'] for mc in missing_clauses]}")
-        logger.info(f"\n--- FULL PROMPT SENT TO LLM ---")
-        logger.info(f"System message: You are a legal AI specializing in Sri Lankan Supreme Court judgment structure...")
-        logger.info(f"\nUser prompt (length: {len(batch_prompt)} chars):")
-        logger.info(f"\n{batch_prompt}")
+        logger.info(f"Max Tokens: 6000")
+        logger.info(f"Clauses: {[mc['clause_key'] for mc in missing_clauses]}")
+        logger.info(f"Document length: {len(truncated_text)} chars")
         logger.info("="*80 + "\n")
         
         response = await client.chat.completions.create(
@@ -1212,7 +1106,7 @@ JSON Output:"""
             messages=[
                 {
                     "role": "system",
-                    "content": "You are a legal AI specializing in Sri Lankan Supreme Court judgment structure. You generate concise, professional missing clause text based on document context. Keep outputs brief (around 30-35 words per clause) but formal and suitable for legal documents. Always respond with valid JSON only."
+                    "content": "You are a legal AI that analyzes Sri Lankan Supreme Court judgments. You predict missing clauses AND specify their exact insertion position using anchor text from the document. Always respond with valid JSON."
                 },
                 {
                     "role": "user",
@@ -1220,45 +1114,137 @@ JSON Output:"""
                 }
             ],
             temperature=0.3,
-            max_tokens=5000,
+            max_tokens=6000,
             response_format={"type": "json_object"}
         )
 
         response_text = response.choices[0].message.content.strip()
         
-        # Log the full response received from OpenAI
+        # Log response
         logger.info("\n" + "="*80)
         logger.info("📥 RECEIVED FROM OPENAI LLM")
         logger.info("="*80)
         logger.info(f"Response ID: {response.id}")
-        logger.info(f"Model used: {response.model}")
-        logger.info(f"Finish reason: {response.choices[0].finish_reason}")
-        logger.info(f"Usage - Prompt tokens: {response.usage.prompt_tokens}")
-        logger.info(f"Usage - Completion tokens: {response.usage.completion_tokens}")
-        logger.info(f"Usage - Total tokens: {response.usage.total_tokens}")
-        logger.info(f"\n--- FULL RESPONSE FROM LLM ---")
+        logger.info(f"Tokens used - Prompt: {response.usage.prompt_tokens}, Completion: {response.usage.completion_tokens}, Total: {response.usage.total_tokens}")
         logger.info(f"Response length: {len(response_text)} chars")
         logger.info(f"\n{response_text}")
         logger.info("="*80 + "\n")
         
         suggestions = json.loads(response_text)
-        logger.info(f"✅ LLM returned suggestions for {len(suggestions)} clauses")
+        logger.info(f"✅ LLM returned response")
+        logger.info(f"Response type: {type(suggestions).__name__}")
+        
+        # Handle if LLM returned a list instead of object - convert to dict by clause_key
+        if isinstance(suggestions, list):
+            logger.warning(f"⚠️ LLM returned a list ({len(suggestions)} items) instead of object, converting to dict format...")
+            suggestions_dict = {}
+            for idx, item in enumerate(suggestions):
+                if isinstance(item, dict) and "clause_key" in item:
+                    clause_key = item.pop("clause_key")
+                    suggestions_dict[clause_key] = item
+                elif isinstance(item, dict) and len(item) == 1:
+                    # If it's a dict with single key-value pair, use that
+                    clause_key = list(item.keys())[0]
+                    suggestions_dict[clause_key] = item[clause_key]
+                else:
+                    logger.warning(f"⚠️ Item {idx} could not be converted: {str(item)[:100]}")
+            if suggestions_dict:
+                suggestions = suggestions_dict
+                logger.info(f"✅ Converted list to dict with {len(suggestions)} clauses: {list(suggestions.keys())}")
+            else:
+                logger.error(f"❌ Could not convert list response to dict format - falling back to templates")
+                raise ValueError("Could not convert list response to dict format")
+        
+        # Ensure we have a dict at this point
+        if not isinstance(suggestions, dict):
+            logger.error(f"❌ LLM response is not a dict after conversion: {type(suggestions).__name__}")
+            raise ValueError(f"Expected dict, got {type(suggestions).__name__}")
+        
+        logger.info(f"Total suggestions returned by LLM: {len(suggestions)}")
+        
+        # SPECIAL HANDLING: Flatten nested judge_concurrence structure if present
+        # LLM may return judge_concurrence as: {"judge_name1": {...}, "judge_name2": {...}}
+        # But we need: {"suggestion": "combined_text", "confidence": ..., ...}
+        if "judge_concurrence" in suggestions:
+            jc = suggestions["judge_concurrence"]
+            # Check if judge_concurrence contains nested judge entries (each judge as a key)
+            if isinstance(jc, dict) and jc and "suggestion" not in jc:
+                # This looks like a nested judge structure
+                logger.info(f"⚠️ judge_concurrence has nested structure, flattening...")
+                judge_blocks = []
+                anchor_text = ""
+                position = "after"
+                confidence = 0
+                reasoning = ""
+                
+                for judge_name, judge_data in jc.items():
+                    if isinstance(judge_data, dict):
+                        sugg = judge_data.get("suggestion", "")
+                        if sugg:
+                            judge_blocks.append(sugg.strip())
+                        # Use first valid anchor_text and position found
+                        if not anchor_text:
+                            anchor_text = judge_data.get("anchor_text", "")
+                            position = judge_data.get("position", "after")
+                            confidence = judge_data.get("confidence", 0)
+                            reasoning = judge_data.get("reasoning", "")
+                
+                if judge_blocks:
+                    # Combine all judge blocks with double newlines between them
+                    combined_suggestion = "\n\n".join(judge_blocks)
+                    suggestions["judge_concurrence"] = {
+                        "suggestion": combined_suggestion,
+                        "confidence": confidence,
+                        "reasoning": f"Combined concurrence from {len(judge_blocks)} judges",
+                        "anchor_text": anchor_text,
+                        "position": position
+                    }
+                    logger.info(f"✅ Flattened judge_concurrence: {len(judge_blocks)} judges combined")
+                else:
+                    logger.error(f"❌ No valid judge blocks found in nested judge_concurrence")
+                    suggestions["judge_concurrence"] = {
+                        "suggestion": "[judge_concurrence - no valid entries found]",
+                        "confidence": 0,
+                        "reasoning": "Failed to extract judge concurrence from nested structure",
+                        "anchor_text": "",
+                        "position": "after"
+                    }
+        
+        # Validate that responses have required fields
+        for key, sug in suggestions.items():
+            if not isinstance(sug, dict):
+                logger.warning(f"⚠️ Suggestion for {key} is not a dict (is {type(sug).__name__}), skipping validation")
+                continue
+            if "anchor_text" not in sug:
+                logger.warning(f"⚠️ Missing anchor_text for {key}, setting to empty")
+                sug["anchor_text"] = ""
+            if "position" not in sug:
+                logger.warning(f"⚠️ Missing position for {key}, defaulting to 'after'")
+                sug["position"] = "after"
+            if "suggestion" not in sug:
+                logger.error(f"❌ Missing suggestion text for {key}!")
+                sug["suggestion"] = f"[{key} - suggestion unavailable from LLM]"
+            if "confidence" not in sug:
+                logger.warning(f"⚠️ Missing confidence for {key}, defaulting to 0")
+                sug["confidence"] = 0
+        
         return suggestions
 
     except json.JSONDecodeError as e:
         logger.error(f"❌ Failed to parse LLM response as JSON: {e}")
         logger.error(f"Response text was: {response_text[:500] if 'response_text' in locals() else 'N/A'}")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
     except Exception as e:
         logger.error(f"❌ OpenAI API call failed: {type(e).__name__}: {str(e)}")
         import traceback
         logger.error(f"Traceback: {traceback.format_exc()}")
-        return _generate_fallback_suggestions(missing_clauses, contexts)
+        return _generate_fallback_suggestions(missing_clauses, contexts, text)
 
 
 def _generate_fallback_suggestions(
     missing_clauses: List[Dict],
-    contexts: Dict[str, Dict]
+    contexts: Dict[str, Dict],
+    text: str
 ) -> Dict[str, Dict]:
     """Generate template-based fallback suggestions when LLM is unavailable."""
     fallbacks = {}
@@ -1270,13 +1256,13 @@ def _generate_fallback_suggestions(
         "procedural_history": "The [Plaintiff/Appellant] instituted action in the [District Court/High Court] bearing No. [case number] seeking [relief]. Being aggrieved by the judgment of the [Court] dated [date], the [Party] preferred this appeal to the Supreme Court.",
         "leave_to_appeal": "This Court granted special leave to appeal on [date] on the following question(s) of law:\n\n(a) [Question of law pertaining to the interpretation of statutory provisions]\n(b) [Question relating to the application of legal principles]",
         "lower_court_findings": "The learned [District Judge/High Court Judge] held that [finding regarding the main issue]. Accordingly, judgment was entered [in favour of/against] the [Party] with directions that [order or relief granted by the lower court].",
-        "factual_background_label": "The Facts",
-        "appellant_argument": "Learned Counsel for the Appellant submitted that [the lower court erred in its interpretation]. It was further contended that [the legal principles were misapplied]. The Appellant urged that [the judgment should be set aside].",
-        "respondent_argument": "Learned Counsel for the Respondent submitted that [the lower court's findings were correct]. It was further urged that [the appeal lacks merit]. The Respondent maintained that [the judgment should be affirmed].",
-        "legal_framework": "The relevant legal provisions applicable to this case are as follows: Section [X] of the [Civil Procedure Code/Evidence Ordinance/relevant Act] provides that [key provision]. This provision must be read together with [related sections or case law].",
-        "issue_analysis": "The following issues arise for determination in this appeal:\n\n(a) [Issue 1 relating to the application of law]\n(b) [Issue 2 regarding procedural matters]\n\nEach of these issues will be considered in turn.",
         "cost_order": "Considering the circumstances of this case and the conduct of the parties, [the appeal is dismissed with costs/without costs/each party to bear their own costs].",
     }
+
+    # Try to find anchor text from document for position-based insertion
+    lines = text.split('\n')
+    first_line = lines[0] if lines else "Document start"
+    last_line = lines[-1] if lines else "Document end"
 
     for mc in missing_clauses:
         key = mc["clause_key"]
@@ -1288,10 +1274,16 @@ def _generate_fallback_suggestions(
         else:
             suggestion = template
 
+        # Provide basic position info for fallback
+        anchor = last_line[:100] if key == "judge_concurrence" else first_line[:100]
+        position = "after" if key == "judge_concurrence" else "before"
+
         fallbacks[key] = {
             "suggestion": suggestion,
             "confidence": 30,
-            "reasoning": "Generated from template (LLM unavailable). Please review and edit."
+            "reasoning": "Generated from template (LLM unavailable). Please review and edit.",
+            "anchor_text": anchor,
+            "position": position
         }
 
     return fallbacks
@@ -1350,12 +1342,20 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
         return result
 
     # 2. Prioritize and limit suggestions (show only top 2-3 most important)
+    # Give judge_concurrence highest priority, then sort by frequency
     total_missing = len(missing)
     if len(missing) > MAX_SUGGESTIONS_TO_SHOW:
-        # Prioritize by frequency (higher frequency = more commonly needed)
+        # Prioritize judge_concurrence first, then by frequency
+        def priority_key(clause):
+            # Judge concurrence gets highest priority (score 1000)
+            if clause['clause_key'] == 'judge_concurrence':
+                return 1000.0
+            # Otherwise sort by frequency
+            return float(clause['frequency'].rstrip('%'))
+        
         missing_sorted = sorted(
             missing,
-            key=lambda x: float(x['frequency'].rstrip('%')),
+            key=priority_key,
             reverse=True
         )
         missing = missing_sorted[:MAX_SUGGESTIONS_TO_SHOW]
@@ -1397,7 +1397,10 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
             "reasoning": suggestion_data.get("reasoning", ""),
             "context_used": ctx,
             "position": mc["position"],
-            "insertion_point": ctx.get("insertion_point", {}),  # NEW: Include insertion point
+            "insertion_point": ctx.get("insertion_point", {}),
+            # Position-based insertion data from OpenAI LLM
+            "anchor_text": suggestion_data.get("anchor_text", ""),
+            "insertion_position": suggestion_data.get("position", "after"),  # "before" | "after"
         }
 
     return result

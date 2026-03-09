@@ -638,7 +638,7 @@ def _render_line_with_formatting(pdf, line, x, y, max_width):
         if match.start() > current_pos:
             parts.append({
                 'text': line[current_pos:match.start()],
-                'size': 11,  # Changed to 11 (standard legal document size)
+                'size': 11,
                 'bold': False
             })
         
@@ -659,17 +659,17 @@ def _render_line_with_formatting(pdf, line, x, y, max_width):
     if current_pos < len(line):
         parts.append({
             'text': line[current_pos:],
-            'size': 11,  # Changed to 11 (standard legal document size)
+            'size': 11,
             'bold': False
         })
     
     # If no format markers found, render with default size 11
     if not parts:
-        pdf.setFont("Courier", 11)  # Changed to 11
+        pdf.setFont("Courier", 11)
         pdf.drawString(x, y, line)
         return
     
-    # Render each part with appropriate font
+    # Render each part with appropriate font (no wrapping - text should already be wrapped)
     current_x = x
     for part in parts:
         text = part['text']
@@ -686,12 +686,5 @@ def _render_line_with_formatting(pdf, line, x, y, max_width):
             font_name = "Courier"
         
         pdf.setFont(font_name, size)
-        
-        # Check if text fits
-        text_width = pdf.stringWidth(text, font_name, size)
-        if current_x + text_width > x + max_width:
-            # Text wrapping needed - for simplicity, just render what fits
-            pass
-        
         pdf.drawString(current_x, y, text)
-        current_x += text_width
+        current_x += pdf.stringWidth(text, font_name, size)
