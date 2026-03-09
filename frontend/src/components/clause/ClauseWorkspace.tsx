@@ -2255,48 +2255,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                               <Lightbulb className="w-3 h-3" /> {suggestion.reasoning}
                             </p>
                           )}
-                          {/* NEW: Show insertion position info */}
-                          {suggestion.anchor_text && (() => {
-                            const stripFormatting = (text: string) => text
-                              .replace(/<<F:[^>]+>>/g, '')
-                              .replace(/<<\/F>>/g, '')
-                              .replace(/<<BOLD>>/g, '')
-                              .replace(/<<\/BOLD>>/g, '');
-                            const cleanDoc = stripFormatting(modifiedDocumentText);
-                            const anchorFound = cleanDoc.toLowerCase().includes(suggestion.anchor_text.toLowerCase().substring(0, 30).trim());
-                            
-                            return (
-                              <div className={`border p-2 rounded-lg mb-2 ${
-                                anchorFound
-                                  ? 'bg-green-50 dark:bg-green-950/20 border-green-200 dark:border-green-800'
-                                  : 'bg-amber-50 dark:bg-amber-950/20 border-amber-200 dark:border-amber-800'
-                              }`}>
-                                <p className={`text-xs font-semibold mb-1 flex items-center gap-1 ${
-                                  anchorFound
-                                    ? 'text-green-900 dark:text-green-300'
-                                    : 'text-amber-900 dark:text-amber-300'
-                                }`}>
-                                  <Info className="w-3 h-3" /> 
-                                  {anchorFound
-                                    ? '✓ Will be inserted'
-                                    : '⚠ Anchor text not found -'
-                                  } {suggestion.insertion_position} this text:
-                                </p>
-                                <p className={`text-xs italic font-mono p-1 rounded border ${
-                                  anchorFound
-                                    ? 'text-green-800 dark:text-green-400 bg-white dark:bg-green-950/30 border-green-200 dark:border-green-700'
-                                    : 'text-amber-800 dark:text-amber-400 bg-white dark:bg-amber-950/30 border-amber-200 dark:border-amber-700'
-                                }`}>
-                                  "{suggestion.anchor_text.length > 100 ? suggestion.anchor_text.substring(0, 100) + '...' : suggestion.anchor_text}"
-                                </p>
-                                {!anchorFound && (
-                                  <p className="text-xs text-amber-700 dark:text-amber-400 mt-1">
-                                    Will be inserted at {suggestion.insertion_position === "end" || suggestion.insertion_position === "after" ? "end" : "beginning"} of document
-                                  </p>
-                                )}
-                              </div>
-                            );
-                          })()}
+                          {/* anchor-text card removed per request */}
                         </>
                       )}
 
