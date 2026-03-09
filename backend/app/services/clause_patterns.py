@@ -84,8 +84,6 @@ def get_search_region(text: str, clause_name: str) -> Tuple[int, int]:
         "RespondentBlock": (0, min(5000, L)),
         "PlaintiffBlock": (0, min(5000, L)),
         "DefendantBlock": (0, min(5000, L)),
-        "PlaintiffAddress": (0, min(6000, L)),
-        "DefendantAddress": (0, min(6000, L)),
         
         # PROCEDURAL SECTION ✅ VERIFIED (450 files)
         # Measured: BeforeBench avg=1835, max=13212; JudgeNames avg=2891, max=14258
@@ -104,8 +102,6 @@ def get_search_region(text: str, clause_name: str) -> Tuple[int, int]:
         # BODY (search full document)
         "Jurisdiction": (0, L),
         "LegalProvisionsCited": (0, L),
-        "ClaimAmount": (0, L),
-        "PrayerForRelief": (0, L),
         
         # FOOTER ✅ VERIFIED (450 files)
         # Measured: avg position 98.72% of document
@@ -375,33 +371,6 @@ CLAUSE_DEFINITIONS = {
         "detection_rate": 0.002
     },
     
-    "PlaintiffAddress": {
-        "name": "Plaintiff Address",
-        "description": "Address of the plaintiff",
-        "patterns": [
-            r"No\.\s*[\d/A-Z,-]+[\s\w,]*(?:Road|Street|Lane|Avenue|Mawatha|Place)",
-            r"No\.\s*[\d/A-Z,-]+,\s*[A-Z][a-z]+(?:,\s*[A-Z][a-z]+){1,3}",
-            r"All\s+of\s+[A-Z][a-z]+(?:,\s*[A-Z][a-z]+)*",
-            r"\d+\.\s+[A-Z][a-z]+(?:\s+[A-Z][a-z]+)+\."
-        ],
-        "corruption_indicators": [],
-        "frequency": "🟢 Rarely Present (60.8%)",
-        "detection_rate": 0.608
-    },
-    
-    "DefendantAddress": {
-        "name": "Defendant Address",
-        "description": "Address of the defendant",
-        "patterns": [
-            r"No\.\s*[\d/A-Z,-]+[\s\w,]*(?:Road|Street|Lane|Avenue|Mawatha|Place)",
-            r"No\.\s*[\d/A-Z,-]+,\s*[A-Z][a-z]+(?:,\s*[A-Z][a-z]+){1,3}",
-            r"All\s+of\s+[A-Z][a-z]+(?:,\s*[A-Z][a-z]+)*"
-        ],
-        "corruption_indicators": [],
-        "frequency": "🟢 Rarely Present (60.9%)",
-        "detection_rate": 0.609
-    },
-    
     "CounselSection": {
         "name": "Counsel Section",
         "description": "Section listing counsel for parties",
@@ -505,18 +474,6 @@ CLAUSE_DEFINITIONS = {
         "detection_rate": 0.829
     },
     
-    "ClaimAmount": {
-        "name": "Claim Amount",
-        "description": "Monetary amount claimed",
-        "patterns": [
-            r"(?:Rs\.?|Rupees)\s*[\d,]+(?:[/\.\-=]\d*)?",
-            r"(?:US\s*)?(?:Dollars?|USD)\s*[\d,]+(?:\.\d+)?"
-        ],
-        "corruption_indicators": [r"###", r"XXX"],
-        "frequency": "🟡 Sometimes Present (76.2%)",
-        "detection_rate": 0.762
-    },
-    
     "InstructedBy": {
         "name": "Instructed By",
         "description": "Instructing attorney information",
@@ -526,18 +483,6 @@ CLAUSE_DEFINITIONS = {
         "corruption_indicators": [],
         "frequency": "⚪ Very Rare (20.3%)",
         "detection_rate": 0.203
-    },
-    
-    "PrayerForRelief": {
-        "name": "Prayer for Relief",
-        "description": "Relief sought by the petitioner",
-        "patterns": [
-            r"(?i)(?:prayer|relief|order)[:\s]+[^\n]+",
-            r"(?i)(?:seeking|praying\s+for|claiming)[^\n]+"
-        ],
-        "corruption_indicators": [],
-        "frequency": "🟢 Rarely Present (59.4%)",
-        "detection_rate": 0.594
     },
     
     "Plaintiff": {
