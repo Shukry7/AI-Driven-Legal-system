@@ -719,18 +719,26 @@ class LegalRiskClassifier:
                 "risk_summary": {"High": 0, "Medium": 0, "Low": 0}
             }
         
-        # Stage 2: Classify each clause
+        # Stage 2: Classify each clause (skip structural/metadata text)
         results = []
         risk_counts = {"High": 0, "Medium": 0, "Low": 0}
+        clause_id = 1
         
-        for i, clause_info in enumerate(clause_infos):
+        for clause_info in clause_infos:
             clause_text = clause_info["text"]
+            
+            # Skip document structure elements — headers, judge names, signatures,
+            # act citations, case numbers — these are NOT legal-risk clauses
+            if self._is_structural_text(clause_text):
+                logger.debug(f"Skipping structural text: {clause_text[:60]!r}")
+                continue
+            
             risk_level, confidence, all_probs = self.classify_risk(clause_text)
             
             key_factors = self._generate_key_factors(clause_text, risk_level)
             
             results.append({
-                "id": i + 1,
+                "id": clause_id,
                 "text": clause_text,
                 "start_char": clause_info["start"],
                 "end_char": clause_info["end"],
@@ -741,8 +749,9 @@ class LegalRiskClassifier:
             })
             
             risk_counts[risk_level] += 1
+            clause_id += 1
         
-        logger.info(f"Analysis complete: {len(clause_infos)} clauses classified")
+        logger.info(f"Analysis complete: {len(results)} substantive clauses classified (skipped {len(clause_infos) - len(results)} structural segments)")
         
         return {
             "total_clauses": len(clause_infos),
@@ -755,6 +764,80 @@ class LegalRiskClassifier:
             }
         }
     
+    def _is_structural_text(self, text: str) -> bool:
+        """
+        Returns True if the segment is document structure/metadata rather than
+        a substantive legal clause that should be risk-classified.
+
+        Filters out: ALL-CAPS headings, judge signature lines, concurrence phrases,
+        case number lines, pure act/section citations, party-name headers, and
+        short isolated tokens (page numbers, initials, etc.).
+        """
+        t = text.strip()
+
+        if not t:
+            return True
+
+        # Very short segments that slipped through (artifact, page number, initial)
+        if len(t) < 8:
+            return True
+
+        # ALL-CAPS headings — document/section titles
+        # e.g. "IN THE SUPREME COURT OF SRI LANKA", "FACTS", "ANALYSIS"
+        if t.replace(" ", "").replace(".", "").replace(",", "").isupper() and len(t) < 160:
+            return True
+
+        # Judge of the Court lines
+        # e.g. "Judge of the Supreme Court", "Judge of the High Court"
+        if re.search(r'\bJudge of (the|a)\b', t, re.IGNORECASE):
+            return True
+
+        # Judge name + designation: "B. P. Aluwihare PC, J" / "Jayawardena J."
+        if re.search(r'\bPC,?\s*J\.?\s*$', t):
+            return True
+        if re.search(r'\bJ\.\s*$', t) and len(t.split()) <= 6:
+            return True
+
+        # Concurrence phrase used by judges
+        if re.match(r'^I\s+agree\.?\s*$', t, re.IGNORECASE):
+            return True
+
+        # Case title / party-vs-party header patterns
+        # e.g. "Nimal Perera vs. Kamal Silva", "BETWEEN ... AND ..."
+        if re.match(r'^(BETWEEN|IN\s+THE\s+MATTER)', t, re.IGNORECASE):
+            return True
+        if re.search(r'\bvs?\.\s', t) and len(t.split()) <= 10:
+            return True
+
+        # Case number / reference patterns
+        # e.g. "SC Appeal 79/2002", "CA/XXXX/2020", "S.C. FR Application No."
+        if re.match(
+            r'^(SC|CA|HC|MC|DC)\s*(Appeal|Application|Case|FR|CHC|Special)?\s*\.?\s*\d+',
+            t, re.IGNORECASE
+        ):
+            return True
+        if re.search(r'Application\s+No\.?\s*\d+', t, re.IGNORECASE):
+            return True
+
+        # Pure Act / Ordinance / Regulation citations at line start
+        # e.g. "Partition Act No. 21 of 1977", "Section 52(1) of the Partition Law"
+        if re.match(
+            r'^(Section|Article|Schedule|Clause|Regulation|Sub-?[Ss]ection)\s+\d+',
+            t, re.IGNORECASE
+        ):
+            return True
+        if re.match(
+            r'^(The\s+)?.{3,60}\s+(Act|Ordinance|Law|Code|Regulation)\s+(No\.?\s*)?\d+',
+            t, re.IGNORECASE
+        ) and len(t.split()) <= 12:
+            return True
+
+        # "YES" / "NO" standalone answers (judge responses to issue questions)
+        if re.match(r'^(YES|NO)\.?\s*$', t, re.IGNORECASE):
+            return True
+
+        return False
+
     def _generate_key_factors(self, clause: str, risk_level: str) -> List[str]:
         """Generate key risk factors for a clause."""
         factors = []
