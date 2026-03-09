@@ -1,3 +1,6 @@
+# PyTorch CUDA index (install with: pip install -r requirements.txt --extra-index-url https://download.pytorch.org/whl/cu124)
+--extra-index-url https://download.pytorch.org/whl/cu124
+
 # FastAPI & Web Framework
 fastapi>=0.109.0
 uvicorn[standard]>=0.27.0
@@ -47,8 +50,8 @@ Pillow>=10.0.0
 # OCR support (optional, uncomment if needed)
 # pytesseract>=0.3.10
 
-# Machine Learning & Deep Learning (Python 3.13 compatible)
-torch>=2.2.0
+# Machine Learning & Deep Learning (CUDA 12.4 GPU build)
+torch==2.6.0+cu124
 transformers>=4.36.2
 safetensors>=0.4.3
 

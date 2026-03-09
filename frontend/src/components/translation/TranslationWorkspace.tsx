@@ -32,6 +32,12 @@ import { Progress } from "@/components/ui/progress";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { normalizeSinhalaUnicode } from "@/lib/sinhalaUnicode";
 import {
@@ -92,6 +98,15 @@ export function TranslationWorkspace({
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [selectedSection, setSelectedSection] = useState<number>(0);
   const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>([]);
+
+  // Scroll both panes to the selected section whenever it changes
+  useEffect(() => {
+    const prefixes = ["src-sec-", "trans-sec-", "prog-src-sec-", "prog-trans-sec-"];
+    prefixes.forEach((prefix) => {
+      const el = document.getElementById(`${prefix}${selectedSection}`);
+      el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, [selectedSection]);
   const [viewMode, setViewMode] = useState<
     "side-by-side" | "source" | "translated"
   >("side-by-side");
@@ -149,7 +164,8 @@ export function TranslationWorkspace({
       onTranslationComplete(tracked.result);
       toast.success("Translation completed!");
     }
-    if (tracked.status === "failed") {
+    // Handle both 'failed' and 'stopped' status
+    if (tracked.status === "failed" || tracked.status === "stopped") {
       // If we have partial sections, build a partial result instead of just showing error
       const partialSections = tracked.partialSections || [];
       if (partialSections.length > 0) {
@@ -159,17 +175,17 @@ export function TranslationWorkspace({
           source_language: tracked.sourceLang,
           target_language: tracked.targetLang,
           mode: tracked.mode,
-          status: "partial",
+          status: tracked.status === "stopped" ? "stopped" : "partial",
           progress: tracked.progress,
           total_sections: tracked.totalSections,
           completed_sections: partialSections.length,
           created_at: new Date(tracked.startedAt).toISOString(),
           source_sections: tracked.sourceSections || [],
           translated_sections: partialSections,
-          raw_source_text: "",
+          raw_source_text: tracked.sourceSections?.map(s => s.content).join("\n\n") || "",
           raw_translated_text: partialSections
             .map((s) => s.translated_content)
-            .join(" "),
+            .join("\n\n"),
           overall_confidence:
             partialSections.reduce((sum, s) => sum + (s.confidence || 0), 0) /
             Math.max(partialSections.length, 1),
@@ -183,12 +199,21 @@ export function TranslationWorkspace({
           },
         };
         setResult(partialResult);
-        toast.info(
-          `Translation stopped — showing ${partialSections.length} completed sections`,
-        );
-      } else {
+        if (tracked.status === "stopped") {
+          toast.info(
+            `Translation stopped — showing ${partialSections.length} completed sections`,
+          );
+        } else {
+          toast.warning(
+            `Translation had issues — showing ${partialSections.length} completed sections`,
+          );
+        }
+      } else if (tracked.status === "failed") {
         setError(tracked.error || "Translation failed");
         toast.error("Translation failed");
+      } else {
+        // Stopped with no sections
+        toast.info("Translation stopped — no sections were completed");
       }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -521,11 +546,13 @@ export function TranslationWorkspace({
             icon={<CheckCircle2 className="w-4 h-4 text-green-500" />}
             label="Confidence"
             value={`${Math.round(result.overall_confidence * 100)}%`}
+            tooltip="Model confidence: the average probability the model assigned to each output token during beam search. Higher means the model was more certain about its word choices. ≥85% = high, 60–84% = moderate, <60% = low."
           />
           <StatCard
             icon={<BarChart3 className="w-4 h-4" />}
             label="BLEU"
             value={result.bleu_score?.toFixed(2) || "—"}
+            tooltip="BLEU (Bilingual Evaluation Understudy): a standard MT quality metric that measures n-gram overlap between the translation and reference text. Derived from confidence here since no reference is available. 0–1 scale; scores above 0.6 are considered good for legal text."
           />
           <StatCard
             icon={<Clock className="w-4 h-4" />}
@@ -581,6 +608,7 @@ export function TranslationWorkspace({
                     <div className="space-y-3 pt-2">
                       {sourceSections.map((sec, idx) => (
                         <div
+                          id={`src-sec-${idx}`}
                           key={sec.id || idx}
                           className={cn(
                             "p-3 rounded-lg border cursor-pointer transition-colors",
@@ -634,6 +662,7 @@ export function TranslationWorkspace({
                     <div className="space-y-3 pt-2">
                       {translatedSections.map((sec, idx) => (
                         <div
+                          id={`trans-sec-${idx}`}
                           key={sec.id || idx}
                           className={cn(
                             "p-3 rounded-lg border transition-colors",
@@ -650,14 +679,24 @@ export function TranslationWorkspace({
                             >
                               {sec.type}
                             </Badge>
-                            <Badge
-                              className={cn(
-                                "text-xs",
-                                confidenceBadge(sec.confidence),
-                              )}
-                            >
-                              {Math.round(sec.confidence * 100)}%
-                            </Badge>
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    className={cn(
+                                      "text-xs cursor-help",
+                                      confidenceBadge(sec.confidence),
+                                    )}
+                                  >
+                                    {Math.round(sec.confidence * 100)}%
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
+                                  Model confidence for this section — average token probability during beam search.
+                                  {sec.confidence >= 0.85 ? " High quality output expected." : sec.confidence >= 0.6 ? " Review recommended for critical text." : " Low confidence — manual review advised."}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </div>
                           <p className="text-sm whitespace-pre-wrap">
                             {highlightGlossary(
@@ -709,6 +748,7 @@ export function TranslationWorkspace({
                 <div className="space-y-3 pt-2">
                   {progressiveSourceSections.map((sec, idx) => (
                     <div
+                      id={`prog-src-sec-${idx}`}
                       key={sec.id || idx}
                       className={cn(
                         "p-3 rounded-lg border transition-colors",
@@ -758,6 +798,7 @@ export function TranslationWorkspace({
                     if (translated) {
                       return (
                         <div
+                          id={`prog-trans-sec-${idx}`}
                           key={translated.id || idx}
                           className={cn(
                             "p-3 rounded-lg border transition-colors",
@@ -774,14 +815,24 @@ export function TranslationWorkspace({
                             >
                               {translated.type}
                             </Badge>
-                            <Badge
-                              className={cn(
-                                "text-xs",
-                                confidenceBadge(translated.confidence),
-                              )}
-                            >
-                              {Math.round(translated.confidence * 100)}%
-                            </Badge>
+                            <TooltipProvider delayDuration={200}>
+                              <Tooltip>
+                                <TooltipTrigger asChild>
+                                  <Badge
+                                    className={cn(
+                                      "text-xs cursor-help",
+                                      confidenceBadge(translated.confidence),
+                                    )}
+                                  >
+                                    {Math.round(translated.confidence * 100)}%
+                                  </Badge>
+                                </TooltipTrigger>
+                                <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
+                                  Model confidence for this section — average token probability during beam search.
+                                  {translated.confidence >= 0.85 ? " High quality output expected." : translated.confidence >= 0.6 ? " Review recommended for critical text." : " Low confidence — manual review advised."}
+                                </TooltipContent>
+                              </Tooltip>
+                            </TooltipProvider>
                           </div>
                           <p className="text-sm whitespace-pre-wrap">
                             {highlightGlossary(
@@ -878,13 +929,15 @@ function StatCard({
   icon,
   label,
   value,
+  tooltip,
 }: {
   icon: React.ReactNode;
   label: string;
   value: string | number;
+  tooltip?: string;
 }) {
-  return (
-    <Card>
+  const content = (
+    <Card className={tooltip ? "cursor-help" : ""}>
       <CardContent className="flex items-center gap-3 py-3 px-4">
         {icon}
         <div>
@@ -893,5 +946,18 @@ function StatCard({
         </div>
       </CardContent>
     </Card>
+  );
+
+  if (!tooltip) return content;
+
+  return (
+    <TooltipProvider delayDuration={200}>
+      <Tooltip>
+        <TooltipTrigger asChild>{content}</TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-72 text-xs leading-relaxed">
+          {tooltip}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
 }

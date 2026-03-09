@@ -71,8 +71,8 @@ def _gpu_has_room(required_gb: float = 2.5) -> bool:
 def load_models(block: bool = True) -> Dict[str, Any]:
     """Load both mBART models (lazy, thread-safe).
     
-    With limited VRAM (< 5 GB), only one model goes to GPU at a time.
-    The other stays on CPU. translate will swap as needed.
+    Both models are loaded to GPU if CUDA is available.
+    If VRAM is limited, models will be swapped on-demand during translation.
     If block=False, return whatever is loaded so far without waiting.
     """
     global _models
@@ -106,11 +106,8 @@ def load_models(block: bool = True) -> Dict[str, Any]:
             if model_dir.exists():
                 logger.info("Loading mBART model from %s …", model_dir)
                 tok = MBart50TokenizerFast.from_pretrained(str(model_dir), src_lang="en_XX")
-                # First model → GPU if available; second → GPU only if room
-                if idx == 0:
-                    target_device = device
-                else:
-                    target_device = device if _gpu_has_room(2.5) else torch.device("cpu")
+                # Load both models to GPU if CUDA available
+                target_device = device
                 mdl = MBartForConditionalGeneration.from_pretrained(
                     str(model_dir), low_cpu_mem_usage=True
                 ).to(target_device)
@@ -122,6 +119,42 @@ def load_models(block: bool = True) -> Dict[str, Any]:
 
         _models = loaded
     return _models
+
+
+def _ensure_model_on_gpu(model_key: str) -> None:
+    """Ensure the requested model is on GPU, swapping if necessary for low VRAM."""
+    global _models
+    if not _models or not torch.cuda.is_available():
+        return
+    
+    entry = _models.get(model_key)
+    if entry is None:
+        return
+    
+    device = torch.device("cuda")
+    current_device = torch.device(entry.get("on_device", "cpu"))
+    
+    # Already on GPU
+    if current_device.type == "cuda":
+        return
+    
+    # Move requested model to GPU
+    logger.info("Moving %s model to GPU...", model_key)
+    
+    # If VRAM is tight, move the OTHER model to CPU first
+    if not _gpu_has_room(2.5):
+        other_key = "en_ta" if model_key == "en_si" else "en_si"
+        other_entry = _models.get(other_key)
+        if other_entry and torch.device(other_entry.get("on_device", "cpu")).type == "cuda":
+            logger.info("Swapping %s model to CPU to free VRAM...", other_key)
+            other_entry["model"].to(torch.device("cpu"))
+            other_entry["on_device"] = "cpu"
+            torch.cuda.empty_cache()
+    
+    # Now move requested model to GPU
+    entry["model"].to(device)
+    entry["on_device"] = "cuda"
+    logger.info("✓  %s model now on GPU", model_key)
 
 
 # ---------------------------------------------------------------------------
@@ -321,6 +354,113 @@ def _chunk_text_into_sections(text: str, target_size: int = 800) -> List[str]:
 # Translation helpers
 # ---------------------------------------------------------------------------
 
+def _remove_repetition_loops(text: str) -> str:
+    """Detect and remove repetition loops in translated text.
+    
+    Handles cases like 'ශ්‍රේෂ්ඨාධිකරණයේ ශ්‍රේෂ්ඨාධිකරණයේ ශ්‍රේෂ්ඨාධිකරණයේ ...'
+    """
+    if not text or len(text) < 20:
+        return text
+    
+    words = text.split()
+    if len(words) < 4:
+        return text
+    
+    # Check for consecutive word repetition (same word repeated 3+ times)
+    cleaned_words = []
+    prev_word = None
+    repeat_count = 0
+    
+    for word in words:
+        if word == prev_word:
+            repeat_count += 1
+            if repeat_count < 2:  # Allow up to 2 consecutive same words
+                cleaned_words.append(word)
+        else:
+            cleaned_words.append(word)
+            prev_word = word
+            repeat_count = 0
+    
+    # Check for phrase repetition (2-5 word phrases repeated)
+    result = " ".join(cleaned_words)
+    
+    for phrase_len in range(2, 6):
+        words = result.split()
+        if len(words) < phrase_len * 3:
+            continue
+        
+        cleaned = []
+        i = 0
+        while i < len(words):
+            phrase = " ".join(words[i:i+phrase_len])
+            next_phrase_start = i + phrase_len
+            
+            # Count how many times this phrase repeats consecutively
+            repeats = 1
+            while next_phrase_start + phrase_len <= len(words):
+                next_phrase = " ".join(words[next_phrase_start:next_phrase_start+phrase_len])
+                if next_phrase == phrase:
+                    repeats += 1
+                    next_phrase_start += phrase_len
+                else:
+                    break
+            
+            # Keep only first occurrence if repeated 3+ times
+            if repeats >= 3:
+                cleaned.extend(words[i:i+phrase_len])
+                i = next_phrase_start
+            else:
+                cleaned.append(words[i])
+                i += 1
+        
+        result = " ".join(cleaned)
+    
+    return result
+
+
+def _format_list_items(text: str) -> str:
+    """Format list items like (a), (b), a), b), 1), 2) with proper line breaks."""
+    
+    # Pattern for list items: (a), (b), (c), a), b), c), (1), (2), 1), 2), (i), (ii), etc.
+    # Also handles Sinhala: (අ), (ආ), etc.
+    list_patterns = [
+        # (a), (b), (c) or (අ), (ආ) style
+        (r'(?<=[.;:]) *(\([a-zA-Z\u0D80-\u0DFF\u0B80-\u0BFF]\))', r'\n    \1'),
+        # a), b), c) style
+        (r'(?<=[.;:]) *([a-z]\))', r'\n    \1'),
+        # (1), (2), (3) style
+        (r'(?<=[.;:]) *(\(\d+\))', r'\n    \1'),
+        # 1), 2), 3) style
+        (r'(?<=[.;:]) *(\d+\))', r'\n    \1'),
+        # (i), (ii), (iii) style (roman numerals)
+        (r'(?<=[.;:]) *(\([ivxIVX]+\))', r'\n    \1'),
+    ]
+    
+    result = text
+    for pattern, replacement in list_patterns:
+        result = re.sub(pattern, replacement, result)
+    
+    # Also handle list items at start of text or after newline
+    start_patterns = [
+        (r'^(\([a-zA-Z\u0D80-\u0DFF\u0B80-\u0BFF]\))', r'\n    \1'),
+        (r'^\s*([a-z]\))', r'    \1'),
+        (r'^\s*(\(\d+\))', r'    \1'),
+        (r'^\s*(\d+\))', r'    \1'),
+    ]
+    
+    lines = result.split('\n')
+    formatted_lines = []
+    for line in lines:
+        stripped = line.strip()
+        for pattern, replacement in start_patterns:
+            if re.match(pattern, stripped):
+                stripped = re.sub(pattern, replacement, stripped)
+                break
+        formatted_lines.append(stripped)
+    
+    return '\n'.join(formatted_lines)
+
+
 def _translate_text(text: str, model_key: str, max_length: int = 512) -> Tuple[str, float]:
     """Translate text sentence-by-sentence for better quality, then merge.
     Returns (translated, avg_confidence)."""
@@ -329,6 +469,9 @@ def _translate_text(text: str, model_key: str, max_length: int = 512) -> Tuple[s
     if entry is None:
         return f"[mock-{model_key}] {text}", 0.0
 
+    # Ensure model is on GPU (will swap if needed for low VRAM)
+    _ensure_model_on_gpu(model_key)
+    
     device = torch.device(entry.get("on_device", models.get("device", "cpu")))
     tok = entry["tokenizer"]
     mdl = entry["model"]
@@ -362,8 +505,14 @@ def _translate_text(text: str, model_key: str, max_length: int = 512) -> Tuple[s
                 early_stopping=True,
                 output_scores=True,
                 return_dict_in_generate=True,
+                no_repeat_ngram_size=3,      # Prevent 3-gram repetition
+                repetition_penalty=1.2,       # Penalize repeated tokens
             )
         trans = tok.batch_decode(out.sequences, skip_special_tokens=True)[0]
+        
+        # Post-process: Remove repetition loops
+        trans = _remove_repetition_loops(trans)
+        
         translated_parts.append(trans)
 
         if out.scores:
@@ -373,6 +522,10 @@ def _translate_text(text: str, model_key: str, max_length: int = 512) -> Tuple[s
             confidences.append(0.85)
 
     merged = " ".join(translated_parts)
+    
+    # Apply list formatting for items like (a), (b), 1), 2), etc.
+    merged = _format_list_items(merged)
+    
     avg_conf = sum(confidences) / max(len(confidences), 1)
     return merged, round(avg_conf, 4)
 
@@ -425,10 +578,10 @@ def translate_sections(
         glossary_map[t["en"].lower()] = t.get("si" if target_lang == "si" else "ta", "")
 
     for i, sec in enumerate(sections):
-        # Check if job was cancelled
+        # Check if job was cancelled/stopped
         job_state = _load_job(job_id)
-        if job_state and job_state.get("status") == "failed":
-            logger.info("Job %s was cancelled, stopping at section %d/%d", job_id, i, len(sections))
+        if job_state and job_state.get("status") in ("failed", "stopped"):
+            logger.info("Job %s was stopped, halting at section %d/%d", job_id, i, len(sections))
             break
 
         # Check if this section should be skipped

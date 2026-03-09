@@ -38,7 +38,7 @@ export interface TrackedJob {
   sourceLang: string;
   targetLang: string;
   mode: "document" | "text";
-  status: "uploading" | "processing" | "completed" | "failed";
+  status: "uploading" | "processing" | "completed" | "failed" | "stopped";
   progress: number; // 0-100
   completedSections: number;
   totalSections: number;
@@ -74,6 +74,8 @@ interface TranslationContextValue {
   cancelJob: (jobId: string) => void;
   /** get full result (lazy-loads if needed) */
   getResult: (jobId: string) => Promise<TranslationJobResult | null>;
+  /** adopt an existing backend processing job into context so polling starts */
+  resumeJob: (jobId: string) => Promise<TrackedJob | null>;
   /** currently selected job id for viewing */
   viewingJobId: string | null;
   setViewingJobId: (id: string | null) => void;
@@ -151,6 +153,13 @@ export function TranslationProvider({
                   ...x,
                   status: "failed" as const,
                   error: p.error || "Unknown error",
+                };
+              }
+              if (p.status === "stopped") {
+                return {
+                  ...x,
+                  status: "stopped" as const,
+                  partialSections: p.partial_translated_sections || x.partialSections,
                 };
               }
               return {
@@ -303,10 +312,18 @@ export function TranslationProvider({
   }, []);
 
   const cancelJob = useCallback((jobId: string) => {
+    // Get partial sections before stopping
+    const currentJob = jobs.find(j => j.jobId === jobId);
     setJobs((prev) =>
       prev.map((j) =>
         j.jobId === jobId
-          ? { ...j, status: "failed" as const, error: "Cancelled by user" }
+          ? { 
+              ...j, 
+              status: "stopped" as const, 
+              error: undefined,
+              // Keep partial sections for viewing
+              partialSections: j.partialSections || currentJob?.partialSections,
+            }
           : j,
       ),
     );
@@ -314,7 +331,7 @@ export function TranslationProvider({
     fetch(`${import.meta.env.VITE_API_BASE_URL || ""}/api/translate/cancel/${jobId}`, {
       method: "POST",
     }).catch(() => {});
-  }, []);
+  }, [jobs]);
 
   const getResult = useCallback(
     async (jobId: string): Promise<TranslationJobResult | null> => {
@@ -333,6 +350,39 @@ export function TranslationProvider({
     [jobs],
   );
 
+  /** Adopt an existing backend processing job into context so polling works. */
+  const resumeJob = useCallback(async (jobId: string): Promise<TrackedJob | null> => {
+    // If already tracked, just return it
+    const existing = jobs.find((j) => j.jobId === jobId);
+    if (existing) return existing;
+
+    try {
+      const full = await getTranslationJob(jobId);
+      const tracked: TrackedJob = {
+        jobId: full.job_id,
+        filename: full.filename,
+        sourceLang: full.source_language,
+        targetLang: full.target_language,
+        mode: (full.mode === "text" ? "text" : "document") as "document" | "text",
+        status: "processing",
+        progress: full.progress ?? 0,
+        completedSections: full.completed_sections ?? 0,
+        totalSections: full.total_sections ?? 0,
+        startedAt: new Date(full.created_at).getTime(),
+        dismissed: false,
+        sourceSections: full.source_sections || [],
+        partialSections: full.translated_sections?.length > 0 ? full.translated_sections : [],
+      };
+      setJobs((prev) => {
+        if (prev.some((j) => j.jobId === jobId)) return prev;
+        return [tracked, ...prev];
+      });
+      return tracked;
+    } catch {
+      return null;
+    }
+  }, [jobs]);
+
   const activeCount = jobs.filter(
     (j) => j.status === "processing" || j.status === "uploading",
   ).length;
@@ -347,6 +397,7 @@ export function TranslationProvider({
         dismissJob,
         cancelJob,
         getResult,
+        resumeJob,
         viewingJobId,
         setViewingJobId,
       }}
