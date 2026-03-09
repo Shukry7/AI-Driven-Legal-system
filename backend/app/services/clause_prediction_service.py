@@ -87,46 +87,6 @@ PREDICTABLE_CLAUSES = {
         "detection_regex": r"(?:(?:[Ll]earned\s+)?(?:Additional\s+)?(?:District|High\s+Court|Commercial\s+High\s+Court|Trial|Magistrate'?s?)\s+(?:Court\s+)?Judge[s]?\s+(?:held|found|concluded|observed|determined|decided|dismissed|allowed|granted|erred|ruled|was\s+of\s+the\s+(?:view|opinion))|(?:the\s+)?(?:High\s+Court|Court\s+of\s+Appeal|District\s+Court|Commercial\s+High\s+Court|Labour\s+Tribunal|Magistrate.s\s+Court)\s+(?:held|found|decided|dismissed|allowed|affirmed|set\s+aside|erred|upheld|ruled|observed|concluded|determined)|(?:the\s+)?(?:impugned|challenged|contested)\s+(?:judgment|order|decree|decision)|(?:the\s+)?(?:learned\s+)?(?:trial\s+)?[Jj]udge\s+(?:held|found|decided|concluded|observed|determined|dismissed|allowed|erred|ruled)|court\s+(?:of\s+first\s+instance|below|a\s+quo))",
         "detection_scope": "full",
     },
-    "factual_background_label": {
-        "name": "Factual Background Label",
-        "predictability": "FULL",
-        "frequency": "18.6%",
-        "position": "10-25% through document",
-        "detection_regex": r"(?:(?:^|\n)\s*(?:Factual\s+[Mm]atrix|Facts?\s+in\s+[Bb]rief|The\s+[Ff]actual\s+[Bb]ackground|Background\s+[Ff]acts?|The\s+[Ff]acts?\s+of\s+the\s+[Cc]ase|Introduction|Brief\s+[Ff]acts|The\s+[Ff]acts|Background|BACKGROUND|THE\s+FACTS|FACTUAL\s+MATRIX|FACTS\s+IN\s+BRIEF|INTRODUCTION|Brief\s+[Bb]ackground|The\s+[Bb]ackground|Factual\s+[Bb]ackground|Consideration\s+of\s+[Ff]acts?)\s*:?\s*\.?\s*(?:\n|$))",
-        "detection_scope": "first_30_percent",
-    },
-    "appellant_argument": {
-        "name": "Appellant Argument Summary",
-        "predictability": "PARTIAL",
-        "frequency": "53.9%",
-        "position": "40-70% through document",
-        "detection_regex": r"(?:(?:[Ll]earned\s+)?[Cc]ounsel\s+for\s+(?:the\s+)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner)s?[\s,]+(?:submitted|contended|argued|urged|maintained|pointed\s+out|stated)|(?:the\s+)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner)s?\s+(?:submitted|contended|argued|urged|maintained|averred|stated)|(?:it\s+was\s+)?(?:submitted|contended|argued|urged)\s+(?:by|on\s+behalf\s+of)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner)|(?:the\s+)?(?:submission|contention|argument)s?\s+(?:of|made\s+by)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Aa]ppellant|[Pp]laintiff|[Pp]etitioner))",
-        "detection_scope": "full",
-    },
-    "respondent_argument": {
-        "name": "Respondent Argument Summary",
-        "predictability": "PARTIAL",
-        "frequency": "41.3%",
-        "position": "45-75% through document",
-        "detection_regex": r"(?:(?:[Ll]earned\s+)?[Cc]ounsel\s+for\s+(?:the\s+)?(?:[Rr]espondent|[Dd]efendant)s?[\s,]+(?:submitted|contended|argued|urged|maintained|pointed\s+out|stated)|(?:the\s+)?(?:[Rr]espondent|[Dd]efendant)s?\s+(?:submitted|contended|argued|urged|maintained|averred|stated)|(?:it\s+was\s+)?(?:submitted|contended|argued|urged)\s+(?:by|on\s+behalf\s+of)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Rr]espondent|[Dd]efendant)|(?:the\s+)?(?:submission|contention|argument)s?\s+(?:of|made\s+by)\s+(?:the\s+)?(?:learned\s+)?(?:counsel\s+for\s+(?:the\s+)?)?(?:[Rr]espondent|[Dd]efendant))",
-        "detection_scope": "full",
-    },
-    "legal_framework": {
-        "name": "Legal Framework Introduction",
-        "predictability": "PARTIAL",
-        "frequency": "98.5%",
-        "position": "30-50% through document",
-        "detection_regex": r"(?:(?:[Ss]ection|[Ss]\.)\s+\d+(?:\s*\([^)]*\))?\s+of\s+the|[Aa]rticle\s+\d+(?:\s*\([^)]*\))?\s+of\s+the|(?:the\s+)?(?:relevant|applicable|material|pertinent)\s+(?:legal\s+)?(?:section|provision|law|statute|enactment)|(?:provides?|reads?|states?|stipulates?|enacts?)\s+(?:as\s+follows|that|inter\s+alia)|[Ii]n\s+terms\s+of\s+(?:[Ss]ection|[Aa]rticle|the\s+|[Ss]\.)|(?:Civil|Criminal|Penal|Companies?)\s+(?:Procedure\s+)?(?:Code|Act|Ordinance)|(?:Evidence|Prescription|Limitation|Registration|Trust)\s+(?:Ordinance|Act)|(?:Ordinance|Act|Statute)\s+No\.?\s*\d+)",
-        "detection_scope": "full",
-    },
-    "issue_analysis": {
-        "name": "Issue Analysis Structure",
-        "predictability": "PARTIAL",
-        "frequency": "90.2%",
-        "position": "20-40% through document",
-        "detection_regex": r"(?:(?:the\s+)?(?:following\s+)?(?:issues?|questions?)\s+(?:that\s+)?(?:arise|for\s+(?:consideration|determination|decision|adjudication))|(?:the\s+)?(?:issues?|questions?\s+of\s+law)\s+(?:for|that\s+arise\s+for)\s+(?:determination|consideration)|[Gg]rounds?\s+of\s+appeal\s+(?:urged|are|raised|set\s+out)|(?:question|issue|point)\s+(?:is|to\s+be\s+(?:considered|decided|determined|answered))|(?:the\s+)?(?:main|principal|primary|central|key)\s+(?:question|issue|point)|[Ww]hether\s+(?:the|a|an|or\s+not)|(?:questions?\s+of\s+law)|(?:question|issue)\s+(?:No\.?\s*)?\d|(?:first|second|third|fourth|fifth|next)\s+(?:question|issue|point|ground|contention)|(?:I|[Ww]e)\s+(?:now\s+)?(?:turn|proceed|come)\s+to\s+(?:consider|examine|address|deal)|(?:it\s+is)\s+(?:necessary|important)\s+to\s+(?:consider|examine|determine))",
-        "detection_scope": "full",
-    },
     "cost_order": {
         "name": "Cost Order",
         "predictability": "FULL",
@@ -495,35 +455,10 @@ def calculate_insertion_point(text: str, clause_key: str) -> Dict[str, Any]:
         insertion_info["line_estimate"] = int(total_lines * 0.20)
         insertion_info["position_description"] = "After procedural history (estimated)"
     
-    elif clause_key == "factual_background_label":
-        # Insert after procedural history/leave to appeal, around 20-25%
-        insertion_info["line_estimate"] = int(total_lines * 0.22)
-        insertion_info["position_description"] = "After procedural history, before facts section"
-    
-    elif clause_key == "issue_analysis":
-        # Insert in early-middle section, around 30-35%
-        insertion_info["line_estimate"] = int(total_lines * 0.32)
-        insertion_info["position_description"] = "In middle section (after facts, before arguments)"
-    
     elif clause_key == "lower_court_findings":
         # Insert in early-middle section, around 35-40%
         insertion_info["line_estimate"] = int(total_lines * 0.37)
-        insertion_info["position_description"] = "In middle section (after issue analysis)"
-    
-    elif clause_key == "legal_framework":
-        # Insert in middle section, around 40-45%
-        insertion_info["line_estimate"] = int(total_lines * 0.42)
-        insertion_info["position_description"] = "In middle section (legal provisions area)"
-    
-    elif clause_key == "appellant_argument":
-        # Insert in middle section, around 45-50%
-        insertion_info["line_estimate"] = int(total_lines * 0.47)
-        insertion_info["position_description"] = "In middle section (argument area)"
-    
-    elif clause_key == "respondent_argument":
-        # Insert in later-middle section, around 55-60%
-        insertion_info["line_estimate"] = int(total_lines * 0.57)
-        insertion_info["position_description"] = "In middle section (after appellant arguments)"
+        insertion_info["position_description"] = "In middle section (after facts)"
     
     return insertion_info
 
@@ -644,27 +579,6 @@ def extract_context_for_clause(text: str, clause_key: str) -> Dict[str, Any]:
         context["lower_court_type"] = lower_court_info["type"]
         context["case_type"] = extract_case_type(text)
         context["outcome"] = extract_outcome(text)
-
-    elif clause_key == "factual_background_label":
-        context["case_type"] = extract_case_type(text)
-
-    elif clause_key == "appellant_argument":
-        context["parties"] = extract_party_names(text)
-        context["counsel"] = extract_counsel_names(text)
-        context["questions_of_law"] = extract_questions_of_law(text)
-
-    elif clause_key == "respondent_argument":
-        context["parties"] = extract_party_names(text)
-        context["counsel"] = extract_counsel_names(text)
-        context["questions_of_law"] = extract_questions_of_law(text)
-
-    elif clause_key == "legal_framework":
-        context["statutes"] = extract_statutes_mentioned(text)
-        context["case_type"] = extract_case_type(text)
-
-    elif clause_key == "issue_analysis":
-        context["case_type"] = extract_case_type(text)
-        context["questions_of_law"] = extract_questions_of_law(text)
 
     elif clause_key == "cost_order":
         context["case_type"] = extract_case_type(text)
@@ -941,90 +855,6 @@ Use formal judicial language:
 
 Generate a concise paragraph (approximately 30-35 words) summarizing what the lower court decided. Use [placeholders] for specific details you cannot determine."""
 
-    elif clause_key == "factual_background_label":
-        case_type = context.get("case_type", "civil_appeal")
-        return f"""Suggest an appropriate section heading label for the factual background section of a Sri Lankan {case_type} judgment.
-
-Choose from these standard labels (pick most appropriate):
-- "The Facts"
-- "Factual Background"
-- "Brief Facts"
-- "Background"
-- "The Facts of the Case"
-
-Output ONLY the heading text, nothing else."""
-
-    elif clause_key == "appellant_argument":
-        parties = context.get("parties", {})
-        counsel = context.get("counsel", {})
-        questions = context.get("questions_of_law", [])
-        grounds_text = "\n".join([f"- {q}" for q in questions]) if questions else "[Grounds not extracted]"
-        return f"""Generate an appellant argument summary for a Sri Lankan Supreme Court judgment.
-
-Appellant/Petitioner: {parties.get('petitioner', '[Party Name]')}
-Counsel for Appellant: {counsel.get('appellant', 'Learned Counsel')}
-Grounds/Questions:
-{grounds_text}
-
-Use this format:
-"Learned [Counsel/President's Counsel] for the [Party role] [submitted/contended/argued] that:
-(1) [Argument based on ground 1]
-(2) [Argument based on ground 2]..."
-
-Use formal judicial language. Generate concise argument points (approximately 30-35 words total). Use [placeholders] for unknowns."""
-
-    elif clause_key == "respondent_argument":
-        parties = context.get("parties", {})
-        counsel = context.get("counsel", {})
-        return f"""Generate a respondent argument summary for a Sri Lankan Supreme Court judgment.
-
-Respondent/Defendant: {parties.get('respondent', '[Party Name]')}
-Counsel for Respondent: {counsel.get('respondent', 'Learned Counsel')}
-
-Use this format:
-"Learned Counsel for the Respondent [submitted/contended/urged] that [counter-argument responding to appellant's position].
-It was further submitted on behalf of the Respondent that [additional counter-argument]."
-
-Generate concise counter-arguments in formal judicial language (approximately 30-35 words). Use [placeholders] for unknowns."""
-
-    elif clause_key == "legal_framework":
-        statutes = context.get("statutes", {})
-        acts = statutes.get("acts", [])[:5]
-        sections = statutes.get("sections", [])[:5]
-        articles = statutes.get("articles", [])[:5]
-        return f"""Generate a legal framework introduction for a Sri Lankan Supreme Court judgment.
-
-Statutes mentioned: {', '.join(acts) if acts else '[No statutes extracted]'}
-Sections: {', '.join(['Section ' + s for s in sections]) if sections else '[None]'}
-Articles: {', '.join(['Article ' + a for a in articles]) if articles else '[None]'}
-Case type: {context.get('case_type', 'civil_appeal')}
-
-Use formal judicial language:
-"The relevant legal provisions applicable to this case are as follows:..."
-or "It is necessary to examine the statutory framework governing..."
-
-Generate a concise paragraph (approximately 30-35 words) introducing the legal framework. Use [placeholders] for provision text you cannot determine."""
-
-    elif clause_key == "issue_analysis":
-        case_type = context.get("case_type", "civil_appeal")
-        questions = context.get("questions_of_law", [])
-        issues_text = "\n".join([f"({chr(97+i)}) {q}" for i, q in enumerate(questions)]) if questions else "[Issues not extracted]"
-        return f"""Generate an issue/question analysis structure for a Sri Lankan Supreme Court judgment.
-
-Case type: {case_type}
-Issues/Questions:
-{issues_text}
-
-Use this format:
-"The following [issues arise for determination / questions of law arise] in this [appeal/application]:
-
-(a) [issue text]
-(b) [issue text]
-
-Each of these [issues/questions] will be considered in turn."
-
-Use formal judicial language. If issues not available, generate template with [placeholders]."""
-
     elif clause_key == "cost_order":
         outcome = context.get("outcome", "unknown")
         case_type = context.get("case_type", "civil_appeal")
@@ -1298,11 +1128,6 @@ def _generate_fallback_suggestions(
         "procedural_history": "The [Plaintiff/Appellant] instituted action in the [District Court/High Court] bearing No. [case number] seeking [relief]. Being aggrieved by the judgment of the [Court] dated [date], the [Party] preferred this appeal to the Supreme Court.",
         "leave_to_appeal": "This Court granted special leave to appeal on [date] on the following question(s) of law:\n\n(a) [Question of law pertaining to the interpretation of statutory provisions]\n(b) [Question relating to the application of legal principles]",
         "lower_court_findings": "The learned [District Judge/High Court Judge] held that [finding regarding the main issue]. Accordingly, judgment was entered [in favour of/against] the [Party] with directions that [order or relief granted by the lower court].",
-        "factual_background_label": "The Facts",
-        "appellant_argument": "Learned Counsel for the Appellant submitted that [the lower court erred in its interpretation]. It was further contended that [the legal principles were misapplied]. The Appellant urged that [the judgment should be set aside].",
-        "respondent_argument": "Learned Counsel for the Respondent submitted that [the lower court's findings were correct]. It was further urged that [the appeal lacks merit]. The Respondent maintained that [the judgment should be affirmed].",
-        "legal_framework": "The relevant legal provisions applicable to this case are as follows: Section [X] of the [Civil Procedure Code/Evidence Ordinance/relevant Act] provides that [key provision]. This provision must be read together with [related sections or case law].",
-        "issue_analysis": "The following issues arise for determination in this appeal:\n\n(a) [Issue 1 relating to the application of law]\n(b) [Issue 2 regarding procedural matters]\n\nEach of these issues will be considered in turn.",
         "cost_order": "Considering the circumstances of this case and the conduct of the parties, [the appeal is dismissed with costs/without costs/each party to bear their own costs].",
     }
 
@@ -1389,12 +1214,20 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
         return result
 
     # 2. Prioritize and limit suggestions (show only top 2-3 most important)
+    # Give judge_concurrence highest priority, then sort by frequency
     total_missing = len(missing)
     if len(missing) > MAX_SUGGESTIONS_TO_SHOW:
-        # Prioritize by frequency (higher frequency = more commonly needed)
+        # Prioritize judge_concurrence first, then by frequency
+        def priority_key(clause):
+            # Judge concurrence gets highest priority (score 1000)
+            if clause['clause_key'] == 'judge_concurrence':
+                return 1000.0
+            # Otherwise sort by frequency
+            return float(clause['frequency'].rstrip('%'))
+        
         missing_sorted = sorted(
             missing,
-            key=lambda x: float(x['frequency'].rstrip('%')),
+            key=priority_key,
             reverse=True
         )
         missing = missing_sorted[:MAX_SUGGESTIONS_TO_SHOW]
