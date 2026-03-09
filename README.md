@@ -561,6 +561,7 @@ Returns the translated file as a binary download.
 | `GET`  | `/api/lineage/list-uploads`                      | List all uploaded files stored temporarily                |
 | `GET`  | `/api/lineage/download-judgment/{filename}`      | Download selected act specified judgment in `.pdf` format |
 | `GET`  | `/api/lineage/download-judgment-text/{filename}` | Download selected act specified judgment in `.txt` format |
+| `POST` | `/api/lineage/search-acts-by-keyword`            | Search for specific related matching acts to process      |
 
 #### `POST /api/classify/text`
 

@@ -19,6 +19,80 @@ DIG = r"[\d]"
 SEP = r"[./-]"
 DATE_PATTERN = rf"{DIG}{{1,2}}{SEP}{DIG}{{1,2}}{SEP}(?:19|20)?\d{{2,4}}"
 
+# ─── Month names for worded-date patterns ────────────────────────────────────
+_MONTHS = (
+    r"(?:January|February|March|April|May|June|July|August|"
+    r"September|October|November|December)"
+)
+
+# Numeric date tolerating optional spaces around separators: "18. 05. 2010"
+_NUMERIC_DATE = r"\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2,4}"
+
+# Worded date: "14th January 2020" / "4th August, 2010"
+_WORDED_DATE = r"\d{1,2}(?:st|nd|rd|th)?\s+" + _MONTHS + r"[\s,]+\d{2,4}"
+
+# Combined date pattern
+_ANY_DATE = rf"(?:{_NUMERIC_DATE}|{_WORDED_DATE})"
+
+
+def _get_line_context(
+    text: str, start_pos: int, end_pos: int
+) -> Tuple[str, int, int]:
+    """Return the full line surrounding the matched position.
+
+    Args:
+        text: Full document text.
+        start_pos: Start character offset of the match.
+        end_pos: End character offset of the match.
+
+    Returns:
+        Tuple (line_text, line_start, line_end).
+    """
+    line_start = text.rfind('\n', 0, start_pos)
+    line_start = line_start + 1 if line_start != -1 else 0
+
+    line_end = text.find('\n', end_pos)
+    if line_end == -1:
+        line_end = len(text)
+
+    return text[line_start:line_end].strip(), line_start, line_end
+
+
+def _has_any_corruption(text: str) -> bool:
+    """Comprehensive corruption check using layered heuristics.
+
+    Uses the same signals as corruption_detection_service plus targeted extras.
+    Returns True as soon as any corruption signal is found.
+    """
+    if not text:
+        return False
+
+    _CORRUPTION_PATTERNS = [
+        r'\uFFFD',                   # Unicode replacement char
+        r'\[CORRUPTED:',             # Explicit corruption marker
+        r'\b#{2,}',                  # Two or more consecutive # chars
+        r'[#*%]{2,}',                # Two or more of # * % in a row (OCR garble)
+        r'[^\w\s]{3,}',              # 3+ consecutive non-word, non-space chars
+    ]
+    for pat in _CORRUPTION_PATTERNS:
+        try:
+            if re.search(pat, text):
+                return True
+        except re.error:
+            pass
+    return False
+
+
+def _clause_specific_corrupted(text: str, indicators: list) -> bool:
+    """Check clause-specific corruption indicators against text."""
+    for indicator in indicators:
+        try:
+            if re.search(indicator, text):
+                return True
+        except re.error:
+            pass
+    return False
+
 
 def preprocess_text(text: str) -> str:
     """
@@ -118,25 +192,23 @@ CLAUSE_DEFINITIONS = {
         "patterns": [
             r"(?i)IN\s+THE\s+SUPREME\s+COURT\s+OF(?:\s+THE)?(?:\s+DEMOCRATIC)?(?:\s+SOCIALIST)?(?:\s+REPUBLIC)?(?:\s+OF)?\s+SRI\s+LANKA",
             r"(?i)IN\s+THE\s+(?:HIGH|DISTRICT)\s+COURT\s+OF\s+[\w\s]+SRI\s+LANKA",
-            r"(?i)COURT\s+OF\s+APPEAL"
+            r"(?i)(?:IN\s+THE\s+)?COURT\s+OF\s+APPEAL\s+OF\s+SRI\s+LANKA"  # More specific - requires context
         ],
         "fallback_patterns": [
-            # VERY LENIENT patterns to catch heavily corrupted court titles
-            # Catch: "IN #=+HE DEMOCRATIC SOCIALIST REPUBLIC OF SRI LANKA" (corrupted THE)
-            # Catch: "IN THE SUPREME COURT..." (normal)
-            r"(?i)IN\s+[^\n]{0,50}?(?:DEMOCRATIC|SOCIALIST|REPUBLIC)[\s\S]{0,100}?SRI\s+LANKA",  # Democratic/Socialist patterns
-            r"(?i)IN\s+[#*&=@+\-]*(?:THE|HE|T[#*&=@+\-]*HE|TH[#*&=@+\-]*E)[\s\S]{0,150}?(?:SUPREME|HIGH|DISTRICT)[\s\S]{0,100}?COURT",
-            r"(?i)IN\s+[^\n]{0,100}?SUPREME\s+COURT[\s\S]{0,150}?LANKA",  # Match with anything between IN and SUPREME COURT
+            # Lenient patterns to catch corrupted/variant court titles.
+            # Corruption is checked on the matched text AFTER these patterns match.
+            r"(?i)IN\s+[^\n]{0,50}?(?:DEMOCRATIC|SOCIALIST|REPUBLIC)[\s\S]{0,100}?SRI\s+LANKA",
+            r"(?i)IN\s+[^\n]{0,100}?SUPREME\s+COURT[\s\S]{0,150}?LANKA",
             r"(?i)IN\s+THE\s+(?:HIGH|DISTRICT)\s+COURT[\s\S]{0,100}?LANKA",
-            r"(?i)SUPREME\s+COURT[\s\S]{0,150}?SRI\s+LANKA",  # Even without "IN THE"
-            r"(?i)IN\s+[^\n]{0,150}?LANKA",  # Most lenient - just IN...LANKA
+            r"(?i)SUPREME\s+COURT[\s\S]{0,150}?SRI\s+LANKA",
+            r"(?i)IN\s+[^\n]{0,150}?LANKA",
         ],
         "corruption_indicators": [
-            r"[#=@$%!&*+\-]{1,}",  # ANY special characters (even single)
-            r"\b[HE]{1,2}\b(?!\s+(?:WAS|IS|ARE))",  # "HE" not followed by verb (likely corrupted "THE")
-            r"[A-Z][#@=*&+\-]+",  # Letter followed by special chars
-            r"[#@=*&+\-]+[A-Z]",  # Special chars followed by letter
-            r"\uFFFD",  # Replacement character
+            # Do NOT include bare '-' — hyphens appear in legitimate legal text.
+            r"[#@$%!&*+^~`|\\]{2,}",   # 2+ consecutive garbled chars
+            r"[A-Za-z][#@$%!&*+^~`]{1,}[A-Za-z]",  # Special char embedded in a word
+            r"\uFFFD",                  # Unicode replacement character
+            r"\[CORRUPTED:",            # Explicit corruption marker
         ],
         "frequency": "🔴 Always Present (99.6%)",
         "detection_rate": 0.996
@@ -146,8 +218,8 @@ CLAUSE_DEFINITIONS = {
         "name": "Matter Description",
         "description": "Legal basis and type of appeal/application",
         "patterns": [
-            r"(?i)^In\s+the\s+matter\s+of",
-            r"(?i)In\s+the\s+matter\s+of\s+(?:an?|the)?\s*(?:appeal|application|petition)"
+            r"(?i)In\s+the\s+matter\s+of[^\n]{1,200}",  # Match full description
+            r"(?i)In\s+the\s+matter\s+of\s+an?\s+(?:Application|appeal|petition)"
         ],
         "corruption_indicators": [],
         "frequency": "🟡 Sometimes Present (73.8%)",
@@ -158,19 +230,17 @@ CLAUSE_DEFINITIONS = {
         "name": "Case Number",
         "description": "Supreme Court case/appeal identifier",
         "patterns": [
-            r"(?i)SC[/\s]*APPEAL[/\s]*\d+[/\s]*\d{4}",
-            r"(?i)SC[/\s]*(?:CHC|FR|SPL)?[/\s]*(?:APPEAL|APPLICATION)[/\s]*(?:No\.?)?[/\s]*\d+[/\s]*\d{4}",
-            r"(?i)HC[/\s]*ARB[/\s]*\d+[/\s]*\d{4}",
-            r"(?i)(SC|CA|HC|S\.C\.|C\.A\.|H\.C\.)\s*(CHC\s*)?(?:Appeal|Application|No)?\.?\s*No?\.?\s*\d+[/\-\.]\d{2,4}",
-            r"(?i)(?:Case\s+)?(?:No|Νo)[.:]?\s*SC\s+(?:Appeal|Application)\s+\d+[/-]\d{2,4}"
+            r"(?i)SC[\s.]*(?:Appeal|Application|FR|CHC|SPL)[\s.]*(?:No\.?)?[\s.:#]*\d+[/\-.]\d{2,4}",
+            r"(?i)SC[\s.]*(?:Appeal|Application)[\s.]*(?:No\.?)?[\s:#]*\d+[/\-.]\d{4}(?:\s*\([A-Z]+\))?",
+            r"(?i)(?:SC|CA|HC)[\s./]*[A-Z]*[\s]*(?:Appeal|Application|No)[\s.]*(?:No\.?)?[\s:#]*\d+[/\-.]\d{2,4}"
         ],
         "fallback_patterns": [
-            r"(?i)SC[/\s#*&@]*(?:APPEAL|APPLICATION)[/\s#*&@]*\d+",  # Allows corruption markers
-            r"(?i)(SC|CA|HC)[/\s#*&@]*\d+",  # Minimal case number with court prefix
+            r"(?i)SC[/\s#*&@.]*(?:APPEAL|APPLICATION|FR|CHC)[/\s#*&@.]*(?:No\.?)?[\s#*&@.]*\d+",
+            r"(?i)(SC|CA)[/\s#*&@]*\d+",
         ],
-        "corruption_indicators": [r"###", r"XXX", r"\[CORRUPTED:", r"SC/###", r"[#*&@]{2,}"],
-        "frequency": "🔴 Must Present (91.2%) ⚠️ Pattern needs work",
-        "detection_rate": 0.316  # Low due to strict regex, not position
+        "corruption_indicators": [r"###", r"XXX", r"\[CORRUPTED:", r"[#*&@]{2,}"],
+        "frequency": "🔴 Must Present (91.2%)",
+        "detection_rate": 0.316
     },
     
     "CaseYear": {
@@ -189,10 +259,11 @@ CLAUSE_DEFINITIONS = {
         "name": "Lower Court Number",
         "description": "References to High Court, District Court, Magistrate Court cases",
         "patterns": [
-            r"(?i)(?:High Court|District Court|Magistrate'?s?\s+Court|HC|DC)\s*(?:\(?\w+\)?)?\s*(?:Case|Application|Appeal|No\.?)\s*(?:No\.?)?\s*\d+",
-            r"(?i)(?:HC|HCCA|WP/HCCA)\s*[/\s]*\w*\s*(?:Case\s*)?No[.:]?\s*\d+[/-]\d+",
-            r"(?i)District\s+Court\s+\w+\s+(?:Case\s*)?No[.:]?\s*\d+[/-]\d+",
-            r"(?i)(?:DC|MC)\s*[/\s]*\w*\s*(?:Case\s*)?No[.:]?\s*\d+[/-]\d+"
+            r"(?i)HC[\s.]*(?:ALT|Civil|CA|HCCA|ARB|ARP)[\s.]*(?:No\.?)?[\s:#]*\d+[/\-.]\d+",
+            r"(?i)Commercial\s+High\s+Court[\s]*Case[\s]*No[.:]?\s*\d+[/\-]\d+",
+            r"(?i)(?:High Court|District Court|Magistrate'?s?\s+Court)\s*(?:\([A-Z]+\))?\s*(?:Case|No\.)\s*(?:No\.?)?[\s:#]*\d+[/\-.]\d+",
+            r"(?i)(?:DC|MC|WP/HCCA|HCMCA)[\s./]*\w*[\s]*(?:Case\s*)?(?:No\.?)?[\s:#]*\d+[/\-]\d+",
+            r"(?i)(?:CA|LT\s+Case)\s*(?:No\.?)?[\s:#]*\d+[/\-]\d+"
         ],
         "corruption_indicators": [],
         "frequency": "🟡 Sometimes Present (85.1%)",
@@ -262,22 +333,25 @@ CLAUSE_DEFINITIONS = {
         "description": "Date case was argued/heard",
         "requires_value": True,  # This clause needs a date VALUE after the key
         "patterns": [
-            # STRICT patterns - must have both key AND valid date
-            r"(?i)Argued\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
-            r"(?i)Heard\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
+            # Numeric date — tolerates spaces around separators: "18. 05. 2010"
+            r"(?i)(?:Argued|Heard)\s+on\s*:\s*\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2,4}",
+            # Worded date: "14th January 2020" / "4th August, 2010"
+            r"(?i)(?:Argued|Heard)\s+on\s*:\s*\d{1,2}(?:st|nd|rd|th)?\s+"
+            r"(?:January|February|March|April|May|June|July|August|"
+            r"September|October|November|December)[\s,]+\d{2,4}",
         ],
         "fallback_patterns": [
-            # Catch corrupted keywords OR missing dates - will be checked separately
-            r"(?i)A[r#*&=@\-]*[g#*&=@\-]*[u#*&=@\-]*[e3][d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",  # Argued on (corrupted)
-            r"(?i)H[e3][a@][r#*&=@\-]*[d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",  # Heard on (corrupted)
-            r"(?i)(?:Argued|Heard)\s+on\s*:",  # Clean keyword (will check for date separately)
+            # Corrupted keyword variants
+            r"(?i)A[r#*&=@\-]*[g#*&=@\-]*[u#*&=@\-]*[e3][d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",
+            r"(?i)H[e3][a@][r#*&=@\-]*[d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",
+            r"(?i)(?:Argued|Heard)\s+on\s*:",  # Clean keyword — date checked separately
         ],
         "corruption_indicators": [
-            r"[#*&@=+\-]",  # ANY special characters in key or date
-            r"##\.",  # ## in date
-            r"[Oo][Oo]",  # OO instead of 00
-            r"[Tt][Tt]",  # TT instead of numbers  
-            r"\d[#*&@=+\-]+\d",  # Corruption between digits
+            r"[#@$%!&*+^~`|\\]{2,}",   # 2+ consecutive garbled chars
+            r"[#@$%!&*+^~`]{1,}\d",    # Garbled char right before a digit
+            r"\d[#@$%!&*+^~`]{1,}",    # Digit followed by garbled char
+            r"\uFFFD",
+            r"\[CORRUPTED:",
         ],
         "frequency": "🟡 Sometimes Present (86.9%)",
         "detection_rate": 0.864
@@ -288,23 +362,25 @@ CLAUSE_DEFINITIONS = {
         "description": "Date judgment was delivered",
         "requires_value": True,  # This clause needs a date VALUE after the key
         "patterns": [
-            # STRICT patterns - must have both key AND valid date
-            r"(?i)Decided\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
-            r"(?i)Delivered\s+on\s*:\s*\d{1,2}[./-]\d{1,2}[./-]\d{2,4}",
+            # Numeric date — tolerates spaces around separators
+            r"(?i)(?:Decided|Delivered|Judgment\s+delivered)\s+on\s*:\s*\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2,4}",
+            # Worded date
+            r"(?i)(?:Decided|Delivered|Judgment\s+delivered)\s+on\s*:\s*\d{1,2}(?:st|nd|rd|th)?\s+"
+            r"(?:January|February|March|April|May|June|July|August|"
+            r"September|October|November|December)[\s,]+\d{2,4}",
         ],
         "fallback_patterns": [
-            # Catch corrupted keywords - like "Decid#-=*&6ed on:"
-            r"(?i)D[e3][c#*&=@\-]*[i1!][d#*&=@\-0-9]*[e3#*&=@\-]*[d#*&=@\-0-9]*\s+[o0][n#*&=@\-]*\s*:",  # Decided on (heavily corrupted)
-            r"(?i)D[e3][l#*&=@\-]*[i1][v#*&=@\-]*[e3][r#*&=@\-]*[e3][d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",  # Delivered on (corrupted)
-            r"(?i)(?:Decided|Delivered)\s+on\s*:",  # Clean keyword (will check for date separately)
+            # Corrupted keyword variants
+            r"(?i)D[e3][c#*&=@\-]*[i1!][d#*&=@\-0-9]*[e3#*&=@\-]*[d#*&=@\-0-9]*\s+[o0][n#*&=@\-]*\s*:",
+            r"(?i)D[e3][l#*&=@\-]*[i1][v#*&=@\-]*[e3][r#*&=@\-]*[e3][d#*&=@\-]*\s+[o0][n#*&=@\-]*\s*:",
+            r"(?i)(?:Decided|Delivered|Judgment\s+delivered)\s+on\s*:",
         ],
         "corruption_indicators": [
-            r"[#*&@=+\-]",  # ANY special characters in key or date
-            r"##\.",  # ## in date  
-            r"[Oo][Oo]",  # OO instead of 00
-            r"[Tt][Tt]",  # TT instead of numbers
-            r"\d[#*&@=+\-]+\d",  # Corruption between digits
-            r"[A-Za-z][#*&@=+\-0-9]+[A-Za-z]",  # Corruption in the middle of words
+            r"[#@$%!&*+^~`|\\]{2,}",   # 2+ consecutive garbled chars
+            r"[#@$%!&*+^~`]{1,}\d",    # Garbled char right before a digit
+            r"\d[#@$%!&*+^~`]{1,}",    # Digit followed by garbled char
+            r"\uFFFD",
+            r"\[CORRUPTED:",
         ],
         "frequency": "🟡 Sometimes Present (88.5%)",
         "detection_rate": 0.911
@@ -323,7 +399,7 @@ CLAUSE_DEFINITIONS = {
             r"(?i)APPELLANT[S]?",
             r"(?i)PLAINTIFF[S]?",
         ],
-        "corruption_indicators": [r"[#*&@]{2,}", r"P[^e]"],
+        "corruption_indicators": [r"[#*&@]{2,}"],
         "frequency": "🔴 Always Present (87.9%)",
         "detection_rate": 0.879
     },
@@ -342,7 +418,7 @@ CLAUSE_DEFINITIONS = {
             r"(?i)DEFENDANT[S]?",
             r"(?i)V[s#]*\.",  # Vs. with possible corruption
         ],
-        "corruption_indicators": [r"[#*&@]{2,}", r"R[^e]"],
+        "corruption_indicators": [r"[#*&@]{2,}"],
         "frequency": "🔴 Always Present (87.7%)",
         "detection_rate": 0.877
     },
@@ -411,34 +487,14 @@ CLAUSE_DEFINITIONS = {
         "name": "Appeal Type",
         "description": "Type of appeal (Civil, Criminal, etc.)",
         "patterns": [
-            r"(?:Civil|Criminal|Fundamental\s+Rights)\s+(?:appeal|application)",
-            r"Application\s+for\s+Leave\s+to\s+Appeal",
-            r"exercising\s+its\s+(?:Civil|Criminal)\s+(?:Appellate\s+)?Jurisdiction"
+            r"(?i)Application\s+for\s+(?:Special\s+)?Leave\s+to\s+Appeal",
+            r"(?i)Application\s+for\s+Leave\s+to\s+Appeal[^\n]{0,150}",
+            r"(?i)(?:Civil|Criminal|Fundamental\s+Rights)\s+(?:Appeal|Application)",
+            r"(?i)exercising\s+its\s+(?:Civil|Criminal)\s+(?:Appellate\s+)?Jurisdiction"
         ],
         "corruption_indicators": [],
         "frequency": "🟢 Rarely Present (57.9%)",
         "detection_rate": 0.579
-    },
-    
-    "LowerCourtNumber": {
-        "name": "Lower Court Number",
-        "description": "Case number from the lower court",
-        "patterns": [
-            r"(?i)HC[/\s]*ARB[/\s]*\d+[/\s]*\d{4}",
-            r"(?i)HC[/\s]*(?:Civil|HCCA)[/\s]*[A-Za-z]+[/\s]*Case[/\s]*No[:.\s]*\d+[/\s]*\d{4}",
-            r"(?i)(?:District|Magistrate'?s?)\s+Court\s+(?:\w+\s+)?(?:No|Case)[:.\s]+\d+",
-            r"(?i)(?:DC|MC)[/\s]*[A-Za-z]+[/\s]*Case[/\s]*No[:.\s]*\d+"
-        ],
-        "corruption_indicators": []
-    },
-    
-    "MatterDescription": {
-        "name": "Matter Description",
-        "description": "Description of the matter being heard",
-        "patterns": [
-            r"(?i)In\s+the\s+matter\s+of"
-        ],
-        "corruption_indicators": []
     },
     
     "LegalProvisionsCited": {
@@ -456,7 +512,7 @@ CLAUSE_DEFINITIONS = {
             r"(?i)A[r#]*[t#]*[i1][c#]*[l#]*[e3][\s#*&@]+\d+",  # Article with typos
             r"(?i)Act[\s#*&@]+No",  # Act No. with corruption
         ],
-        "corruption_indicators": [r"[#*&@]{2,}", r"s[^e]", r"A[^r]"],
+        "corruption_indicators": [r"[#*&@]{2,}"],
         "frequency": "🔴 Always Present (88.6%)",
         "detection_rate": 0.911
     },
@@ -478,7 +534,8 @@ CLAUSE_DEFINITIONS = {
         "name": "Instructed By",
         "description": "Instructing attorney information",
         "patterns": [
-            r"(?:Instructed|Instructing)\s+(?:by|attorney|solicitor)"
+            r"(?i)instructed\s+by\s+[A-Z][^\n]{1,80}",
+            r"(?i)(?:Instructed|Instructing)\s+(?:by|attorney|solicitor)"
         ],
         "corruption_indicators": [],
         "frequency": "⚪ Very Rare (20.3%)",
@@ -489,6 +546,8 @@ CLAUSE_DEFINITIONS = {
         "name": "Plaintiff",
         "description": "Plaintiff party name",
         "patterns": [
+            r"(?i)Plaintiff[-\s]+(?:Appellant|Respondent)",
+            r"(?i)PLAINTIFF[S]?\s*$",
             r"Plaintiff[:\s]*([^\n]+)"
         ],
         "corruption_indicators": [],
@@ -500,6 +559,8 @@ CLAUSE_DEFINITIONS = {
         "name": "Defendant", 
         "description": "Defendant party name",
         "patterns": [
+            r"(?i)Defendant[-\s]+(?:Appellant|Respondent)",
+            r"(?i)DEFENDANT[S]?\s*$",
             r"Defendant[:\s]*([^\n]+)"
         ],
         "corruption_indicators": [],
@@ -511,7 +572,9 @@ CLAUSE_DEFINITIONS = {
         "name": "Plaintiff Block",
         "description": "Complete plaintiff information block",
         "patterns": [
-            r"(?im)^PLAINTIFF[S]?\s*$"
+            r"(?i)Plaintiff[-\s]+(?:Appellant|Respondent)[^\n]{0,100}",
+            r"(?im)^\s*PLAINTIFF[S]?[-\s]+(?:APPELLANT|RESPONDENT)\s*$",
+            r"(?im)^\s*PLAINTIFF[S]?\s*$"
         ],
         "corruption_indicators": [],
         "frequency": "⚪ Very Rare (17.6%)",
@@ -521,6 +584,11 @@ CLAUSE_DEFINITIONS = {
     "DefendantBlock": {
         "name": "Defendant Block",
         "description": "Complete defendant information block",
+        "patterns": [
+            r"(?i)Defendant[-\s]+(?:Appellant|Respondent)[^\n]{0,100}",
+            r"(?im)^\s*DEFENDANT[S]?[-\s]+(?:APPELLANT|RESPONDENT)\s*$",
+            r"(?im)^\s*DEFENDANT[S]?\s*$"
+        ],
         "patterns": [
             r"(?im)^(?:RESPONDENT|DEFENDANT)[S]?\s*$"
         ],
@@ -534,15 +602,16 @@ CLAUSE_DEFINITIONS = {
 def detect_clause(text: str, clause_key: str, use_preprocessing: bool = True) -> Tuple[str, Optional[str], Optional[int], Optional[int]]:
     """
     Detect a specific clause in the text using position-based search strategy.
-    
-    ✅ USES VERIFIED SEARCH REGIONS from 450-file analysis
-    This improves detection accuracy by searching only in expected locations.
-    
+
+    ✅ USES VERIFIED SEARCH REGIONS from 450-file analysis.
+    Corruption is checked after EVERY successful match (main or fallback) so
+    that clauses containing garbled characters are never silently marked Present.
+
     Args:
         text: The legal document text (will be preprocessed if use_preprocessing=True)
         clause_key: The key of the clause to detect (e.g., "CourtTitle")
         use_preprocessing: Whether to clean PDF formatting markers before detection
-        
+
     Returns:
         Tuple of (status, content, start_pos, end_pos)
         status: "Present", "Missing", or "Corrupted"
@@ -552,178 +621,157 @@ def detect_clause(text: str, clause_key: str, use_preprocessing: bool = True) ->
     """
     if clause_key not in CLAUSE_DEFINITIONS:
         return ("Missing", None, None, None)
-    
+
     # Preprocess text to remove PDF formatting markers
     if use_preprocessing:
         text = preprocess_text(text)
-    
+
     clause_def = CLAUSE_DEFINITIONS[clause_key]
     patterns = clause_def["patterns"]
-    corruption_indicators = clause_def["corruption_indicators"]
-    
-    # Get the search region for this clause (position-based optimization)
+    corruption_indicators = clause_def.get("corruption_indicators", [])
+
+    # Get the search region for this clause (position-based optimisation)
     region_start, region_end = get_search_region(text, clause_key)
     search_text = text[region_start:region_end]
-    
+
     logger.debug(f"Detecting clause: {clause_key} (region: {region_start}-{region_end}, {len(search_text)} chars)")
-    
-    # Limit search to reasonable chunk sizes to prevent catastrophic backtracking
-    max_search_len = 50000  # Limit to 50KB per regex search
-    
-    # Try to find the clause using its patterns in the search region
+
+    # Cap search chunk to avoid catastrophic backtracking
+    max_search_len = 50000
+    search_chunk = search_text[:max_search_len] if len(search_text) > max_search_len else search_text
+
+    # ── Helper: decide Present / Corrupted for a successful match ──────────
+    def _evaluate_match(matched_text: str, abs_start: int, abs_end: int,
+                        from_fallback: bool = False) -> Tuple[str, Optional[str], Optional[int], Optional[int]]:
+        """
+        Given a matched text and its position, decide whether the clause is
+        Present or Corrupted by checking:
+          1. Clause-specific corruption indicators on the matched text.
+          2. General corruption heuristics on the FULL LINE surrounding the match.
+
+        Returns the same 4-tuple as detect_clause.
+        """
+        # 1. Clause-specific indicators on the matched text itself
+        specific_corrupt = _clause_specific_corrupted(matched_text, corruption_indicators)
+
+        # 2. General corruption check on the line context
+        line_ctx, lc_start, lc_end = _get_line_context(text, abs_start, abs_end)
+        general_corrupt = _has_any_corruption(line_ctx)
+
+        if specific_corrupt or general_corrupt:
+            logger.debug(f"  ⚠️ Corruption detected in {clause_key} "
+                         f"(specific={specific_corrupt}, general={general_corrupt})")
+            return ("Corrupted", line_ctx, lc_start, lc_end)
+
+        return ("Present", matched_text, abs_start, abs_end)
+
+    # ── Helper: check date value after a keyword match ──────────────────────
+    def _evaluate_requires_value(matched_text: str, abs_start: int,
+                                  abs_end: int) -> Tuple[str, Optional[str], Optional[int], Optional[int]]:
+        """
+        For clauses that require a value (e.g. date after 'Argued on:'):
+          - If the keyword itself is corrupted → Corrupted
+          - If the date value following the keyword is corrupted → Corrupted
+          - If there is a valid date → Present
+          - If no valid date and no corruption → Missing
+        """
+        # Check keyword corruption
+        keyword_corrupted = (_clause_specific_corrupted(matched_text, corruption_indicators)
+                             or _has_any_corruption(matched_text))
+
+        # Inspect the text coming after the keyword (up to 150 chars)
+        context_after = text[abs_end:min(abs_end + 150, len(text))]
+
+        # Numeric date: tolerates optional spaces around separators
+        numeric_date_pat = r"\s*\d{1,2}\s*[.\/-]\s*\d{1,2}\s*[.\/-]\s*\d{2,4}"
+        # Worded date: "14th January 2020" / "4th August, 2010"
+        worded_date_pat = (
+            r"\s*\d{1,2}(?:st|nd|rd|th)?\s+"
+            r"(?:January|February|March|April|May|June|July|August|"
+            r"September|October|November|December)[\s,]+\d{2,4}"
+        )
+
+        num_m = re.match(numeric_date_pat, context_after, re.IGNORECASE)
+        wrd_m = re.match(worded_date_pat, context_after, re.IGNORECASE)
+        date_match = num_m or wrd_m
+        has_valid_date = date_match is not None
+
+        # Check if the date area is corrupted (even if there is no valid date)
+        date_area = context_after[:100]
+        date_corrupted = _has_any_corruption(date_area)
+
+        logger.debug(f"    → keyword_corrupted={keyword_corrupted}, "
+                     f"has_valid_date={has_valid_date}, date_corrupted={date_corrupted}")
+
+        if keyword_corrupted:
+            logger.debug("    → Marking as CORRUPTED (corrupted keyword)")
+            # Include the date token in the content if it exists
+            if date_match:
+                full_content = matched_text + context_after[:date_match.end()]
+                return ("Corrupted", full_content, abs_start, abs_end + date_match.end())
+            return ("Corrupted", matched_text, abs_start, abs_end)
+
+        if date_corrupted and not has_valid_date:
+            logger.debug("    → Marking as CORRUPTED (date value is corrupted)")
+            return ("Corrupted", matched_text, abs_start, abs_end)
+
+        if not has_valid_date:
+            logger.debug("    → Marking as MISSING (keyword clean but no valid date)")
+            return ("Missing", None, None, None)
+
+        # Both keyword and date are present and clean
+        full_content = matched_text + context_after[:date_match.end()]
+        logger.debug("    → Marking as PRESENT (keyword + valid date both clean)")
+        return ("Present", full_content, abs_start, abs_end + date_match.end())
+
+    # ── MAIN PATTERNS ────────────────────────────────────────────────────────
+    requires_value = clause_def.get("requires_value", False)
+
     for idx, pattern in enumerate(patterns):
         try:
             logger.debug(f"  Pattern {idx+1}/{len(patterns)}: {pattern[:100]}...")
-            
-            # Use regex with limited search space
-            if len(search_text) > max_search_len:
-                # For large regions, search in chunks
-                search_chunk = search_text[:max_search_len]
-            else:
-                search_chunk = search_text
-            
             match = re.search(pattern, search_chunk, re.MULTILINE | re.IGNORECASE)
-            
+
             if match:
-                logger.debug(f"  ✅ Match found for {clause_key}")
+                logger.debug(f"  ✅ Main pattern match for {clause_key}")
                 matched_text = match.group(0)
-                # Convert relative position to absolute position in full text
-                start_pos = region_start + match.start()
-                end_pos = region_start + match.end()
-                
-                # Check if the matched text itself contains corruption indicators
-                is_corrupted = False
-                
-                # First check ONLY in the matched text for specific corruption indicators
-                if corruption_indicators:
-                    for indicator in corruption_indicators:
-                        if re.search(indicator, matched_text):
-                            is_corrupted = True
-                            break
-                
-                # Only for clauses that have specific corruption indicators defined,
-                # we expand to check the full line context
-                if is_corrupted and clause_key == "CourtTitle":
-                    # For Court Title, get the full line to show complete corruption
-                    line_start = text.rfind('\n', 0, start_pos) + 1
-                    line_end = text.find('\n', end_pos)
-                    if line_end == -1:
-                        line_end = len(text)
-                    full_line = text[line_start:line_end]
-                    return ("Corrupted", full_line.strip(), line_start, line_end)
-                elif is_corrupted:
-                    return ("Corrupted", matched_text, start_pos, end_pos)
-                else:
-                    return ("Present", matched_text, start_pos, end_pos)
+                abs_start = region_start + match.start()
+                abs_end = region_start + match.end()
+
+                # For clauses that already embed the date in the strict pattern,
+                # requires_value is irrelevant — just do corruption check.
+                return _evaluate_match(matched_text, abs_start, abs_end)
+
         except Exception as e:
-            # If pattern fails, log and continue to next pattern
-            logger.warning(f"  ⚠️ Pattern failed for {clause_key}: {str(e)[:100]}")
+            logger.warning(f"  ⚠️ Pattern {idx+1} failed for {clause_key}: {str(e)[:100]}")
             continue
-    
-    # If no main pattern matched, try fallback patterns (for detecting corruption)
+
+    # ── FALLBACK PATTERNS ────────────────────────────────────────────────────
     fallback_patterns = clause_def.get("fallback_patterns", [])
     if fallback_patterns:
-        logger.debug(f"  ⚠️ Main patterns failed, trying {len(fallback_patterns)} fallback patterns for corruption detection...")
-        
+        logger.debug(f"  ⚠️ Trying {len(fallback_patterns)} fallback patterns for {clause_key}...")
+
         for idx, pattern in enumerate(fallback_patterns):
             try:
                 logger.debug(f"  Fallback pattern {idx+1}/{len(fallback_patterns)}")
-                
-                # Limit search space
-                if len(search_text) > max_search_len:
-                    search_chunk = search_text[:max_search_len]
-                else:
-                    search_chunk = search_text
-                
                 match = re.search(pattern, search_chunk, re.MULTILINE | re.IGNORECASE)
-                
+
                 if match:
-                    logger.debug(f"  ⚠️ Fallback match found - checking for corruption")
+                    logger.debug(f"  ⚠️ Fallback match found for {clause_key}, checking corruption/value...")
                     matched_text = match.group(0)
-                    start_pos = region_start + match.start()
-                    end_pos = region_start + match.end()
-                    
-                    # Special handling for clauses that require a VALUE (e.g., dates)
-                    requires_value = clause_def.get("requires_value", False)
-                    
+                    abs_start = region_start + match.start()
+                    abs_end = region_start + match.end()
+
                     if requires_value:
-                        logger.debug(f"    → Clause requires value (e.g., date), checking KEY and VALUE separately")
-                        
-                        # Check if keyword itself is corrupted
-                        keyword_corrupted = False
-                        if corruption_indicators:
-                            for indicator in corruption_indicators:
-                                if re.search(indicator, matched_text):
-                                    keyword_corrupted = True
-                                    logger.debug(f"    → Keyword corrupted (indicator: {indicator})")
-                                    break
-                        
-                        # Check if a valid date follows the keyword
-                        # Look ahead from the matched position for a date pattern
-                        context_after = text[end_pos:min(end_pos + 100, len(text))]  # Check next 100 chars
-                        date_pattern = r"\\s*\\d{1,2}[./-]\\d{1,2}[./-]\\d{2,4}"
-                        has_valid_date = bool(re.match(date_pattern, context_after))
-                        
-                        logger.debug(f"    → Has valid date after keyword: {has_valid_date}")
-                        logger.debug(f"    → Keyword corrupted: {keyword_corrupted}")
-                        
-                        # Determine status based on KEY and VALUE
-                        if keyword_corrupted:
-                            # Keyword is corrupted - mark as CORRUPTED regardless of date
-                            # Expand to include the date if present
-                            if has_valid_date:
-                                date_match = re.match(date_pattern, context_after)
-                                full_content = matched_text + context_after[:date_match.end()]
-                                full_end_pos = end_pos + date_match.end()
-                                logger.debug(f"    → Marking as CORRUPTED (corrupted keyword)")
-                                return ("Corrupted", full_content, start_pos, full_end_pos)
-                            else:
-                                logger.debug(f"    → Marking as CORRUPTED (corrupted keyword, no date)")
-                                return ("Corrupted", matched_text, start_pos, end_pos)
-                        elif not has_valid_date:
-                            # Keyword is clean but date is missing - mark as MISSING
-                            logger.debug(f"    → Marking as MISSING (keyword found but no valid date)")
-                            return ("Missing", None, None, None)
-                        else:
-                            # Both keyword and date are present and clean - mark as PRESENT
-                            date_match = re.match(date_pattern, context_after)
-                            full_content = matched_text + context_after[:date_match.end()]
-                            full_end_pos = end_pos + date_match.end()
-                            logger.debug(f"    → Marking as PRESENT (both keyword and date valid)")
-                            return ("Present", full_content, start_pos, full_end_pos)
-                    
-                    # Standard corruption checking for non-value clauses
-                    # Fallback patterns should always check for corruption
-                    is_corrupted = False
-                    if corruption_indicators:
-                        for indicator in corruption_indicators:
-                            if re.search(indicator, matched_text):
-                                is_corrupted = True
-                                logger.debug(f"    → Corruption indicator found: {indicator}")
-                                break
-                    
-                    # If corruption found, mark as corrupted
-                    if is_corrupted:
-                        if clause_key == "CourtTitle":
-                            # For Court Title, get the full line to show complete corruption
-                            line_start = text.rfind('\\n', 0, start_pos) + 1
-                            line_end = text.find('\\n', end_pos)
-                            if line_end == -1:
-                                line_end = len(text)
-                            full_line = text[line_start:line_end]
-                            logger.debug(f"    → Marking as CORRUPTED")
-                            return ("Corrupted", full_line.strip(), line_start, line_end)
-                        else:
-                            return ("Corrupted", matched_text, start_pos, end_pos)
-                    else:
-                        # Fallback matched but no corruption indicators - could be acceptable variant
-                        logger.debug(f"    → Fallback matched but no corruption - marking as Present")
-                        return ("Present", matched_text, start_pos, end_pos)
+                        return _evaluate_requires_value(matched_text, abs_start, abs_end)
+
+                    # Standard non-value clause: check for corruption universally
+                    return _evaluate_match(matched_text, abs_start, abs_end, from_fallback=True)
+
             except Exception as e:
-                logger.warning(f"  ⚠️ Fallback pattern failed: {str(e)[:100]}")
+                logger.warning(f"  ⚠️ Fallback pattern {idx+1} failed for {clause_key}: {str(e)[:100]}")
                 continue
-    
-    # If no pattern matched (including fallbacks), the clause is missing
+
     logger.debug(f"  ❌ No match found for {clause_key}")
     return ("Missing", None, None, None)
 
