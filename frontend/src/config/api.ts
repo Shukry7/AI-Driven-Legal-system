@@ -509,24 +509,26 @@ const createCaseNodesFromTreatments = (
 
   treatments.forEach((t, index) => {
     if (!actMap.has(t.act)) {
+      // Extract file_id from filename (remove .pdf)
+      const fileId = filename.replace('.pdf', '');
+      
       actMap.set(t.act, {
         id: `act-${index}`,
-        title: t.act, // For initial processing, just show the act name
+        title: t.act,
         year: new Date().getFullYear(),
         summary: `Treatment: ${t.treatment} (Confidence: ${(t.confidence * 100).toFixed(1)}%)`,
         citations: 0,
         citedBy: 0,
         isCentral: index === 0,
-        source: "current",
-        filename: filename,
-        case_title: filename.replace(".pdf", "").replace(/_/g, " "),
-        acts: [
-          {
-            act: t.act,
-            treatment: t.treatment as any,
-            confidence: t.confidence,
-          },
-        ],
+        source: 'current',
+        filename: filename,  // Use the full filename with .pdf
+        file_id: fileId,
+        case_title: fileId,
+        acts: [{
+          act: t.act,
+          treatment: t.treatment as any,
+          confidence: t.confidence
+        }]
       });
     }
   });
@@ -753,30 +755,36 @@ export function convertSearchResultsToCaseNodes(
   // Create main node (the act we searched for)
   const mainNode: CaseNode = {
     id: `act-0`,
-    // For main node, use the act name as the title
     title: mainActName,
     year: undefined,
     summary: `Main act being analyzed`,
     citations: 0,
     citedBy: 0,
     isCentral: true,
-    source: "current",
-    acts: [],
+    source: 'current',
+    filename: undefined,
+    acts: []
   };
   nodes.push(mainNode);
 
   // Create nodes for each similar act found
   searchResults.forEach((result, index) => {
     const nodeId = `act-${index + 1}`;
-
-    // IMPORTANT: Use file_id as the node title (this is what shows in the graph)
-    // file_id contains values like "SC_CHC APPEAL_09_2009"
-    const nodeTitle =
-      result.file_id || result.filename || result.case_title || result.act_name;
-
+    const nodeTitle = result.file_id || result.filename || result.case_title || result.act_name;
+    
+    // Construct the full filename with .pdf extension
+    // If file_id exists but filename is empty, create filename from file_id
+    let fullFilename = result.filename;
+    if (!fullFilename && result.file_id) {
+      // Ensure file_id ends with .pdf
+      fullFilename = result.file_id.endsWith('.pdf') 
+        ? result.file_id 
+        : `${result.file_id}.pdf`;
+    }
+    
     const node: CaseNode = {
-      id: nodeId, // This is the internal ID (act-1, act-2, etc.)
-      title: nodeTitle, // This is what displays in the graph node
+      id: nodeId,
+      title: nodeTitle,
       year: result.year,
       summary: `Act: ${result.act_name}\nTreatment: ${result.treatment} (Confidence: ${(result.confidence * 100).toFixed(1)}%)`,
       citations: 0,
@@ -784,27 +792,24 @@ export function convertSearchResultsToCaseNodes(
       isCentral: false,
       source: "database",
       file_id: result.file_id,
-      filename: result.filename,
+      filename: fullFilename,  // Use the constructed filename
       case_title: result.case_title,
-      acts: [
-        {
-          act: result.act_name,
-          treatment: result.treatment as any,
-          confidence: result.confidence,
-          act_id: result.act_id,
-          context_preview: result.context_preview,
-          case_title: result.case_title,
-          filename: result.filename,
-          file_id: result.file_id,
-        },
-      ],
+      acts: [{
+        act: result.act_name,
+        treatment: result.treatment as any,
+        confidence: result.confidence,
+        act_id: result.act_id,
+        context_preview: result.context_preview,
+        case_title: result.case_title,
+        filename: fullFilename,  // Also set in the act treatment
+        file_id: result.file_id
+      }]
     };
     nodes.push(node);
   });
 
   return nodes;
 }
-
 // Helper function to create edges between main act and similar acts
 export function createEdgesFromSearchResults(
   mainActName: string,
@@ -854,6 +859,40 @@ export async function searchExactAct(
     return await response.json();
   } catch (error) {
     console.error("Error searching acts:", error);
+    throw error;
+  }
+}
+
+export async function downloadJudgmentPDF(filename: string): Promise<Blob> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/download-judgment/${encodeURIComponent(filename)}`, {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download PDF: ${response.statusText}`);
+    }
+
+    return await response.blob();
+  } catch (error) {
+    console.error('Error downloading PDF:', error);
+    throw error;
+  }
+}
+
+export async function downloadJudgmentText(filename: string): Promise<string> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/download-judgment-text/${encodeURIComponent(filename)}`, {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to download text: ${response.statusText}`);
+    }
+
+    return await response.text();
+  } catch (error) {
+    console.error('Error downloading text:', error);
     throw error;
   }
 }
