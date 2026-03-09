@@ -369,3 +369,139 @@ async def model_info_endpoint():
     except Exception as exc:
         logger.exception("model-info error")
         return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# POST /api/translate/extract-saved  – extract text from a saved file
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/translate/extract-saved")
+async def extract_saved_document(filename: str = Form(...)):
+    """Extract and return text from a file already present in the uploads directory."""
+    try:
+        safe_name = _secure(filename)
+        file_path = UPLOADS_DIR / safe_name
+        if not file_path.exists():
+            raise HTTPException(404, f"File '{safe_name}' not found in uploads")
+
+        file_bytes = file_path.read_bytes()
+
+        if file_path.suffix.lower() == ".pdf":
+            ok, raw_text = pdf_bytes_to_text(file_bytes)
+            if not ok:
+                return JSONResponse({"success": False, "error": raw_text})
+            raw_text = re.sub(r"<<F:[^>]+>>", "", raw_text)
+            raw_text = re.sub(r"<</F>>", "", raw_text)
+            raw_text = re.sub(r"<<BOLD>>|<</BOLD>>", "", raw_text)
+        else:
+            raw_text = file_bytes.decode("utf-8", errors="replace")
+
+        preview = raw_text[:2000] if len(raw_text) > 2000 else raw_text
+        return JSONResponse({"success": True, "full_text": raw_text, "preview": preview})
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("extract-saved error")
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=500)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# GET /api/translate/uploads  – list PDF/TXT files saved in uploads folder
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.get("/translate/uploads")
+async def list_uploads():
+    """Return a list of PDF/TXT files stored in the uploads directory."""
+    try:
+        files = []
+        for p in sorted(UPLOADS_DIR.iterdir(), key=lambda x: x.stat().st_mtime, reverse=True):
+            if p.suffix.lower() == ".pdf" and p.name.lower().endswith(".pdf"):
+                stat = p.stat()
+                files.append({
+                    "filename": p.name,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                })
+        return JSONResponse({"files": files})
+    except Exception as exc:
+        logger.exception("list uploads error")
+        return JSONResponse({"error": str(exc)}, status_code=500)
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# POST /api/translate/document-from-saved  – translate an already-saved file
+# ═══════════════════════════════════════════════════════════════════════════
+
+@router.post("/translate/document-from-saved")
+async def translate_document_from_saved(
+    filename: str = Form(...),
+    source_language: str = Form("en"),
+    target_language: str = Form("si"),
+):
+    """Start translation of a file already present in the uploads directory."""
+    try:
+        safe_name = _secure(filename)
+        file_path = UPLOADS_DIR / safe_name
+        if not file_path.exists():
+            raise HTTPException(404, f"File '{safe_name}' not found in uploads")
+
+        file_bytes = file_path.read_bytes()
+
+        if file_path.suffix.lower() == ".pdf":
+            ok, raw_text = pdf_bytes_to_text(file_bytes)
+            if not ok:
+                raise HTTPException(500, f"PDF extraction failed: {raw_text}")
+            raw_text = re.sub(r"<<F:[^>]+>>", "", raw_text)
+            raw_text = re.sub(r"<</F>>", "", raw_text)
+            raw_text = re.sub(r"<<BOLD>>|<</BOLD>>", "", raw_text)
+        else:
+            raw_text = file_bytes.decode("utf-8", errors="replace")
+
+        sections = _split_into_sections(raw_text)
+        job_id = create_job(safe_name, source_language, target_language, mode="document")
+
+        try:
+            models = load_models(block=False)
+        except Exception:
+            models = {}
+        mk = f"{source_language}_{target_language}"
+        model_used = "mBART-legal-" + mk if mk in models else "mock-fallback"
+
+        def _run():
+            t0 = time.time()
+            try:
+                translated, overall_conf, correction_stats = translate_sections(
+                    sections, source_language, target_language, job_id
+                )
+                elapsed = time.time() - t0
+                finalize_job(
+                    job_id,
+                    source_sections=sections,
+                    translated_sections=translated,
+                    overall_confidence=overall_conf,
+                    processing_time=elapsed,
+                    model_used=model_used,
+                    correction_stats=correction_stats,
+                )
+            except Exception as exc:
+                logger.exception("Translation job %s failed", job_id)
+                fail_job(job_id, str(exc))
+
+        threading.Thread(target=_run, daemon=True).start()
+
+        return JSONResponse({
+            "success": True,
+            "job_id": job_id,
+            "status": "processing",
+            "filename": safe_name,
+            "source_language": source_language,
+            "target_language": target_language,
+            "total_sections": len(sections),
+            "model_used": model_used,
+            "source_sections": sections,
+        })
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("document-from-saved endpoint error")
+        return JSONResponse({"success": False, "error": str(exc)}, status_code=500)
