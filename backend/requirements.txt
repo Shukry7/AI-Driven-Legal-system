@@ -16,12 +16,14 @@ indic-transliteration==2.3.43
 
 # ML/AI models
 scikit-learn>=1.4.0
+accelerate>=0.26.0
 
 # RAG Dependencies
 # Vector database for RAG (Windows-compatible version)
 chromadb>=0.4.24
 # Sentence embeddings for semantic search
 sentence-transformers>=2.3.1
+transformers>=4.36.2,<4.50.0
 
 # Scheduling and background tasks
 apscheduler==3.10.4

@@ -105,7 +105,13 @@ def load_models(block: bool = True) -> Dict[str, Any]:
         ]):
             if model_dir.exists():
                 logger.info("Loading mBART model from %s …", model_dir)
-                tok = MBart50TokenizerFast.from_pretrained(str(model_dir), src_lang="en_XX")
+                # Load tokenizer from base mbart50 model to avoid config issues
+                try:
+                    tok = MBart50TokenizerFast.from_pretrained("facebook/mbart-large-50", src_lang="en_XX")
+                    logger.info("✓ Loaded base mbart-50 tokenizer")
+                except Exception as e:
+                    logger.warning("Failed to load base tokenizer, trying local: %s", e)
+                    tok = MBart50TokenizerFast.from_pretrained(str(model_dir), src_lang="en_XX")
                 # Load both models to GPU if CUDA available
                 target_device = device
                 mdl = MBartForConditionalGeneration.from_pretrained(
