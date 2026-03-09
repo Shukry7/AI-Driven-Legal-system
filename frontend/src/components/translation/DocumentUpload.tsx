@@ -2,7 +2,7 @@
  * DocumentUpload – supports BOTH document (PDF) and text-based translation.
  * Two-tab layout: "Upload Document" and "Enter Text".
  */
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import {
   Upload,
   FileText,
@@ -14,6 +14,8 @@ import {
   Type,
   ChevronLeft,
   Home,
+  FolderOpen,
+  RefreshCw,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +35,8 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { uploadPdf } from "@/config/api";
+import { uploadPdf, getTranslationUploads, translateFromSaved, extractFromSaved } from "@/config/api";
+import type { UploadedFile } from "@/config/api";
 import { toast } from "sonner";
 import type { UploadData } from "./TranslationModule";
 
@@ -121,11 +124,27 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
   const [fullExtractedText, setFullExtractedText] = useState("");
   const [extractionError, setExtractionError] = useState("");
 
+  // Saved documents state
+  const [savedFiles, setSavedFiles] = useState<UploadedFile[]>([]);
+  const [loadingSavedFiles, setLoadingSavedFiles] = useState(false);
+  const [selectedSavedFile, setSelectedSavedFile] = useState<string | null>(null);
+  const [isSavedLoading, setIsSavedLoading] = useState(false);
+
   // Text mode state
   const [rawText, setRawText] = useState("");
   const [textTargetLang, setTextTargetLang] = useState("");
   const [streamingText, setStreamingText] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+
+  const fetchSavedFiles = useCallback(() => {
+    setLoadingSavedFiles(true);
+    getTranslationUploads()
+      .then(setSavedFiles)
+      .catch(() => setSavedFiles([]))
+      .finally(() => setLoadingSavedFiles(false));
+  }, []);
+
+  useEffect(() => { fetchSavedFiles(); }, [fetchSavedFiles]);
 
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -154,12 +173,35 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
     }, 80);
   };
 
+  const _applyExtractResult = async (fullText: string) => {
+    setProcessingStep(2);
+    await new Promise((r) => setTimeout(r, 200));
+    setProcessingStep(3);
+    await new Promise((r) => setTimeout(r, 200));
+    setProcessingStep(4);
+    await new Promise((r) => setTimeout(r, 200));
+
+    const cleanedFullText = cleanExtractedText(fullText);
+    setFullExtractedText(cleanedFullText);
+    const previewText =
+      cleanedFullText.length > 2000
+        ? cleanedFullText.slice(0, 2000) + "\n\n[… document continues]"
+        : cleanedFullText;
+    setExtractedPreview(previewText);
+    setIsProcessing(false);
+    simulateStreaming(previewText);
+    toast.success("Document processed successfully");
+  };
+
   const handleFileSelect = async (selectedFile: File) => {
     setFile(selectedFile);
+    setSelectedSavedFile(null);
     setExtractionError("");
     setIsProcessing(true);
     setProcessingStep(0);
     setStreamingText("");
+    setExtractedPreview("");
+    setFullExtractedText("");
 
     setProcessingStep(1);
     try {
@@ -170,23 +212,36 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
         toast.error("Failed to extract text");
         return;
       }
-      setProcessingStep(2);
-      await new Promise((r) => setTimeout(r, 200));
-      setProcessingStep(3);
-      await new Promise((r) => setTimeout(r, 200));
-      setProcessingStep(4);
-      await new Promise((r) => setTimeout(r, 200));
-
-      const fullText = result.full_text || result.preview || "";
-      const cleanedFullText = cleanExtractedText(fullText);
-      setFullExtractedText(cleanedFullText);
-      const previewText = cleanedFullText.length > 2000
-        ? cleanedFullText.slice(0, 2000) + "\n\n[… document continues]"
-        : cleanedFullText;
-      setExtractedPreview(previewText);
+      await _applyExtractResult(result.full_text || result.preview || "");
+    } catch (err: unknown) {
+      const msg =
+        (err as Record<string, string>)?.error || "Failed to process document";
+      setExtractionError(msg);
       setIsProcessing(false);
-      simulateStreaming(previewText);
-      toast.success("Document processed successfully");
+      toast.error("Failed to process document");
+    }
+  };
+
+  const handleSavedFileSelect = async (filename: string) => {
+    setSelectedSavedFile(filename);
+    setFile(null);
+    setExtractionError("");
+    setIsProcessing(true);
+    setProcessingStep(0);
+    setStreamingText("");
+    setExtractedPreview("");
+    setFullExtractedText("");
+
+    setProcessingStep(1);
+    try {
+      const result = await extractFromSaved(filename);
+      if (!result.success) {
+        setExtractionError(result.error || "Text extraction failed");
+        setIsProcessing(false);
+        toast.error("Failed to extract text");
+        return;
+      }
+      await _applyExtractResult(result.full_text || result.preview || "");
     } catch (err: unknown) {
       const msg =
         (err as Record<string, string>)?.error || "Failed to process document";
@@ -197,11 +252,7 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
   };
 
   const canProceedDoc =
-    file &&
-    targetLanguage &&
-    targetLanguage !== "en" &&
-    !isProcessing &&
-    fullExtractedText;
+    !!(((file || selectedSavedFile) && targetLanguage && targetLanguage !== "en" && !isProcessing && fullExtractedText && !isSavedLoading));
   const canProceedText =
     rawText.trim().length >= 30 && textTargetLang && textTargetLang !== "en";
 
@@ -214,6 +265,27 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
       extractedText: fullExtractedText,
       mode: "document",
     });
+  };
+
+  const handleProceedSaved = async () => {
+    if (!selectedSavedFile || !targetLanguage || !fullExtractedText) return;
+    setIsSavedLoading(true);
+    try {
+      const result = await translateFromSaved(selectedSavedFile, "en", targetLanguage);
+      if (!result.success) throw new Error("Failed to start translation");
+      onProceed({
+        sourceLanguage: "en",
+        targetLanguage,
+        extractedText: fullExtractedText,
+        mode: "document",
+        resumingJobId: result.job_id,
+        sourceSections: result.source_sections,
+      });
+    } catch (err: unknown) {
+      toast.error((err as Error).message || "Failed to start translation");
+    } finally {
+      setIsSavedLoading(false);
+    }
   };
 
   const handleProceedText = () => {
@@ -277,48 +349,172 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
                 <CardHeader>
                   <CardTitle className="text-lg">Document Upload</CardTitle>
                   <CardDescription>
-                    Drag & drop or click to select a file
+                    Drag & drop, click to browse, or choose a saved document
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {!file ? (
-                    <div
-                      onDragOver={(e) => {
-                        e.preventDefault();
-                        setIsDragging(true);
-                      }}
-                      onDragLeave={() => setIsDragging(false)}
-                      onDrop={handleDrop}
-                      className={cn(
-                        "border-2 border-dashed rounded-lg p-12 text-center transition-colors cursor-pointer",
-                        isDragging
-                          ? "border-accent bg-accent/5"
-                          : "border-border hover:border-accent/50",
-                      )}
-                      onClick={() =>
-                        document.getElementById("file-input")?.click()
-                      }
-                    >
-                      <input
-                        id="file-input"
-                        type="file"
-                        accept=".pdf,.doc,.docx,.txt"
-                        className="hidden"
-                        onChange={(e) => {
-                          const sel = e.target.files?.[0];
-                          if (sel) handleFileSelect(sel);
+                  {!file && !selectedSavedFile ? (
+                    <div className="space-y-4">
+                      <div
+                        onDragOver={(e) => {
+                          e.preventDefault();
+                          setIsDragging(true);
                         }}
-                      />
-                      <Upload className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
-                      <p className="text-foreground font-medium mb-1">
-                        Drop your document here
-                      </p>
-                      <p className="text-sm text-muted-foreground">
-                        or click to browse
-                      </p>
-                      <p className="text-xs text-muted-foreground mt-4">
-                        Supports PDF, DOC, DOCX, TXT up to 25 MB
-                      </p>
+                        onDragLeave={() => setIsDragging(false)}
+                        onDrop={handleDrop}
+                        className={cn(
+                          "border-2 border-dashed rounded-lg p-8 text-center transition-colors cursor-pointer",
+                          isDragging
+                            ? "border-accent bg-accent/5"
+                            : "border-border hover:border-accent/50",
+                        )}
+                        onClick={() =>
+                          document.getElementById("file-input")?.click()
+                        }
+                      >
+                        <input
+                          id="file-input"
+                          type="file"
+                          accept=".pdf,.doc,.docx,.txt"
+                          className="hidden"
+                          onChange={(e) => {
+                            const sel = e.target.files?.[0];
+                            if (sel) { setSelectedSavedFile(null); handleFileSelect(sel); }
+                          }}
+                        />
+                        <Upload className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                        <p className="text-foreground font-medium mb-1">
+                          Drop your document here
+                        </p>
+                        <p className="text-sm text-muted-foreground">or click to browse</p>
+                        <p className="text-xs text-muted-foreground mt-3">
+                          Supports PDF, DOC, DOCX, TXT up to 25 MB
+                        </p>
+                      </div>
+
+                      {/* Saved documents section */}
+                      <div>
+                        <div className="flex items-center gap-2 mb-3">
+                          <div className="flex-1 h-px bg-border" />
+                          <span className="text-xs text-muted-foreground px-2">
+                            or choose a saved document
+                          </span>
+                          <div className="flex-1 h-px bg-border" />
+                        </div>
+                        <div className="flex items-center justify-between mb-2">
+                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                            <FolderOpen className="w-4 h-4" />
+                            <span>Uploads folder</span>
+                            {savedFiles.length > 0 && (
+                              <span className="text-xs">({savedFiles.length} files)</span>
+                            )}
+                          </div>
+                          <button
+                            onClick={(e) => { e.stopPropagation(); fetchSavedFiles(); }}
+                            className="text-muted-foreground hover:text-foreground transition-colors"
+                            title="Refresh"
+                          >
+                            <RefreshCw className={cn("w-3.5 h-3.5", loadingSavedFiles && "animate-spin")} />
+                          </button>
+                        </div>
+                        {loadingSavedFiles ? (
+                          <div className="flex items-center justify-center py-6 text-muted-foreground gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" />
+                            <span className="text-sm">Loading saved files…</span>
+                          </div>
+                        ) : savedFiles.length === 0 ? (
+                          <p className="text-sm text-muted-foreground text-center py-4">
+                            No documents in uploads folder yet
+                          </p>
+                        ) : (
+                          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
+                            {savedFiles.map((f) => (
+                              <div
+                                key={f.filename}
+                                onClick={() => handleSavedFileSelect(f.filename)}
+                                className={cn(
+                                  "flex items-center gap-3 p-2.5 rounded-lg cursor-pointer border transition-colors",
+                                  "border-border hover:border-accent/60 hover:bg-accent/5",
+                                )}
+                              >
+                                <FileText className="w-4 h-4 text-primary flex-shrink-0" />
+                                <div className="flex-1 min-w-0">
+                                  <p className="text-sm font-medium truncate">{f.filename}</p>
+                                  <p className="text-xs text-muted-foreground">
+                                    {(f.size / 1024).toFixed(0)} KB •{" "}
+                                    {new Date(f.modified * 1000).toLocaleDateString()}
+                                  </p>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ) : selectedSavedFile && !file ? (
+                    <div className="space-y-4">
+                      <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 bg-primary/10 rounded flex items-center justify-center">
+                            <FolderOpen className="w-5 h-5 text-primary" />
+                          </div>
+                          <div>
+                            <p className="font-medium text-foreground">{selectedSavedFile}</p>
+                            <p className="text-sm text-muted-foreground">
+                              {(() => {
+                                const kb = (savedFiles.find(f => f.filename === selectedSavedFile)?.size ?? 0) / 1024;
+                                return kb > 0 ? `${kb.toFixed(0)} KB` : "";
+                              })()} • From uploads folder
+                            </p>
+                          </div>
+                        </div>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          onClick={() => {
+                            setSelectedSavedFile(null);
+                            setExtractedPreview("");
+                            setFullExtractedText("");
+                            setExtractionError("");
+                            setProcessingStep(0);
+                          }}
+                        >
+                          <X className="w-4 h-4" />
+                        </Button>
+                      </div>
+
+                      {(extractedPreview || isStreaming) && (
+                        <div className="space-y-2">
+                          <div className="flex items-center gap-2">
+                            <p className="text-sm font-medium">Extracted Text Preview</p>
+                            {isStreaming && (
+                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                                <Loader2 className="w-3 h-3 animate-spin" />
+                                Extracting...
+                              </span>
+                            )}
+                          </div>
+                          <div className="bg-card border border-border rounded-lg p-4 max-h-64 overflow-y-auto">
+                            <div className="text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed">
+                              {isStreaming ? streamingText : extractedPreview}
+                              {isStreaming && <span className="animate-pulse">▊</span>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {isProcessing && !extractedPreview && (
+                        <div className="flex items-center gap-2 text-muted-foreground text-sm p-3">
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                          Extracting text from document…
+                        </div>
+                      )}
+
+                      {extractionError && (
+                        <div className="flex items-center gap-2 text-destructive text-sm p-3 bg-destructive/10 rounded-lg">
+                          <AlertCircle className="w-4 h-4" /> {extractionError}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -496,7 +692,7 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 pb-6">
-            {file && !targetLanguage && !isProcessing && (
+            {(file || selectedSavedFile) && !targetLanguage && !isProcessing && (
               <p className="text-sm text-destructive mr-auto flex items-center gap-1">
                 <AlertCircle className="w-4 h-4" />
                 Please select a target language to proceed
@@ -506,11 +702,15 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
               Cancel
             </Button>
             <Button
-              onClick={handleProceedDoc}
-              disabled={!canProceedDoc}
+              onClick={selectedSavedFile ? handleProceedSaved : handleProceedDoc}
+              disabled={!canProceedDoc || isSavedLoading}
               className="gap-2"
             >
-              Proceed to Translate <ArrowRight className="w-4 h-4" />
+              {isSavedLoading ? (
+                <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</>
+              ) : (
+                <>Proceed to Translate <ArrowRight className="w-4 h-4" /></>
+              )}
             </Button>
           </div>
         </TabsContent>

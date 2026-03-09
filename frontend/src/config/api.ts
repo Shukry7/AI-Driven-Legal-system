@@ -1251,3 +1251,49 @@ export async function deleteTranslationJob(
   if (!res.ok) throw new Error("Delete failed");
   return res.json();
 }
+
+export interface UploadedFile {
+  filename: string;
+  size: number;
+  modified: number;
+}
+
+/** Extract text from a file already saved in the backend uploads folder. */
+export async function extractFromSaved(
+  filename: string,
+): Promise<{ success: boolean; full_text?: string; preview?: string; error?: string }> {
+  const fd = new FormData();
+  fd.append("filename", filename);
+  const res = await fetch(`${T_BASE}/extract-saved`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: "Extraction failed" }));
+    return { success: false, error: err.error || "Extraction failed" };
+  }
+  return res.json();
+}
+
+/** List PDF/TXT files already saved in the backend uploads folder. */
+export async function getTranslationUploads(): Promise<UploadedFile[]> {
+  const res = await fetch(`${T_BASE}/uploads`);
+  if (!res.ok) return [];
+  const json = await res.json().catch(() => ({ files: [] }));
+  return json.files || [];
+}
+
+/** Start translation of a file already present in the uploads folder. */
+export async function translateFromSaved(
+  filename: string,
+  sourceLanguage: string,
+  targetLanguage: string,
+): Promise<TranslationStartResult> {
+  const fd = new FormData();
+  fd.append("filename", filename);
+  fd.append("source_language", sourceLanguage);
+  fd.append("target_language", targetLanguage);
+  const res = await fetch(`${T_BASE}/document-from-saved`, { method: "POST", body: fd });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Translation failed" }));
+    throw new Error(err.detail || "Translation failed");
+  }
+  return res.json();
+}
