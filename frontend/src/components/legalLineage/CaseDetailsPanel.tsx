@@ -26,6 +26,8 @@ import {
   Database
 } from 'lucide-react';
 import { Button } from '../ui/button';
+import { downloadJudgmentPDF, downloadJudgmentText } from '@/config/api';
+import { toast } from 'sonner';
 
 interface Props {
   selected?: CaseNode | null;
@@ -91,6 +93,89 @@ export default function CaseDetailsPanel({ selected }: Props) {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadPDF = async () => {
+    try {
+      // Try multiple sources for the filename
+      let filename = richData?.filename || selected?.filename;
+      
+      // If still no filename, try to construct from file_id
+      if (!filename && richData?.file_id) {
+        filename = richData.file_id.endsWith('.pdf') 
+          ? richData.file_id 
+          : `${richData.file_id}.pdf`;
+      }
+      
+      if (!filename && selected?.file_id) {
+        filename = selected.file_id.endsWith('.pdf') 
+          ? selected.file_id 
+          : `${selected.file_id}.pdf`;
+      }
+      
+      console.log('Download PDF - final filename:', filename);
+      
+      if (!filename) {
+        toast.error('No filename available for download');
+        return;
+      }
+      
+      const blob = await downloadJudgmentPDF(filename);
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('PDF downloaded successfully');
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Failed to download PDF');
+    }
+  };
+
+  const handleDownloadText = async () => {
+    try {
+      // Try multiple sources for the filename
+      let filename = richData?.filename || selected?.filename;
+      
+      // If still no filename, try to construct from file_id
+      if (!filename && richData?.file_id) {
+        filename = richData.file_id.endsWith('.pdf') 
+          ? richData.file_id 
+          : `${richData.file_id}.pdf`;
+      }
+      
+      if (!filename && selected?.file_id) {
+        filename = selected.file_id.endsWith('.pdf') 
+          ? selected.file_id 
+          : `${selected.file_id}.pdf`;
+      }
+      
+      console.log('Download Text - final filename:', filename);
+      
+      if (!filename) {
+        toast.error('No filename available for download');
+        return;
+      }
+      
+      const text = await downloadJudgmentText(filename);
+      const blob = new Blob([text], { type: 'text/plain' });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename.replace('.pdf', '.txt');
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      toast.success('Text downloaded successfully');
+    } catch (error) {
+      console.error('Download error:', error);
+      toast.error('Failed to download text');
+    }
   };
 
   // Get the primary treatment for this act (first one)
@@ -202,12 +287,12 @@ export default function CaseDetailsPanel({ selected }: Props) {
                     {richData?.case_title || selected.title || 'Unknown Case'}
                   </div>
                 </div>
-                {richData?.filename && (
-                  <div>
-                    <div className="text-xs text-slate-500 mb-1">Filename</div>
-                    <div className="text-sm text-slate-600 font-mono">{richData.filename}</div>
+                <div>
+                  <div className="text-xs text-slate-500 mb-1">Filename</div>
+                  <div className="text-sm text-slate-600 font-mono">
+                    {richData?.filename || selected?.filename || richData?.case_title || selected?.title || 'Unknown'}
                   </div>
-                )}
+                </div>
                 {richData?.act_id && (
                   <div>
                     <div className="text-xs text-slate-500 mb-1">Act ID</div>
@@ -240,7 +325,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
                   <div className="flex-1">
                     <div className="w-full h-2 bg-slate-200 rounded-full overflow-hidden">
                       <div 
-                        className="h-full bg-gradient-to-r from-violet-950 to-cyan-500"
+                        className="h-full bg-gradient-to-r from-violet-950 to-cyan-500 rounded-full"
                         style={{ width: `${(primaryTreatment?.confidence || 0) * 100}%` }}
                       />
                     </div>
@@ -311,7 +396,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
                     <div className="mt-2">
                       <div className="w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
                         <div 
-                          className="h-full bg-gradient-to-r from-violet-950 to-cyan-500"
+                          className="h-full bg-gradient-to-r from-violet-950 to-cyan-500 rounded-full"
                           style={{ width: `${act.confidence * 100}%` }}
                         />
                       </div>
@@ -363,7 +448,7 @@ export default function CaseDetailsPanel({ selected }: Props) {
                 <div className="p-4 bg-white/80 rounded-lg border border-slate-200">
                   <div className="text-sm text-slate-500 mb-2">Case Context</div>
                   <div className="text-slate-800">
-                    Found in case <span className="font-medium">{richData?.case_title || selected.case_title || 'Unknown'}</span>
+                    Found in case <span className="font-medium">{richData?.case_title || selected.title || 'Unknown'}</span>
                     {selected.year && ` (${selected.year})`}
                   </div>
                 </div>
@@ -384,28 +469,43 @@ export default function CaseDetailsPanel({ selected }: Props) {
 
       {/* Action Buttons */}
       <div className="border-t border-slate-200 p-6 bg-gradient-to-r from-white to-slate-50">
-        <div className="grid grid-cols-2 gap-3">
-          <button
+        <div className="grid grid-cols-2 gap-3 mb-3">
+          <Button
             onClick={copyCitation}
             className="py-3 px-4 bg-gradient-to-r from-white to-slate-50 border border-slate-300 rounded-xl hover:border-indigo-400 hover:shadow-sm transition-all duration-300 flex items-center justify-center gap-2 group"
           >
             <Copy className={`w-4 h-4 ${copied ? 'text-green-500' : 'text-slate-600 group-hover:text-indigo-600'}`} />
             <span className="font-medium text-slate-700">{copied ? 'Copied!' : 'Copy Act ID'}</span>
-          </button>
+          </Button>
           
-          <button
+          <Button
             onClick={saveSnapshot}
             className="py-3 px-4 bg-gradient-to-r from-white to-slate-50 border border-slate-300 rounded-xl hover:border-indigo-400 hover:shadow-sm transition-all duration-300 flex items-center justify-center gap-2 group"
           >
             <Download className="w-4 h-4 text-slate-600 group-hover:text-indigo-600" />
             <span className="font-medium text-slate-700">Save Data</span>
-          </button>
+          </Button>
         </div>
         
-        <div className="mt-4 pt-4 border-t border-slate-200">
-          <Button className="w-full py-3 px-4 font-medium rounded-xl hover:shadow-lg hover:shadow-indigo-500/25 transition-all duration-300 flex items-center justify-center gap-2 group">
-            <FileJson className="w-5 h-5" />
-            <span>View Raw JSON</span>
+        <div className="grid grid-cols-2 gap-3">
+          <Button 
+            onClick={handleDownloadPDF}
+            className="w-full py-3 px-4 font-medium rounded-xl hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2 group"
+            disabled={!richData?.filename && !selected?.filename}
+          >
+            <FileText className="w-5 h-5" />
+            <span>Download PDF</span>
+            <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
+          </Button>
+          
+          <Button 
+            onClick={handleDownloadText}
+            variant='secondary'
+            className="w-full py-3 px-4 font-medium rounded-xl hover:shadow-lg transition-all duration-300 flex items-center justify-center gap-2 group"
+            disabled={!richData?.filename && !selected?.filename}
+          >
+            <FileText className="w-5 h-5" />
+            <span>Download Text</span>
             <ChevronRight className="w-4 h-4 group-hover:translate-x-1 transition-transform" />
           </Button>
         </div>
