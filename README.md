@@ -21,6 +21,7 @@
    - [Clause Detection](#clause-detection-endpoints)
    - [Translation](#translation-endpoints)
    - [Classification](#classification-endpoints)
+   - [LegalLineage](#lineage-endpoints)
 9. [Frontend Modules](#frontend-modules)
 10. [Backend Services](#backend-services)
 11. [RAG System](#rag-system)
@@ -547,6 +548,18 @@ Returns the translated file as a binary download.
 | `POST` | `/api/classify/file` | Classify risk for an uploaded `.txt` file               |
 | `GET`  | `/api/`              | Built-in HTML test interface for the classification API |
 
+### Lineage Endpoints
+
+| Method | Path                                             | Description                                               |
+| ------ | --------------------                             | -------------------------------------------------------   |
+| `GET`  | `/api/health`                                    | Model health check — reports load status and device       |
+| `POST` | `/api/lineage/analyze-lineage`                   | Input `.pdf` file for act extraction                      |
+| `POST` | `/api/lineage/upload-and-analyze`                | Import file from local storage and extract acts           |
+| `POST` | `/api/lineage/search-act`                        | Search for similar acts with treatment and metadata       |
+| `GET`  | `/api/lineage/list-uploads`                      | List all uploaded files stored temporarily                |
+| `GET`  | `/api/lineage/download-judgment/{filename}`      | Download selected act specified judgment in `.pdf` format |
+| `GET`  | `/api/lineage/download-judgment-text/{filename}` | Download selected act specified judgment in `.txt` format |
+
 #### `POST /api/classify/text`
 
 **Request:** `application/json`
@@ -607,6 +620,7 @@ Provides a multi-step workflow for uploading, analysing, reviewing, and finalisi
 | `ClauseSuggestions.tsx`    | Review, accept, or reject AI-generated clause suggestions     |
 | `ManualInputPanel.tsx`     | Paste raw text instead of uploading a PDF                     |
 | `ClauseContext.tsx`        | React Context — global state for the clause analysis session  |
+| `LegalLineageModule.tsx`        | React Context — global state for the clause analysis session  |
 | `mock-clauses-data.ts`     | Typed mock data for development and testing                   |
 
 **State managed via `ClauseContext`:**
@@ -663,6 +677,19 @@ Visualises the citation network and precedent relationships between cases.
 | `api.ts`                 | API calls specific to the lineage feature            |
 | `types.ts`               | TypeScript interfaces (`CaseNode`, `CaseEdge`, etc.) |
 | `index.ts`               | Public exports for the module                        |
+
+---
+
+### 5. Lineage Module (`src/components/legalLineage/`)
+
+Paste or upload text to receive AI-powered legal risk classification.
+
+| Component                          | Role                                          |
+| ---------------------------------- | --------------------------------------------- |
+| `CaseDetailsPanel.tsx`             | Show case act related information             |
+| `LegalLineageModule.tsx`           | file upload handler                           |
+| `LineageMap.tsx`                   | Map with acts and relationships view          |
+| `ImportDialog.tsx`                 | Import files via upload                       |
 
 ---
 
