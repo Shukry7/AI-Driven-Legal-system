@@ -6,8 +6,8 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 import { normalizeSinhalaUnicode } from '@/lib/sinhalaUnicode';
-import { getTranslationHistory, getTranslationJob } from '@/config/api';
-import type { TranslationJobResult } from '@/config/api';
+import { getTranslationHistory, getTranslationJob, getGlossary } from '@/config/api';
+import type { TranslationJobResult, GlossaryTerm } from '@/config/api';
 
 interface ComparisonItem {
   id: number;
@@ -30,9 +30,17 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
   const [loading, setLoading] = useState(true);
   const [sourceLang, setSourceLang] = useState('English');
   const [targetLang, setTargetLang] = useState('Sinhala');
+  const [targetLangCode, setTargetLangCode] = useState<'si' | 'ta'>('si');
+  const [glossaryTerms, setGlossaryTerms] = useState<GlossaryTerm[]>([]);
 
   useEffect(() => {
     loadLatestComparison();
+  }, []);
+
+  useEffect(() => {
+    getGlossary(undefined, undefined)
+      .then((g) => setGlossaryTerms(g.terms || []))
+      .catch(() => {});
   }, []);
 
   const loadLatestComparison = async () => {
@@ -54,6 +62,9 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
       const langLabels: Record<string, string> = { en: 'English', si: 'Sinhala', ta: 'Tamil' };
       setSourceLang(langLabels[job.source_language] || job.source_language);
       setTargetLang(langLabels[job.target_language] || job.target_language);
+      if (job.target_language === 'si' || job.target_language === 'ta') {
+        setTargetLangCode(job.target_language);
+      }
 
       // Build comparison items from source + translated sections
       const items: ComparisonItem[] = (job.source_sections || []).map((src, i) => {
@@ -81,6 +92,95 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
   const filteredData = showOnlyChanged 
     ? comparisonData.filter(item => item.hasChanges)
     : comparisonData;
+
+  // ── Highlight glossary terms in text ───────────────────────────────────
+  const isWordChar = (char: string, lang: "en" | "si" | "ta") => {
+    if (!char) return false;
+    const code = char.charCodeAt(0);
+    if (code === 0x200d || code === 0x200c) return true;
+    if (lang === "en") return /[a-zA-Z]/.test(char);
+    if (lang === "si") return code >= 0x0d80 && code <= 0x0dff;
+    if (lang === "ta") return code >= 0x0b80 && code <= 0x0bff;
+    return false;
+  };
+
+  const highlightGlossary = (text: string, lang: "en" | "si" | "ta") => {
+    if (!glossaryTerms.length || !text) return text;
+
+    let normalizedText = text.normalize("NFC");
+    if (lang === "si") {
+      normalizedText = normalizeSinhalaUnicode(normalizedText);
+    }
+
+    const termEntries: { text: string; term: GlossaryTerm }[] = [];
+    for (const t of glossaryTerms) {
+      const rawTerm = t[lang];
+      if (!rawTerm) continue;
+      const variations = rawTerm.split(/[;]/).map((v) => v.trim()).filter((v) => v.length >= 2);
+      for (const variation of variations) {
+        termEntries.push({ text: variation.normalize("NFC"), term: t });
+      }
+    }
+    termEntries.sort((a, b) => b.text.length - a.text.length);
+    if (!termEntries.length) return normalizedText;
+
+    const matches: { start: number; end: number; term: GlossaryTerm }[] = [];
+    const textLower = normalizedText.toLowerCase();
+
+    for (const entry of termEntries) {
+      const termLower = entry.text.toLowerCase();
+      if (entry.text.length < 3) continue;
+
+      let searchFrom = 0;
+      while (searchFrom < textLower.length) {
+        const idx = textLower.indexOf(termLower, searchFrom);
+        if (idx === -1) break;
+
+        const end = idx + entry.text.length;
+        const charBefore = idx > 0 ? normalizedText[idx - 1] : "";
+        const charAfter = end < normalizedText.length ? normalizedText[end] : "";
+
+        const isValidBoundary =
+          (!charBefore || !isWordChar(charBefore, lang)) &&
+          (!charAfter || !isWordChar(charAfter, lang));
+
+        if (!isValidBoundary) {
+          searchFrom = idx + 1;
+          continue;
+        }
+
+        const overlaps = matches.some((m) => idx < m.end && end > m.start);
+        if (!overlaps) {
+          matches.push({ start: idx, end, term: entry.term });
+        }
+        searchFrom = idx + 1;
+      }
+    }
+
+    if (matches.length === 0) return normalizedText;
+
+    matches.sort((a, b) => a.start - b.start);
+
+    const parts: React.ReactNode[] = [];
+    let cursor = 0;
+    matches.forEach((m, i) => {
+      if (m.start > cursor) {
+        parts.push(normalizedText.slice(cursor, m.start));
+      }
+      parts.push(
+        <span
+          key={i}
+          className="bg-blue-100 dark:bg-blue-900/40 text-blue-700 dark:text-blue-300 px-0.5 rounded cursor-help"
+          title={`EN: ${m.term.en}\nSI: ${m.term.si}\nTA: ${m.term.ta}`}
+        >
+          {normalizedText.slice(m.start, m.end)}
+        </span>,
+      );
+      cursor = m.end;
+    });
+    if (cursor < normalizedText.length) parts.push(normalizedText.slice(cursor));
+    return <>{parts}</>;
+  };
 
   return (
     <div className="space-y-6">
@@ -193,7 +293,7 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
                   <div className="flex-1">
                     <p className="text-sm legal-text text-foreground">
                       {showGlossary ? (
-                        highlightTerms(item.source, item.terms)
+                        highlightGlossary(item.source, 'en')
                       ) : (
                         item.source
                       )}
@@ -214,7 +314,13 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
                     {index + 1}
                   </span>
                   <div className="flex-1">
-                    <p className="text-sm legal-text text-foreground">{normalizeSinhalaUnicode(item.translated)}</p>
+                    <p className="text-sm legal-text text-foreground">
+                      {showGlossary ? (
+                        highlightGlossary(normalizeSinhalaUnicode(item.translated), targetLangCode)
+                      ) : (
+                        normalizeSinhalaUnicode(item.translated)
+                      )}
+                    </p>
                     {showGlossary && item.terms.length > 0 && (
                       <div className="flex flex-wrap gap-1 mt-2">
                         {item.terms.map((term, i) => (
@@ -261,25 +367,4 @@ export function ComparisonView({ onBack }: ComparisonViewProps) {
       )}
     </div>
   );
-}
-
-function highlightTerms(text: string, terms: string[]) {
-  let result = text;
-  terms.forEach(term => {
-    result = result.replace(
-      new RegExp(`(${term})`, 'gi'),
-      '⟨$1⟩'
-    );
-  });
-  
-  return result.split(/⟨|⟩/).map((part, index) => {
-    if (terms.some(term => term.toLowerCase() === part.toLowerCase())) {
-      return (
-        <span key={index} className="bg-accent/20 text-accent px-1 rounded font-medium">
-          {part}
-        </span>
-      );
-    }
-    return part;
-  });
 }

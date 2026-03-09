@@ -35,7 +35,7 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
-import { uploadPdf, getTranslationUploads, translateFromSaved, extractFromSaved } from "@/config/api";
+import { uploadPdf, getTranslationUploads, extractFromSaved } from "@/config/api";
 import type { UploadedFile } from "@/config/api";
 import { toast } from "sonner";
 import type { UploadData } from "./TranslationModule";
@@ -112,7 +112,7 @@ function isValidFile(f: File): boolean {
 }
 
 export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
-  const [inputMode, setInputMode] = useState<"document" | "text">("document");
+  const [inputMode, setInputMode] = useState<"document" | "text" | "uploaded">("document");
 
   // Document mode state
   const [file, setFile] = useState<File | null>(null);
@@ -267,25 +267,14 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
     });
   };
 
-  const handleProceedSaved = async () => {
+  const handleProceedSaved = () => {
     if (!selectedSavedFile || !targetLanguage || !fullExtractedText) return;
-    setIsSavedLoading(true);
-    try {
-      const result = await translateFromSaved(selectedSavedFile, "en", targetLanguage);
-      if (!result.success) throw new Error("Failed to start translation");
-      onProceed({
-        sourceLanguage: "en",
-        targetLanguage,
-        extractedText: fullExtractedText,
-        mode: "document",
-        resumingJobId: result.job_id,
-        sourceSections: result.source_sections,
-      });
-    } catch (err: unknown) {
-      toast.error((err as Error).message || "Failed to start translation");
-    } finally {
-      setIsSavedLoading(false);
-    }
+    onProceed({
+      sourceLanguage: "en",
+      targetLanguage,
+      extractedText: fullExtractedText,
+      mode: "text",
+    });
   };
 
   const handleProceedText = () => {
@@ -330,14 +319,17 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
       {/* Tabs: Document / Text */}
       <Tabs
         value={inputMode}
-        onValueChange={(v) => setInputMode(v as "document" | "text")}
+        onValueChange={(v) => setInputMode(v as "document" | "text" | "uploaded")}
       >
-        <TabsList className="grid w-full max-w-md grid-cols-2">
+        <TabsList className="grid w-full max-w-lg grid-cols-3">
           <TabsTrigger value="document" className="gap-2">
-            <FileText className="w-4 h-4" /> Upload Document
+            <Upload className="w-4 h-4" /> Upload Document
           </TabsTrigger>
           <TabsTrigger value="text" className="gap-2">
             <Type className="w-4 h-4" /> Enter Text
+          </TabsTrigger>
+          <TabsTrigger value="uploaded" className="gap-2">
+            <FolderOpen className="w-4 h-4" /> Uploaded Documents
           </TabsTrigger>
         </TabsList>
 
@@ -349,11 +341,11 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
                 <CardHeader>
                   <CardTitle className="text-lg">Document Upload</CardTitle>
                   <CardDescription>
-                    Drag & drop, click to browse, or choose a saved document
+                    Drag & drop or click to browse
                   </CardDescription>
                 </CardHeader>
                 <CardContent>
-                  {!file && !selectedSavedFile ? (
+                  {!file ? (
                     <div className="space-y-4">
                       <div
                         onDragOver={(e) => {
@@ -392,129 +384,7 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
                         </p>
                       </div>
 
-                      {/* Saved documents section */}
-                      <div>
-                        <div className="flex items-center gap-2 mb-3">
-                          <div className="flex-1 h-px bg-border" />
-                          <span className="text-xs text-muted-foreground px-2">
-                            or choose a saved document
-                          </span>
-                          <div className="flex-1 h-px bg-border" />
-                        </div>
-                        <div className="flex items-center justify-between mb-2">
-                          <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
-                            <FolderOpen className="w-4 h-4" />
-                            <span>Uploads folder</span>
-                            {savedFiles.length > 0 && (
-                              <span className="text-xs">({savedFiles.length} files)</span>
-                            )}
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); fetchSavedFiles(); }}
-                            className="text-muted-foreground hover:text-foreground transition-colors"
-                            title="Refresh"
-                          >
-                            <RefreshCw className={cn("w-3.5 h-3.5", loadingSavedFiles && "animate-spin")} />
-                          </button>
-                        </div>
-                        {loadingSavedFiles ? (
-                          <div className="flex items-center justify-center py-6 text-muted-foreground gap-2">
-                            <Loader2 className="w-4 h-4 animate-spin" />
-                            <span className="text-sm">Loading saved files…</span>
-                          </div>
-                        ) : savedFiles.length === 0 ? (
-                          <p className="text-sm text-muted-foreground text-center py-4">
-                            No documents in uploads folder yet
-                          </p>
-                        ) : (
-                          <div className="space-y-1.5 max-h-48 overflow-y-auto pr-1">
-                            {savedFiles.map((f) => (
-                              <div
-                                key={f.filename}
-                                onClick={() => handleSavedFileSelect(f.filename)}
-                                className={cn(
-                                  "flex items-center gap-3 p-2.5 rounded-lg cursor-pointer border transition-colors",
-                                  "border-border hover:border-accent/60 hover:bg-accent/5",
-                                )}
-                              >
-                                <FileText className="w-4 h-4 text-primary flex-shrink-0" />
-                                <div className="flex-1 min-w-0">
-                                  <p className="text-sm font-medium truncate">{f.filename}</p>
-                                  <p className="text-xs text-muted-foreground">
-                                    {(f.size / 1024).toFixed(0)} KB •{" "}
-                                    {new Date(f.modified * 1000).toLocaleDateString()}
-                                  </p>
-                                </div>
-                              </div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ) : selectedSavedFile && !file ? (
-                    <div className="space-y-4">
-                      <div className="flex items-center justify-between p-4 bg-muted rounded-lg">
-                        <div className="flex items-center gap-3">
-                          <div className="w-10 h-10 bg-primary/10 rounded flex items-center justify-center">
-                            <FolderOpen className="w-5 h-5 text-primary" />
-                          </div>
-                          <div>
-                            <p className="font-medium text-foreground">{selectedSavedFile}</p>
-                            <p className="text-sm text-muted-foreground">
-                              {(() => {
-                                const kb = (savedFiles.find(f => f.filename === selectedSavedFile)?.size ?? 0) / 1024;
-                                return kb > 0 ? `${kb.toFixed(0)} KB` : "";
-                              })()} • From uploads folder
-                            </p>
-                          </div>
-                        </div>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => {
-                            setSelectedSavedFile(null);
-                            setExtractedPreview("");
-                            setFullExtractedText("");
-                            setExtractionError("");
-                            setProcessingStep(0);
-                          }}
-                        >
-                          <X className="w-4 h-4" />
-                        </Button>
-                      </div>
 
-                      {(extractedPreview || isStreaming) && (
-                        <div className="space-y-2">
-                          <div className="flex items-center gap-2">
-                            <p className="text-sm font-medium">Extracted Text Preview</p>
-                            {isStreaming && (
-                              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                                <Loader2 className="w-3 h-3 animate-spin" />
-                                Extracting...
-                              </span>
-                            )}
-                          </div>
-                          <div className="bg-card border border-border rounded-lg p-4 max-h-64 overflow-y-auto">
-                            <div className="text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed">
-                              {isStreaming ? streamingText : extractedPreview}
-                              {isStreaming && <span className="animate-pulse">▊</span>}
-                            </div>
-                          </div>
-                        </div>
-                      )}
-
-                      {isProcessing && !extractedPreview && (
-                        <div className="flex items-center gap-2 text-muted-foreground text-sm p-3">
-                          <Loader2 className="w-4 h-4 animate-spin" />
-                          Extracting text from document…
-                        </div>
-                      )}
-
-                      {extractionError && (
-                        <div className="flex items-center gap-2 text-destructive text-sm p-3 bg-destructive/10 rounded-lg">
-                          <AlertCircle className="w-4 h-4" /> {extractionError}
-                        </div>
-                      )}
                     </div>
                   ) : (
                     <div className="space-y-4">
@@ -692,7 +562,7 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
 
           {/* Actions */}
           <div className="flex items-center justify-end gap-3 pt-4 pb-6">
-            {(file || selectedSavedFile) && !targetLanguage && !isProcessing && (
+            {file && !targetLanguage && !isProcessing && (
               <p className="text-sm text-destructive mr-auto flex items-center gap-1">
                 <AlertCircle className="w-4 h-4" />
                 Please select a target language to proceed
@@ -702,15 +572,11 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
               Cancel
             </Button>
             <Button
-              onClick={selectedSavedFile ? handleProceedSaved : handleProceedDoc}
-              disabled={!canProceedDoc || isSavedLoading}
+              onClick={handleProceedDoc}
+              disabled={!file || !targetLanguage || targetLanguage === "en" || isProcessing || !fullExtractedText}
               className="gap-2"
             >
-              {isSavedLoading ? (
-                <><Loader2 className="w-4 h-4 animate-spin" /> Starting…</>
-              ) : (
-                <>Proceed to Translate <ArrowRight className="w-4 h-4" /></>
-              )}
+              Proceed to Translate <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
         </TabsContent>
@@ -833,6 +699,253 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
               className="gap-2"
             >
               Translate Text <ArrowRight className="w-4 h-4" />
+            </Button>
+          </div>
+        </TabsContent>
+
+        {/* ── Uploaded Documents mode ───────────────────────────────────── */}
+        <TabsContent value="uploaded" className="mt-6">
+          <div className="grid grid-cols-3 gap-6">
+            <div className="col-span-2 space-y-6">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg flex items-center justify-between">
+                    <span>Uploaded Documents</span>
+                    <button
+                      onClick={fetchSavedFiles}
+                      className="text-muted-foreground hover:text-foreground transition-colors"
+                      title="Refresh"
+                    >
+                      <RefreshCw className={cn("w-4 h-4", loadingSavedFiles && "animate-spin")} />
+                    </button>
+                  </CardTitle>
+                  <CardDescription>
+                    Select a previously uploaded document to translate
+                    {savedFiles.length > 0 && ` (${savedFiles.length} files)`}
+                  </CardDescription>
+                </CardHeader>
+                <CardContent>
+                  {loadingSavedFiles ? (
+                    <div className="flex items-center justify-center py-10 text-muted-foreground gap-2">
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <span className="text-sm">Loading saved files…</span>
+                    </div>
+                  ) : savedFiles.length === 0 ? (
+                    <div className="text-center py-10">
+                      <FolderOpen className="w-10 h-10 mx-auto text-muted-foreground mb-3" />
+                      <p className="text-sm text-muted-foreground">
+                        No documents in uploads folder yet
+                      </p>
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Upload a document first using the "Upload Document" tab
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-[400px] overflow-y-auto pr-1">
+                      {savedFiles.map((f) => (
+                        <div
+                          key={f.filename}
+                          onClick={() => handleSavedFileSelect(f.filename)}
+                          className={cn(
+                            "flex items-center gap-3 p-3 rounded-lg cursor-pointer border transition-colors",
+                            selectedSavedFile === f.filename
+                              ? "border-accent bg-accent/10"
+                              : "border-border hover:border-accent/60 hover:bg-accent/5",
+                          )}
+                        >
+                          <div className={cn(
+                            "w-10 h-10 rounded flex items-center justify-center flex-shrink-0",
+                            selectedSavedFile === f.filename ? "bg-accent/20" : "bg-primary/10",
+                          )}>
+                            <FileText className={cn(
+                              "w-5 h-5",
+                              selectedSavedFile === f.filename ? "text-accent" : "text-primary",
+                            )} />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium truncate">{f.filename}</p>
+                            <p className="text-xs text-muted-foreground">
+                              {(f.size / 1024).toFixed(0)} KB •{" "}
+                              {new Date(f.modified * 1000).toLocaleDateString()}
+                            </p>
+                          </div>
+                          {selectedSavedFile === f.filename && (
+                            <CheckCircle2 className="w-5 h-5 text-accent flex-shrink-0" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </CardContent>
+              </Card>
+
+              {/* Extraction preview for selected saved file */}
+              {selectedSavedFile && (extractedPreview || isStreaming) && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg flex items-center gap-2">
+                      Extracted Text Preview
+                      {isStreaming && (
+                        <span className="flex items-center gap-1 text-xs text-muted-foreground font-normal">
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                          Extracting...
+                        </span>
+                      )}
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="bg-card border border-border rounded-lg p-4 max-h-64 overflow-y-auto">
+                      <div className="text-sm text-foreground whitespace-pre-wrap font-body leading-relaxed">
+                        {isStreaming ? streamingText : extractedPreview}
+                        {isStreaming && <span className="animate-pulse">▊</span>}
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+
+              {selectedSavedFile && isProcessing && !extractedPreview && (
+                <div className="flex items-center gap-2 text-muted-foreground text-sm p-3">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  Extracting text from document…
+                </div>
+              )}
+
+              {selectedSavedFile && extractionError && (
+                <div className="flex items-center gap-2 text-destructive text-sm p-3 bg-destructive/10 rounded-lg">
+                  <AlertCircle className="w-4 h-4" /> {extractionError}
+                </div>
+              )}
+
+              {/* Language selection for uploaded docs */}
+              {selectedSavedFile && fullExtractedText && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-lg">Translation Settings</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="flex items-center gap-4">
+                      <div className="flex-1">
+                        <label className="text-sm font-medium text-foreground mb-2 block">
+                          Source Language
+                        </label>
+                        <div className="h-10 px-3 border rounded-md flex items-center text-sm bg-muted text-muted-foreground">
+                          English
+                        </div>
+                      </div>
+                      <ArrowRight className="w-5 h-5 text-muted-foreground mt-6" />
+                      <div className="flex-1">
+                        <label className="text-sm font-medium text-foreground mb-2 block">
+                          Target Language
+                        </label>
+                        <Select
+                          value={targetLanguage}
+                          onValueChange={setTargetLanguage}
+                        >
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select language" />
+                          </SelectTrigger>
+                          <SelectContent>
+                            {languages
+                              .filter((l) => l.value !== "en")
+                              .map((lang) => (
+                                <SelectItem key={lang.value} value={lang.value}>
+                                  {lang.label} ({lang.native})
+                                </SelectItem>
+                              ))}
+                          </SelectContent>
+                        </Select>
+                      </div>
+                    </div>
+                  </CardContent>
+                </Card>
+              )}
+            </div>
+
+            {/* Preprocessing sidebar */}
+            <div className="col-span-1">
+              <Card>
+                <CardHeader>
+                  <CardTitle className="text-lg">Pre-processing</CardTitle>
+                  <CardDescription>Document preparation steps</CardDescription>
+                </CardHeader>
+                <CardContent>
+                  <div className="relative">
+                    {preprocessingSteps.map((step, index) => {
+                      const stepNum = index + 1;
+                      const isComplete = processingStep >= stepNum;
+                      const isCurrent =
+                        processingStep === stepNum && isProcessing;
+                      const isLast = index === preprocessingSteps.length - 1;
+                      return (
+                        <div key={step.id} className="flex items-start gap-3 relative">
+                          <div className="flex flex-col items-center">
+                            <div
+                              className={cn(
+                                "w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 z-10",
+                                isComplete
+                                  ? "bg-green-500 text-white"
+                                  : isCurrent
+                                    ? "bg-accent text-accent-foreground"
+                                    : "bg-muted text-muted-foreground",
+                              )}
+                            >
+                              {isComplete ? (
+                                <CheckCircle2 className="w-4 h-4" />
+                              ) : isCurrent ? (
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                              ) : (
+                                <span className="text-xs">{stepNum}</span>
+                              )}
+                            </div>
+                            {!isLast && (
+                              <div className={cn(
+                                "w-0.5 h-8 mt-1",
+                                isComplete ? "bg-green-500" : "bg-muted",
+                              )} />
+                            )}
+                          </div>
+                          <div className="pb-6">
+                            <p
+                              className={cn(
+                                "text-sm font-medium",
+                                isComplete || isCurrent
+                                  ? "text-foreground"
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              {step.label}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {step.description}
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex items-center justify-end gap-3 pt-4 pb-6">
+            {selectedSavedFile && !targetLanguage && !isProcessing && fullExtractedText && (
+              <p className="text-sm text-destructive mr-auto flex items-center gap-1">
+                <AlertCircle className="w-4 h-4" />
+                Please select a target language to proceed
+              </p>
+            )}
+            <Button variant="outline" onClick={onCancel}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleProceedSaved}
+              disabled={!selectedSavedFile || !targetLanguage || targetLanguage === "en" || isProcessing || !fullExtractedText}
+              className="gap-2"
+            >
+              Proceed to Translate <ArrowRight className="w-4 h-4" />
             </Button>
           </div>
         </TabsContent>

@@ -90,7 +90,7 @@ export function TranslationWorkspace({
   onComplete,
   onTranslationComplete,
 }: TranslationWorkspaceProps) {
-  const { startDocumentJob, startTextJob, jobs, cancelJob } = useTranslation();
+  const { startDocumentJob, startTextJob, jobs, cancelJob, resumeJob } = useTranslation();
 
   const [result, setResult] = useState<TranslationJobResult | null>(
     existingResult,
@@ -120,9 +120,11 @@ export function TranslationWorkspace({
       return;
     }
     
-    // If resuming an in-progress job, just set the activeJobId - don't start a new translation
+    // If resuming an in-progress job, adopt it into the context for polling, then track it
     if (uploadData.resumingJobId) {
-      setActiveJobId(uploadData.resumingJobId);
+      resumeJob(uploadData.resumingJobId).then(() => {
+        setActiveJobId(uploadData.resumingJobId!);
+      });
       return;
     }
     
