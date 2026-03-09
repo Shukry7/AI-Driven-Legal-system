@@ -21,6 +21,7 @@
    - [Clause Detection](#clause-detection-endpoints)
    - [Translation](#translation-endpoints)
    - [Classification](#classification-endpoints)
+   - [LegalLineage](#lineage-endpoints)
 9. [Frontend Modules](#frontend-modules)
 10. [Backend Services](#backend-services)
 11. [RAG System](#rag-system)
@@ -39,15 +40,15 @@ The **AI-Driven Legal Document Analysis Platform** is a full-stack web applicati
 
 ## Key Features
 
-| Feature                       | Description                                                                                                                              |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| **Clause Detection**          | Detects 28 predefined legal clauses using Legal-BERT model validated on 450+ judgments. Flags clauses as Present, Missing, or Corrupted. |
-| **AI Clause Prediction**      | LLM-powered (OpenAI GPT-4o-mini) prediction of missing clauses using RAG with acceptance/rejection workflow and document finalisation.   |
-| **Document Translation**      | Asynchronous English -> Sinhala/Tamil translation with a built-in legal glossary terms. Supports PDF upload and raw text.                |
-| **Legal Risk Classification** | Two-stage Legal-BERT pipeline: BIO-tag clause segmentation → High / Medium / Low risk classification with confidence scores.             |
-| **Legal Lineage Tracking**    | Visual map of case citations and relationships with an interactive details panel.                                                        |
-| **PDF Processing**            | Multi-strategy PDF extraction (pdfplumber → PyMuPDF → PyPDF2 → OCR fallback). Supports scanned documents via Tesseract OCR.              |
-| **RAG Enhancement**           | ChromaDB vector database provides semantically similar case examples to improve LLM clause predictions.                                  |
+| Feature                       | Description                                                                                                                                                                |
+| ----------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Clause Detection**          | Uses Legal-BERT model validated on 450+ judgments to detect 28 predefined legal clauses. Flags clauses as Present, Missing, or Corrupted.                                  |
+| **AI Clause Prediction**      | Predicts missing predictable clauses using Retrieval-Augmented Generation (RAG) combined with LLM inference, with acceptance/rejection workflow and document finalisation. |
+| **Document Translation**      | Asynchronous English -> Sinhala/Tamil translation with a built-in legal glossary terms. Supports PDF upload and raw text.                                                  |
+| **Legal Risk Classification** | Two-stage Legal-BERT pipeline: BIO-tag clause segmentation → High / Medium / Low risk classification with confidence scores.                                               |
+| **Legal Lineage Tracking**    | Visual map of case citations and relationships with an interactive details panel.                                                                                          |
+| **PDF Processing**            | Multi-strategy PDF extraction (pdfplumber → PyMuPDF → PyPDF2 → OCR fallback). Supports scanned documents via Tesseract OCR.                                                |
+| **RAG Enhancement**           | ChromaDB vector database provides semantically similar case examples to improve LLM clause predictions.                                                                    |
 
 ---
 
@@ -85,9 +86,9 @@ The **AI-Driven Legal Document Analysis Platform** is a full-stack web applicati
 
 1. User uploads a PDF via the React frontend.
 2. `pdf_routes` extracts text using the multi-strategy `pdf_service`.
-3. `clause_detection_service` uses the Legal-BERT model to identify 28 clause types.
+3. `clause_detection_service` uses the Legal-BERT model to identify and classify 28 clause types across three categories (Present, Missing, Corrupted).
 4. `corruption_detection_service` flags regions with potential text corruption.
-5. If clause prediction is enabled, `clause_prediction_service` queries OpenAI with RAG context from ChromaDB to suggest missing clauses.
+5. If clause prediction is enabled, `clause_prediction_service` retrieves semantically similar clause examples from ChromaDB (RAG) and leverages LLM inference to generate contextually accurate suggestions for missing clauses.
 6. Results are returned to the frontend where the user can accept/reject suggestions and finalise the document.
 
 ---
@@ -324,12 +325,13 @@ npm run lint       # run ESLint
 
 ### Backend (`backend/.env`)
 
-| Variable                          | Default       | Description                                                   |
-| --------------------------------- | ------------- | ------------------------------------------------------------- |
-| `CLAUSE_PREDICTION_MODE`          | `manual`      | `manual` — use template fallback; `openai` — use GPT-4o-mini  |
-| `OPENAI_API_KEY`                  | _(unset)_     | OpenAI API key. Required when `CLAUSE_PREDICTION_MODE=openai` |
-| `OPENAI_MODEL`                    | `gpt-4o-mini` | OpenAI model identifier for clause prediction                 |
-| `UPLOAD_CLEANUP_INTERVAL_MINUTES` | `5`           | How often the background scheduler purges old uploaded files  |
+| Variable                          | Default       | Description                                                  |
+| --------------------------------- | ------------- | ------------------------------------------------------------ |
+| `CLAUSE_PREDICTION_MODE`          | `manual`      | `manual` — template fallback; `llm` — RAG + LLM prediction   |
+| `OPENAI_API_KEY`                  | _(unset)_     | LLM API key. Required when `CLAUSE_PREDICTION_MODE=llm`      |
+| `OPENAI_MODEL`                    | `gpt-4o-mini` | LLM model identifier for clause prediction inference         |
+| `RAG_ENABLED`                     | `true`        | Enable Retrieval-Augmented Generation for clause prediction  |
+| `UPLOAD_CLEANUP_INTERVAL_MINUTES` | `5`           | How often the background scheduler purges old uploaded files |
 
 ### Frontend (`frontend/.env`)
 
@@ -546,6 +548,18 @@ Returns the translated file as a binary download.
 | `POST` | `/api/classify/file` | Classify risk for an uploaded `.txt` file               |
 | `GET`  | `/api/`              | Built-in HTML test interface for the classification API |
 
+### Lineage Endpoints
+
+| Method | Path                                             | Description                                               |
+| ------ | --------------------                             | -------------------------------------------------------   |
+| `GET`  | `/api/health`                                    | Model health check — reports load status and device       |
+| `POST` | `/api/lineage/analyze-lineage`                   | Input `.pdf` file for act extraction                      |
+| `POST` | `/api/lineage/upload-and-analyze`                | Import file from local storage and extract acts           |
+| `POST` | `/api/lineage/search-act`                        | Search for similar acts with treatment and metadata       |
+| `GET`  | `/api/lineage/list-uploads`                      | List all uploaded files stored temporarily                |
+| `GET`  | `/api/lineage/download-judgment/{filename}`      | Download selected act specified judgment in `.pdf` format |
+| `GET`  | `/api/lineage/download-judgment-text/{filename}` | Download selected act specified judgment in `.txt` format |
+
 #### `POST /api/classify/text`
 
 **Request:** `application/json`
@@ -606,6 +620,7 @@ Provides a multi-step workflow for uploading, analysing, reviewing, and finalisi
 | `ClauseSuggestions.tsx`    | Review, accept, or reject AI-generated clause suggestions     |
 | `ManualInputPanel.tsx`     | Paste raw text instead of uploading a PDF                     |
 | `ClauseContext.tsx`        | React Context — global state for the clause analysis session  |
+| `LegalLineageModule.tsx`        | React Context — global state for the clause analysis session  |
 | `mock-clauses-data.ts`     | Typed mock data for development and testing                   |
 
 **State managed via `ClauseContext`:**
@@ -665,6 +680,19 @@ Visualises the citation network and precedent relationships between cases.
 
 ---
 
+### 5. Lineage Module (`src/components/legalLineage/`)
+
+Paste or upload text to receive AI-powered legal risk classification.
+
+| Component                          | Role                                          |
+| ---------------------------------- | --------------------------------------------- |
+| `CaseDetailsPanel.tsx`             | Show case act related information             |
+| `LegalLineageModule.tsx`           | file upload handler                           |
+| `LineageMap.tsx`                   | Map with acts and relationships view          |
+| `ImportDialog.tsx`                 | Import files via upload                       |
+
+---
+
 ## Backend Services
 
 ### `pdf_service.py`
@@ -688,11 +716,11 @@ Handles all PDF operations. Uses a waterfall strategy to maximise extraction qua
 
 ### `clause_detection_service.py`
 
-Orchestrates clause analysis against the 28 clause definitions.
+Orchestrates clause analysis using Legal-BERT model to detect and classify 28 clause types.
 
-| Function                                   | Description                                                          |
-| ------------------------------------------ | -------------------------------------------------------------------- |
-| `analyze_clause_detection(text, filename)` | Main entry — runs all clause patterns and returns structured results |
+| Function                                   | Description                                                                                  |
+| ------------------------------------------ | -------------------------------------------------------------------------------------------- |
+| `analyze_clause_detection(text, filename)` | Main entry — runs Legal-BERT model inference and returns structured clause detection results |
 
 **The 28 Clause Types:**
 
@@ -702,13 +730,13 @@ Orchestrates clause analysis against the 28 clause definitions.
 
 ### `clause_prediction_service.py`
 
-Predicts text for missing clauses using one of three strategies:
+Predicts text for missing clauses by combining RAG retrieval with LLM inference. Operates in three modes:
 
-| Mode     | Mechanism                                                                  |
-| -------- | -------------------------------------------------------------------------- |
-| `openai` | GPT-4o-mini with an engineered prompt; augmented with RAG context          |
-| `manual` | Pre-defined template strings per clause type with RAG enhancement          |
-| `hybrid` | Tries OpenAI first with RAG; falls back to RAG-enhanced templates on error |
+| Mode     | Mechanism                                                                                                          |
+| -------- | ------------------------------------------------------------------------------------------------------------------ |
+| `llm`    | Retrieves semantically similar clause examples from ChromaDB (RAG) and uses LLM to generate contextual predictions |
+| `manual` | Uses pre-defined template strings per clause type, enhanced with RAG examples                                      |
+| `hybrid` | Attempts LLM with RAG first; falls back to template-based suggestions on error                                     |
 
 **Key functions:**
 
