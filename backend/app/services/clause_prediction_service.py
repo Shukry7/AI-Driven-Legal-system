@@ -1387,6 +1387,10 @@ async def predict_missing_clauses(text: str, force_refresh: bool = False) -> Dic
         suggestion_data = suggestions.get(key, {})
         ctx = contexts.get(key, {})
         
+        # Handle case where LLM returns a list instead of dict
+        if isinstance(suggestion_data, list):
+            suggestion_data = suggestion_data[0] if suggestion_data else {}
+        
         result["suggestions"][key] = {
             "clause_key": key,
             "clause_name": mc["clause_name"],
