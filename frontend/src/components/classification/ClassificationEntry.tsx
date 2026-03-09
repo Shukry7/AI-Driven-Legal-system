@@ -8,6 +8,7 @@ import {
   AlertTriangle,
   AlertOctagon,
   Trash2,
+  FolderOpen,
 } from "lucide-react";
 import {
   Card,
@@ -29,21 +30,25 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useClassification } from "./ClassificationContext";
+import { UploadedFilesDialog } from "./UploadedFilesDialog";
 
 interface ClassificationEntryProps {
   onStartNew: () => void;
   onSelectRecent: (id: string) => void;
+  onProcessUploaded?: (filename: string) => void;
   showRecentSection: boolean;
 }
 
 export function ClassificationEntry({
   onStartNew,
   onSelectRecent,
+  onProcessUploaded,
   showRecentSection,
 }: ClassificationEntryProps) {
   const { recentClassifications, deleteClassification } = useClassification();
   const { toast } = useToast();
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [uploadedFilesDialogOpen, setUploadedFilesDialogOpen] = useState(false);
   const [itemToDelete, setItemToDelete] = useState<{
     id: string;
     filename: string;
@@ -117,10 +122,23 @@ export function ClassificationEntry({
           </CardDescription>
         </CardHeader>
         <CardContent>
-          <Button onClick={onStartNew} size="lg" className="w-full sm:w-auto">
-            <Upload className="w-4 h-4 mr-2" />
-            Upload & Classify New Document
-          </Button>
+          <div className="flex flex-col sm:flex-row gap-3">
+            <Button onClick={onStartNew} size="lg" className="flex-1">
+              <Upload className="w-4 h-4 mr-2" />
+              Upload & Classify New Document
+            </Button>
+            {onProcessUploaded && (
+              <Button
+                onClick={() => setUploadedFilesDialogOpen(true)}
+                size="lg"
+                variant="outline"
+                className="flex-1"
+              >
+                <FolderOpen className="w-4 h-4 mr-2" />
+                Process Uploaded Files
+              </Button>
+            )}
+          </div>
         </CardContent>
       </Card>
 
@@ -306,6 +324,18 @@ export function ClassificationEntry({
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      {/* Uploaded Files Dialog */}
+      {onProcessUploaded && (
+        <UploadedFilesDialog
+          open={uploadedFilesDialogOpen}
+          onOpenChange={setUploadedFilesDialogOpen}
+          onSelectFile={(filename) => {
+            onProcessUploaded(filename);
+            setUploadedFilesDialogOpen(false);
+          }}
+        />
+      )}
     </div>
   );
 }
