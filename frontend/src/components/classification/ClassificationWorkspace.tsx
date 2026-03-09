@@ -147,23 +147,30 @@ export function ClassificationWorkspace({
       if (uploadedFilename) {
         setLoading(true);
         setError(null);
-        setProcessingStep(0);
+
+        // Steps auto-advance while the API call runs — each step is visible for a
+        // meaningful duration so the user sees smooth one-by-one progress
+        let _upDone = false;
+        const _upT1 = setTimeout(() => {
+          if (!_upDone) setProcessingStep(2);
+        }, 1200);
+        const _upT2 = setTimeout(() => {
+          if (!_upDone) setProcessingStep(3);
+        }, 3500);
+        setProcessingStep(1);
 
         try {
-          // Step 1: Loading file
-          setProcessingStep(1);
-          await new Promise((resolve) => setTimeout(resolve, 300));
-
-          // Step 2: Text extraction
-          setProcessingStep(2);
-          await new Promise((resolve) => setTimeout(resolve, 300));
-
-          // Step 3: Clause segmentation & Step 4: Risk analysis
-          // These happen together on the backend
-          setProcessingStep(3);
           const result = await classifyUploadedFile(uploadedFilename);
 
+          _upDone = true;
+          clearTimeout(_upT1);
+          clearTimeout(_upT2);
+
+          // Ensure clause segmentation (3) and risk analysis (4) are each visibly shown
+          setProcessingStep(3);
+          await new Promise((resolve) => setTimeout(resolve, 600));
           setProcessingStep(4);
+          await new Promise((resolve) => setTimeout(resolve, 800));
 
           // Use extracted text from result
           const textContent = result.document_text || "";
@@ -187,6 +194,9 @@ export function ClassificationWorkspace({
           setClassificationResult(result);
           onComplete(result);
         } catch (err: any) {
+          _upDone = true;
+          clearTimeout(_upT1);
+          clearTimeout(_upT2);
           console.error("Classification error:", err);
           setError(
             err.message ||
@@ -204,25 +214,30 @@ export function ClassificationWorkspace({
 
       setLoading(true);
       setError(null);
-      setProcessingStep(0);
+
+      // Steps auto-advance while the API call runs — each step is visible for a
+      // meaningful duration so the user sees smooth one-by-one progress
+      let _newDone = false;
+      const _newT1 = setTimeout(() => {
+        if (!_newDone) setProcessingStep(2);
+      }, 1200);
+      const _newT2 = setTimeout(() => {
+        if (!_newDone) setProcessingStep(3);
+      }, 3500);
+      setProcessingStep(1);
 
       try {
         let result: ClassificationResult;
         let textContent = "";
 
-        // Step 1: Loading
-        setProcessingStep(1);
-
         // Handle text mode
         if (mode === "text" && text) {
           textContent = text;
           setDocumentText(textContent);
-          setProcessingStep(2);
           result = await classifyText(textContent);
         }
         // Handle file mode
         else if (file) {
-          setProcessingStep(2);
           result = await classifyFile(file);
 
           // Use extracted text from backend if available (PDF case)
@@ -241,10 +256,15 @@ export function ClassificationWorkspace({
           throw new Error("No file or text provided");
         }
 
-        // Step 3 & 4: Segmentation and analysis (backend handles both)
+        _newDone = true;
+        clearTimeout(_newT1);
+        clearTimeout(_newT2);
+
+        // Ensure clause segmentation (3) and risk analysis (4) are each visibly shown
         setProcessingStep(3);
-        await new Promise((resolve) => setTimeout(resolve, 200));
+        await new Promise((resolve) => setTimeout(resolve, 600));
         setProcessingStep(4);
+        await new Promise((resolve) => setTimeout(resolve, 800));
 
         // Normalize risk values to lowercase for UI consistency
         const normalizedClauses: NormalizedClause[] = result.clauses.map(
@@ -264,6 +284,9 @@ export function ClassificationWorkspace({
         setClassificationResult(result);
         onComplete(result);
       } catch (err: any) {
+        _newDone = true;
+        clearTimeout(_newT1);
+        clearTimeout(_newT2);
         console.error("Classification error:", err);
         setError(
           err.message ||
@@ -671,7 +694,7 @@ export function ClassificationWorkspace({
                       >
                         <div className="flex flex-col items-center">
                           <div
-                            className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${
+                            className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 z-10 transition-colors duration-500 ${
                               isComplete
                                 ? "bg-green-500 text-white"
                                 : isCurrent
@@ -689,7 +712,7 @@ export function ClassificationWorkspace({
                           </div>
                           {!isLast && (
                             <div
-                              className={`w-0.5 h-8 mt-1 ${
+                              className={`w-0.5 h-8 mt-1 transition-colors duration-500 ${
                                 isComplete ? "bg-green-500" : "bg-muted"
                               }`}
                             />
