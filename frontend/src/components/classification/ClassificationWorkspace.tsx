@@ -7,6 +7,7 @@ import {
   Download,
   Eye,
   Save,
+  CheckCircle2,
 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import jsPDF from "jspdf";
@@ -30,6 +31,7 @@ import { Progress } from "@/components/ui/progress";
 import {
   classifyText,
   classifyFile,
+  classifyUploadedFile,
   type ClauseResult,
   type ClassificationResult,
 } from "@/config/api";
@@ -56,6 +58,7 @@ interface ClassificationWorkspaceProps {
   file?: File;
   text?: string;
   mode?: "document" | "text";
+  uploadedFilename?: string;
   existingResult?: ClassificationResult | null;
   filename: string;
   onComplete: (result: ClassificationResult) => void;
@@ -67,6 +70,7 @@ export function ClassificationWorkspace({
   file,
   text,
   mode = "document",
+  uploadedFilename,
   existingResult,
   filename,
   onComplete,
@@ -97,6 +101,31 @@ export function ClassificationWorkspace({
     null,
   );
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [processingStep, setProcessingStep] = useState(0);
+
+  // Classification processing steps for progress indicators
+  const classificationSteps = [
+    {
+      id: "load",
+      label: "Loading File",
+      description: "Reading document from server",
+    },
+    {
+      id: "extract",
+      label: "Text Extraction",
+      description: "Extracting text content",
+    },
+    {
+      id: "segment",
+      label: "Clause Segmentation",
+      description: "Identifying individual clauses",
+    },
+    {
+      id: "analyze",
+      label: "Risk Analysis",
+      description: "Analyzing legal risk factors",
+    },
+  ];
 
   // Fetch classification on component mount or load existing result
   useEffect(() => {
@@ -121,24 +150,86 @@ export function ClassificationWorkspace({
         return;
       }
 
+      // Handle uploaded file processing with progress indicators
+      if (uploadedFilename) {
+        setLoading(true);
+        setError(null);
+        setProcessingStep(0);
+
+        try {
+          // Step 1: Loading file
+          setProcessingStep(1);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+
+          // Step 2: Text extraction
+          setProcessingStep(2);
+          await new Promise((resolve) => setTimeout(resolve, 300));
+
+          // Step 3: Clause segmentation & Step 4: Risk analysis
+          // These happen together on the backend
+          setProcessingStep(3);
+          const result = await classifyUploadedFile(uploadedFilename);
+
+          setProcessingStep(4);
+
+          // Use extracted text from result
+          const textContent = result.document_text || "";
+          setDocumentText(textContent);
+
+          // Normalize risk values to lowercase for UI consistency
+          const normalizedClauses: NormalizedClause[] = result.clauses.map(
+            (clause) => ({
+              ...clause,
+              risk: clause.risk.toLowerCase() as "high" | "medium" | "low",
+            }),
+          );
+
+          setClauses(normalizedClauses);
+          setRiskStats({
+            high: result.risk_summary.High,
+            medium: result.risk_summary.Medium,
+            low: result.risk_summary.Low,
+            total: result.total_clauses,
+          });
+          setClassificationResult(result);
+          onComplete(result);
+        } catch (err: any) {
+          console.error("Classification error:", err);
+          setError(
+            err.message ||
+              "Failed to classify document. Make sure the FastAPI server is running on port 8000.",
+          );
+        } finally {
+          setLoading(false);
+          setProcessingStep(0);
+        }
+        return;
+      }
+
       // Otherwise, perform new classification
       if (!file && !text) return;
 
       setLoading(true);
       setError(null);
+      setProcessingStep(0);
 
       try {
         let result: ClassificationResult;
         let textContent = "";
 
+        // Step 1: Loading
+        setProcessingStep(1);
+
         // Handle text mode
         if (mode === "text" && text) {
           textContent = text;
           setDocumentText(textContent);
+          setProcessingStep(2);
           result = await classifyText(textContent);
         }
         // Handle file mode
         else if (file) {
+          setProcessingStep(2);
           result = await classifyFile(file);
 
           // Use extracted text from backend if available (PDF case)
@@ -156,6 +247,11 @@ export function ClassificationWorkspace({
         } else {
           throw new Error("No file or text provided");
         }
+
+        // Step 3 & 4: Segmentation and analysis (backend handles both)
+        setProcessingStep(3);
+        await new Promise((resolve) => setTimeout(resolve, 200));
+        setProcessingStep(4);
 
         // Normalize risk values to lowercase for UI consistency
         const normalizedClauses: NormalizedClause[] = result.clauses.map(
@@ -182,11 +278,12 @@ export function ClassificationWorkspace({
         );
       } finally {
         setLoading(false);
+        setProcessingStep(0);
       }
     };
 
     loadClassification();
-  }, [file, text, mode, existingResult]);
+  }, [file, text, mode, uploadedFilename, existingResult, onComplete]);
 
   const handleClauseClick = (clause: NormalizedClause) => {
     setSelectedClause(clause);
@@ -502,7 +599,7 @@ export function ClassificationWorkspace({
     return <div className="whitespace-pre-wrap leading-relaxed">{parts}</div>;
   };
 
-  // Show loading state
+  // Show loading state with progress indicators
   if (loading) {
     return (
       <div className="space-y-6">
@@ -514,19 +611,90 @@ export function ClassificationWorkspace({
             Analyzing Document...
           </h2>
         </div>
-        <Card>
-          <CardContent className="p-12 flex flex-col items-center justify-center">
-            <Loader2 className="w-12 h-12 text-accent animate-spin mb-4" />
-            <p className="text-lg font-medium text-foreground mb-2">
-              Classification in progress
-            </p>
-            <p className="text-sm text-muted-foreground text-center">
-              Stage 1: Clause Segmentation (BIO Tagging)
-              <br />
-              Stage 2: Risk Classification
-            </p>
-          </CardContent>
-        </Card>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-2">
+            <Card>
+              <CardContent className="p-12 flex flex-col items-center justify-center">
+                <Loader2 className="w-12 h-12 text-accent animate-spin mb-4" />
+                <p className="text-lg font-medium text-foreground mb-2">
+                  Classification in progress
+                </p>
+                <p className="text-sm text-muted-foreground text-center">
+                  Please wait while we analyze your document...
+                </p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Processing Steps Sidebar */}
+          <div className="md:col-span-1">
+            <Card>
+              <CardHeader>
+                <CardTitle className="text-lg">Processing</CardTitle>
+                <p className="text-sm text-muted-foreground">
+                  Classification steps
+                </p>
+              </CardHeader>
+              <CardContent>
+                <div className="relative">
+                  {classificationSteps.map((step, index) => {
+                    const stepNum = index + 1;
+                    const isComplete = processingStep > stepNum;
+                    const isCurrent = processingStep === stepNum;
+                    const isLast = index === classificationSteps.length - 1;
+                    return (
+                      <div
+                        key={step.id}
+                        className="flex items-start gap-3 relative"
+                      >
+                        <div className="flex flex-col items-center">
+                          <div
+                            className={`w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 z-10 ${
+                              isComplete
+                                ? "bg-green-500 text-white"
+                                : isCurrent
+                                  ? "bg-accent text-accent-foreground"
+                                  : "bg-muted text-muted-foreground"
+                            }`}
+                          >
+                            {isComplete ? (
+                              <CheckCircle2 className="w-4 h-4" />
+                            ) : isCurrent ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <span className="text-xs">{stepNum}</span>
+                            )}
+                          </div>
+                          {!isLast && (
+                            <div
+                              className={`w-0.5 h-8 mt-1 ${
+                                isComplete ? "bg-green-500" : "bg-muted"
+                              }`}
+                            />
+                          )}
+                        </div>
+                        <div className="pb-6">
+                          <p
+                            className={`text-sm font-medium ${
+                              isComplete || isCurrent
+                                ? "text-foreground"
+                                : "text-muted-foreground"
+                            }`}
+                          >
+                            {step.label}
+                          </p>
+                          <p className="text-xs text-muted-foreground">
+                            {step.description}
+                          </p>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+        </div>
       </div>
     );
   }

@@ -191,6 +191,52 @@ export async function classifyFile(file: File): Promise<ClassificationResult> {
   return res.json();
 }
 
+export async function listUploadedPdfs(): Promise<{
+  success: boolean;
+  files: Array<{
+    filename: string;
+    size: number;
+    modified: number;
+    path: string;
+  }>;
+}> {
+  const url = `${CLASSIFICATION_API_BASE}/list-uploaded-pdfs`;
+  const res = await fetch(url, {
+    method: "GET",
+  });
+
+  if (!res.ok) {
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Failed to list uploaded PDFs" }));
+    throw new Error(error.detail || "Failed to list uploaded PDFs");
+  }
+
+  return res.json();
+}
+
+export async function classifyUploadedFile(
+  filename: string,
+): Promise<ClassificationResult> {
+  const url = `${CLASSIFICATION_API_BASE}/classify/uploaded-file`;
+  const formData = new FormData();
+  formData.append("filename", filename);
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!res.ok) {
+    const error = await res
+      .json()
+      .catch(() => ({ detail: "Classification failed" }));
+    throw new Error(error.detail || "Classification failed");
+  }
+
+  return res.json();
+}
+
 export async function checkClassificationHealth(): Promise<{
   status: string;
   models_loaded: boolean;
@@ -220,8 +266,8 @@ export interface PredictionSuggestion {
   position: string;
   status: "pending" | "accepted" | "edited" | "rejected";
   // NEW: Position-based insertion data from OpenAI
-  anchor_text?: string;            // The exact text from document where to insert
-  insertion_position?: "before" | "after" | "end";  // Position relative to anchor
+  anchor_text?: string; // The exact text from document where to insert
+  insertion_position?: "before" | "after" | "end"; // Position relative to anchor
 }
 
 export interface PredictionResult {
@@ -503,6 +549,10 @@ export interface ActSearchResponse {
   message?: string;
 }
 
+export interface KeywordSearchResponse {
+  results: string[];
+}
+
 const createCaseNodesFromTreatments = (
   filename: string,
   treatments: ActTreatmentResult[],
@@ -513,8 +563,8 @@ const createCaseNodesFromTreatments = (
   treatments.forEach((t, index) => {
     if (!actMap.has(t.act)) {
       // Extract file_id from filename (remove .pdf)
-      const fileId = filename.replace('.pdf', '');
-      
+      const fileId = filename.replace(".pdf", "");
+
       actMap.set(t.act, {
         id: `act-${index}`,
         title: t.act,
@@ -523,15 +573,17 @@ const createCaseNodesFromTreatments = (
         citations: 0,
         citedBy: 0,
         isCentral: index === 0,
-        source: 'current',
-        filename: filename,  // Use the full filename with .pdf
+        source: "current",
+        filename: filename, // Use the full filename with .pdf
         file_id: fileId,
         case_title: fileId,
-        acts: [{
-          act: t.act,
-          treatment: t.treatment as any,
-          confidence: t.confidence
-        }]
+        acts: [
+          {
+            act: t.act,
+            treatment: t.treatment as any,
+            confidence: t.confidence,
+          },
+        ],
       });
     }
   });
@@ -764,27 +816,28 @@ export function convertSearchResultsToCaseNodes(
     citations: 0,
     citedBy: 0,
     isCentral: true,
-    source: 'current',
+    source: "current",
     filename: undefined,
-    acts: []
+    acts: [],
   };
   nodes.push(mainNode);
 
   // Create nodes for each similar act found
   searchResults.forEach((result, index) => {
     const nodeId = `act-${index + 1}`;
-    const nodeTitle = result.file_id || result.filename || result.case_title || result.act_name;
-    
+    const nodeTitle =
+      result.file_id || result.filename || result.case_title || result.act_name;
+
     // Construct the full filename with .pdf extension
     // If file_id exists but filename is empty, create filename from file_id
     let fullFilename = result.filename;
     if (!fullFilename && result.file_id) {
       // Ensure file_id ends with .pdf
-      fullFilename = result.file_id.endsWith('.pdf') 
-        ? result.file_id 
+      fullFilename = result.file_id.endsWith(".pdf")
+        ? result.file_id
         : `${result.file_id}.pdf`;
     }
-    
+
     const node: CaseNode = {
       id: nodeId,
       title: nodeTitle,
@@ -795,18 +848,20 @@ export function convertSearchResultsToCaseNodes(
       isCentral: false,
       source: "database",
       file_id: result.file_id,
-      filename: fullFilename,  // Use the constructed filename
+      filename: fullFilename, // Use the constructed filename
       case_title: result.case_title,
-      acts: [{
-        act: result.act_name,
-        treatment: result.treatment as any,
-        confidence: result.confidence,
-        act_id: result.act_id,
-        context_preview: result.context_preview,
-        case_title: result.case_title,
-        filename: fullFilename,  // Also set in the act treatment
-        file_id: result.file_id
-      }]
+      acts: [
+        {
+          act: result.act_name,
+          treatment: result.treatment as any,
+          confidence: result.confidence,
+          act_id: result.act_id,
+          context_preview: result.context_preview,
+          case_title: result.case_title,
+          filename: fullFilename, // Also set in the act treatment
+          file_id: result.file_id,
+        },
+      ],
     };
     nodes.push(node);
   });
@@ -868,9 +923,12 @@ export async function searchExactAct(
 
 export async function downloadJudgmentPDF(filename: string): Promise<Blob> {
   try {
-    const response = await fetch(`${API_BASE}/api/lineage/download-judgment/${encodeURIComponent(filename)}`, {
-      method: 'GET',
-    });
+    const response = await fetch(
+      `${API_BASE}/api/lineage/download-judgment/${encodeURIComponent(filename)}`,
+      {
+        method: "GET",
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to download PDF: ${response.statusText}`);
@@ -878,16 +936,19 @@ export async function downloadJudgmentPDF(filename: string): Promise<Blob> {
 
     return await response.blob();
   } catch (error) {
-    console.error('Error downloading PDF:', error);
+    console.error("Error downloading PDF:", error);
     throw error;
   }
 }
 
 export async function downloadJudgmentText(filename: string): Promise<string> {
   try {
-    const response = await fetch(`${API_BASE}/api/lineage/download-judgment-text/${encodeURIComponent(filename)}`, {
-      method: 'GET',
-    });
+    const response = await fetch(
+      `${API_BASE}/api/lineage/download-judgment-text/${encodeURIComponent(filename)}`,
+      {
+        method: "GET",
+      },
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to download text: ${response.statusText}`);
@@ -895,7 +956,7 @@ export async function downloadJudgmentText(filename: string): Promise<string> {
 
     return await response.text();
   } catch (error) {
-    console.error('Error downloading text:', error);
+    console.error("Error downloading text:", error);
     throw error;
   }
 }
@@ -909,6 +970,28 @@ export async function listUploadedFiles(): Promise<string[]> {
     return await response.json();
   } catch (error) {
     console.error("Error listing uploaded files:", error);
+    return [];
+  }
+}
+
+export async function searchActsByKeyword(keyword: string): Promise<string[]> {
+  try {
+    const response = await fetch(`${API_BASE}/api/lineage/search-acts-by-keyword`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ keyword }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to search acts: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    return data.results || [];
+  } catch (error) {
+    console.error('Error searching acts by keyword:', error);
     return [];
   }
 }
@@ -1261,10 +1344,18 @@ export interface UploadedFile {
 /** Extract text from a file already saved in the backend uploads folder. */
 export async function extractFromSaved(
   filename: string,
-): Promise<{ success: boolean; full_text?: string; preview?: string; error?: string }> {
+): Promise<{
+  success: boolean;
+  full_text?: string;
+  preview?: string;
+  error?: string;
+}> {
   const fd = new FormData();
   fd.append("filename", filename);
-  const res = await fetch(`${T_BASE}/extract-saved`, { method: "POST", body: fd });
+  const res = await fetch(`${T_BASE}/extract-saved`, {
+    method: "POST",
+    body: fd,
+  });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: "Extraction failed" }));
     return { success: false, error: err.error || "Extraction failed" };
@@ -1290,9 +1381,14 @@ export async function translateFromSaved(
   fd.append("filename", filename);
   fd.append("source_language", sourceLanguage);
   fd.append("target_language", targetLanguage);
-  const res = await fetch(`${T_BASE}/document-from-saved`, { method: "POST", body: fd });
+  const res = await fetch(`${T_BASE}/document-from-saved`, {
+    method: "POST",
+    body: fd,
+  });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ detail: "Translation failed" }));
+    const err = await res
+      .json()
+      .catch(() => ({ detail: "Translation failed" }));
     throw new Error(err.detail || "Translation failed");
   }
   return res.json();

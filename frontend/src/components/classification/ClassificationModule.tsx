@@ -23,6 +23,7 @@ export function ClassificationModule() {
   const [classificationResult, setClassificationResult] =
     useState<ClassificationResult | null>(null);
   const [filename, setFilename] = useState<string>("");
+  const [uploadedFilename, setUploadedFilename] = useState<string>("");
   const [activeTab, setActiveTab] = useState("classify");
   const { loadClassification, recentClassifications } = useClassification();
 
@@ -41,6 +42,15 @@ export function ClassificationModule() {
   const handleProceed = (data: UploadData) => {
     setUploadData(data);
     setFilename(data.file?.name || "Manual Text Input");
+    setUploadedFilename("");
+    setClassificationResult(null);
+    setCurrentView("workspace");
+  };
+
+  const handleProcessUploaded = (selectedFilename: string) => {
+    setFilename(selectedFilename);
+    setUploadedFilename(selectedFilename);
+    setUploadData(null);
     setClassificationResult(null);
     setCurrentView("workspace");
   };
@@ -56,6 +66,7 @@ export function ClassificationModule() {
     setUploadData(null);
     setClassificationResult(null);
     setFilename("");
+    setUploadedFilename("");
   };
 
   const handleCancel = () => {
@@ -63,6 +74,7 @@ export function ClassificationModule() {
     setUploadData(null);
     setClassificationResult(null);
     setFilename("");
+    setUploadedFilename("");
   };
 
   // ── Entry view with tabs
@@ -89,6 +101,7 @@ export function ClassificationModule() {
             <ClassificationEntry
               onStartNew={handleStartNew}
               onSelectRecent={handleSelectRecent}
+              onProcessUploaded={handleProcessUploaded}
               showRecentSection={false}
             />
           </TabsContent>
@@ -97,6 +110,7 @@ export function ClassificationModule() {
             <ClassificationEntry
               onStartNew={handleStartNew}
               onSelectRecent={handleSelectRecent}
+              onProcessUploaded={handleProcessUploaded}
               showRecentSection={true}
             />
           </TabsContent>
@@ -126,6 +140,7 @@ export function ClassificationModule() {
         file={uploadData?.file}
         text={uploadData?.text}
         mode={uploadData?.mode}
+        uploadedFilename={uploadedFilename}
         existingResult={classificationResult}
         filename={filename}
         onComplete={handleClassificationComplete}

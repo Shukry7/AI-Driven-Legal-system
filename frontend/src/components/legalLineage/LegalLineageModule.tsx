@@ -5,17 +5,18 @@ import ErrorBoundary from './ErrorBoundry';
 import CaseDetailsPanel from './CaseDetailsPanel';
 import FileSelectionDialog from './FileSelectionDialog';
 import ImportDialog from './ImportDialog';
-import { 
-  analyzeAct, 
+import {
+  analyzeAct,
   uploadAndAnalyzeLineage,
   convertSearchResultsToCaseNodes,
   createEdgesFromSearchResults,
   type ActSearchResultItem,
   searchExactAct,
-  listUploadedFiles
+  listUploadedFiles,
+  searchActsByKeyword
 } from '@/config/api';
 import type { CaseNode, ActTreatment } from '@/config/api';
-import { 
+import {
   FileText,
   Layers,
   Download,
@@ -34,10 +35,11 @@ import {
   XCircle,
   FolderOpen,
   FileUp,
-  GitGraph
+  GitGraph,
+  Search,
+  X
 } from 'lucide-react';
 import { Button } from '../ui/button';
-
 export default function LegalLineageModule() {
   const [selectedAct, setSelectedAct] = useState<CaseNode | null>(null);
   const [actsList, setActsList] = useState<CaseNode[]>([]);
@@ -50,16 +52,19 @@ export default function LegalLineageModule() {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
   const [searchResults, setSearchResults] = useState<ActSearchResultItem[]>([]);
   const [availableFiles, setAvailableFiles] = useState<string[]>([]);
-  
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
+  const [showSuggestions, setShowSuggestions] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+ 
   // Dialog states
   const [showFileSelection, setShowFileSelection] = useState(false);
   const [showImportDialog, setShowImportDialog] = useState(false);
-
   // Check for available files in uploads folder on component mount
   useEffect(() => {
     checkAvailableFiles();
   }, []);
-
   // Function to check available files
   const checkAvailableFiles = async () => {
     try {
@@ -69,12 +74,11 @@ export default function LegalLineageModule() {
       console.error('Error checking available files:', error);
     }
   };
-
   // Function to handle Process button click
   const handleProcessClick = async () => {
     const files = await listUploadedFiles();
     setAvailableFiles(files);
-    
+   
     if (files.length === 0) {
       toast.warning('No files available', {
         position: 'top-right',
@@ -83,7 +87,7 @@ export default function LegalLineageModule() {
       });
       return;
     }
-    
+   
     if (files.length === 1) {
       // Auto-process the single file
       await handleProcessPDF(files[0]);
@@ -92,16 +96,15 @@ export default function LegalLineageModule() {
       setShowFileSelection(true);
     }
   };
-
   // Function to process selected PDF
   async function handleProcessPDF(filename: string) {
     setProcessing(true);
     setView('table');
-    
+   
     const toastId = toast.loading('Processing PDF file...', {
       description: `Analyzing ${filename}`,
     });
-    
+   
     try {
       const result = await analyzeAct(filename);
       setActsList(result.nodes);
@@ -110,7 +113,7 @@ export default function LegalLineageModule() {
       setGraphNodes([]);
       setGraphEdges([]);
       setSearchResults([]);
-      
+     
       toast.success('PDF processed successfully!', {
         position: 'top-right',
         id: toastId,
@@ -129,17 +132,14 @@ export default function LegalLineageModule() {
       setProcessing(false);
     }
   }
-
   // Function to handle file upload
   async function handleFileUpload(file: File) {
     setUploadedFile(file);
     setProcessing(true);
     setView('table');
-
     const toastId = toast.loading('Uploading and analyzing file...', {
       description: file.name,
     });
-
     try {
       const result = await uploadAndAnalyzeLineage(file);
       setActsList(result.nodes);
@@ -148,10 +148,10 @@ export default function LegalLineageModule() {
       setGraphNodes([]);
       setGraphEdges([]);
       setSearchResults([]);
-      
+     
       // Refresh available files list
       await checkAvailableFiles();
-      
+     
       toast.success('File uploaded and analyzed successfully!', {
         position: 'top-right',
         id: toastId,
@@ -170,7 +170,6 @@ export default function LegalLineageModule() {
       setProcessing(false);
     }
   }
-
   // Handle Google Drive import (placeholder)
   const handleDriveImport = () => {
     toast.info('Google Drive integration coming soon', {
@@ -179,7 +178,6 @@ export default function LegalLineageModule() {
     });
     setShowImportDialog(false);
   };
-
   // Handle link import (placeholder)
   const handleLinkImport = () => {
     toast.info('Link import coming soon', {
@@ -188,30 +186,29 @@ export default function LegalLineageModule() {
     });
     setShowImportDialog(false);
   };
-
   // Handle viewing a specific act in the graph
   async function handleViewAct(act: CaseNode) {
     setSelectedAct(act);
     setSearchLoading(true);
-    
+   
     const toastId = toast.loading('Searching for similar acts...', {
       position: 'top-right',
       description: `Looking for "${act.title}" in database`,
     });
-    
+   
     try {
       // Use EXACT search only - no fuzzy matching
       const searchResponse = await searchExactAct(act.title);
       setSearchResults(searchResponse.results);
-      
+     
       // Convert search results to graph nodes and edges
       const nodes = convertSearchResultsToCaseNodes(searchResponse.results, act.title);
       const edges = createEdgesFromSearchResults(act.title, searchResponse.results, nodes);
-      
+     
       setGraphNodes(nodes);
       setGraphEdges(edges);
       setView('map');
-      
+     
       if (searchResponse.results.length > 0) {
         toast.success(`Found ${searchResponse.results.length} similar acts`, {
           position: 'top-right',
@@ -229,12 +226,12 @@ export default function LegalLineageModule() {
       }
     } catch (error: any) {
       console.error('Error searching for exact act:', error);
-      
+     
       // Fallback to single node view if search fails
       setGraphNodes([act]);
       setGraphEdges([]);
       setView('map');
-      
+     
       toast.error('Failed to search for similar acts', {
         position: 'top-right',
         id: toastId,
@@ -245,7 +242,6 @@ export default function LegalLineageModule() {
       setSearchLoading(false);
     }
   }
-
   // Handle clicking on a graph node
   function handleNodeSelect(node: CaseNode) {
     setSelectedAct(node);
@@ -255,7 +251,6 @@ export default function LegalLineageModule() {
       duration: 2000,
     });
   }
-
   // Handle export graph
   function handleExportGraph() {
     try {
@@ -272,7 +267,66 @@ export default function LegalLineageModule() {
       });
     }
   }
-
+  const handleSearchInput = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const value = e.target.value;
+    setSearchQuery(value);
+   
+    // Clear previous timeout
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+   
+    if (value.length < 2) {
+      setShowSuggestions(false);
+      setSearchSuggestions([]);
+      return;
+    }
+   
+    // Debounce search
+    searchTimeoutRef.current = setTimeout(async () => {
+      setSearching(true);
+      try {
+        const results = await searchActsByKeyword(value);
+        setSearchSuggestions(results);
+        setShowSuggestions(results.length > 0);
+      } catch (error) {
+        console.error('Error searching:', error);
+      } finally {
+        setSearching(false);
+      }
+    }, 500);
+  };
+  // Handle suggestion click
+  const handleSuggestionClick = async (actName: string) => {
+    setSearchQuery(actName);
+    setShowSuggestions(false);
+   
+    // Create a temporary CaseNode for the selected act
+    const tempAct: CaseNode = {
+      id: `search-${Date.now()}`,
+      title: actName,
+      year: undefined,
+      summary: `Selected act: ${actName}`,
+      citations: 0,
+      citedBy: 0,
+      isCentral: true,
+      source: 'current',
+      acts: [{
+        act: actName,
+        treatment: 'APPLIED' as any,
+        confidence: 1.0
+      }]
+    };
+   
+    // Use the existing handleViewAct function
+    await handleViewAct(tempAct);
+  };
+  // Clear search
+  const clearSearch = () => {
+    setSearchQuery('');
+    setShowSuggestions(false);
+    setSearchSuggestions([]);
+  };
   // Get treatment color class
   const getTreatmentColor = (treatment?: string) => {
     switch (treatment) {
@@ -283,7 +337,6 @@ export default function LegalLineageModule() {
       default: return 'bg-slate-100 text-slate-700';
     }
   };
-
   return (
     <div className="min-h-screen bg-bg-primary">
       {/* Dialogs */}
@@ -294,7 +347,6 @@ export default function LegalLineageModule() {
         onSelect={handleProcessPDF}
         title="Select a PDF file to process"
       />
-
       <ImportDialog
         isOpen={showImportDialog}
         onClose={() => setShowImportDialog(false)}
@@ -302,10 +354,9 @@ export default function LegalLineageModule() {
         onDriveImport={handleDriveImport}
         onLinkImport={handleLinkImport}
       />
-
       <div className="relative z-10 max-w-7xl mx-auto p-6">
         {/* Hero Section */}
-        <div className="mb-8 p-8 rounded-2xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg shadow-blue-100/30">
+        <div className="mb-8 p-8 rounded-2xl bg-white/70 backdrop-blur-xl border border-white/50 shadow-lg shadow-blue-100/30 relative z-20">
           <div className="flex items-center gap-3 mb-4">
             <Button className="p-3 rounded-xl">
               <GitGraph className="w-5 text-white" />
@@ -315,6 +366,92 @@ export default function LegalLineageModule() {
                 Legal Lineage Visualization
               </h1>
               <p className="text-slate-600 mt-1">Analyze act treatments and find similar cases</p>
+            </div>
+          </div>
+          {/* Search Bar Section */}
+          <div className="mt-2 mb-4">
+            <div className="relative">
+              <div className="relative flex items-center">
+                <Search className="absolute left-4 w-5 h-5 text-gray-500 z-10" />
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={handleSearchInput}
+                  placeholder="Search for acts by keyword (e.g., '1968', 'Companies Act')..."
+                  className="w-lvw pl-12 pr-10 py-2 bg-white/90 backdrop-blur-sm border-2 border-gray-300 rounded-xl focus:outline-none focus:ring-1 focus:border-primary/50 transition-all duration-200 text-slate-700 placeholder-slate-400 placeholder:font-serif"
+                />
+                {searchQuery && (
+                  <button
+                    onClick={clearSearch}
+                    className="absolute right-4 p-1 hover:bg-slate-100 rounded-full transition-colors"
+                  >
+                    <X className="w-4 h-4 text-slate-400 hover:text-slate-600" />
+                  </button>
+                )}
+                {searching && (
+                  <Loader2 className="absolute right-12 w-4 h-4 text-indigo-500 animate-spin" />
+                )}
+              </div>
+             
+              {/* Suggestions Dropdown */}
+              {showSuggestions && searchSuggestions.length > 0 && (
+                <div className="absolute mt-2 w-full bg-white/95 backdrop-blur-sm border border-slate-200 rounded-xl shadow-xl max-h-80 overflow-y-auto z-50">
+                  {searchSuggestions.map((suggestion, index) => (
+                    <button
+                      key={index}
+                      onClick={() => handleSuggestionClick(suggestion)}
+                      className="w-full text-left px-4 py-3 hover:bg-gradient-to-r hover:from-indigo-50 hover:to-teal-50/50 transition-colors border-b border-slate-100 last:border-0 group"
+                    >
+                      <div className="flex items-center gap-3">
+                        <div className="p-1.5 bg-gradient-to-r from-indigo-100 to-teal-100 rounded-lg group-hover:scale-110 transition-transform">
+                          <FileText className="w-4 h-4 text-indigo-600" />
+                        </div>
+                        <span className="text-sm font-medium text-slate-700 group-hover:text-indigo-700">
+                          {suggestion}
+                        </span>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+           
+            {/* Optional: Show result count */}
+            {searchSuggestions.length > 0 && (
+              <p className="mt-2 text-xs text-slate-500">
+                Found {searchSuggestions.length} matching act{searchSuggestions.length !== 1 ? 's' : ''}
+              </p>
+            )}
+          </div>
+          
+          {/* Quick Action Buttons */}
+          <div className="mt-2 mb-4">
+            <p className="text-sm text-slate-600 mb-2">Try on your own: </p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => handleSuggestionClick("Act No. 19 of 2006")}
+                className="px-3 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-teal-50 hover:from-indigo-100 hover:to-teal-100 text-indigo-700 rounded-full border border-indigo-200 transition-all duration-200"
+              >
+                Act No. 19 of 2006
+              </button>
+              <button
+                onClick={() => handleSuggestionClick("Companies Act No. 07 of 2007")}
+                className="px-3 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-teal-50 hover:from-indigo-100 hover:to-teal-100 text-indigo-700 rounded-full border border-indigo-200 transition-all duration-200"
+              >
+                Companies Act No. 07 of 2007
+              </button>
+              <button
+                onClick={() => handleSuggestionClick("Banking Act No. 30 of 1988")}
+                className="px-3 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-teal-50 hover:from-indigo-100 hover:to-teal-100 text-indigo-700 rounded-full border border-indigo-200 transition-all duration-200"
+              >
+                Banking Act No. 30 of 1988
+              </button>
+              <button
+                onClick={() => handleSuggestionClick("Finance Leasing Act No. 56 of 2000")}
+                className="px-3 py-1.5 text-xs bg-gradient-to-r from-indigo-50 to-teal-50 hover:from-indigo-100 hover:to-teal-100 text-indigo-700 rounded-full border border-indigo-200 transition-all duration-200"
+              >
+                Finance Leasing Act No. 56 of 2000
+              </button>
             </div>
           </div>
 
@@ -338,7 +475,6 @@ export default function LegalLineageModule() {
                 </>
               )}
             </Button>
-
             {/* Import file button */}
             <Button
               onClick={() => setShowImportDialog(true)}
@@ -358,7 +494,6 @@ export default function LegalLineageModule() {
               )}
             </Button>
           </div>
-
           {processedFilename && !processing && (
             <div className="mt-4 flex items-center justify-center gap-2 text-sm text-primary">
               <CircleCheckBig className="h-5 w-5 text-primary" />
@@ -369,7 +504,6 @@ export default function LegalLineageModule() {
             </div>
           )}
         </div>
-
         <div className="flex gap-6">
           {/* Main Content */}
           <div className="flex-1">
@@ -395,7 +529,6 @@ export default function LegalLineageModule() {
                 ))}
               </div>
             </div>
-
             {/* Processing Indicator */}
             {processing && (
               <div className="mb-6 p-6 bg-gradient-to-r from-indigo-50 to-teal-50/50 backdrop-blur-sm border border-indigo-100 rounded-2xl shadow-sm animate-pulse-subtle">
@@ -416,24 +549,23 @@ export default function LegalLineageModule() {
                       </div>
                     </div>
                     <p className="text-sm text-slate-600">
-                      {uploadedFile 
-                        ? `Uploading and analyzing: ${uploadedFile.name}...` 
+                      {uploadedFile
+                        ? `Uploading and analyzing: ${uploadedFile.name}...`
                         : 'Processing file...'}
                     </p>
                     <div className="mt-3 w-full h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                      <div 
-                        className="h-full bg-gradient-to-r from-violet-950 to-cyan-500" 
-                        style={{ 
+                      <div
+                        className="h-full bg-gradient-to-r from-violet-950 to-cyan-500"
+                        style={{
                           width: '100%',
                           animation: 'right 3s cubic-bezier(0.4, 0, 0.6, 1) infinite'
-                        }} 
+                        }}
                       />
                     </div>
                   </div>
                 </div>
               </div>
             )}
-
             {/* Acts Table View */}
             {view === 'table' && (
               <div className="bg-white/70 backdrop-blur-sm border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -450,7 +582,7 @@ export default function LegalLineageModule() {
                     </span>
                   )}
                 </div>
-                
+               
                 {actsList.length > 0 ? (
                   <div className="overflow-x-auto">
                     <table className="w-full">
@@ -467,7 +599,7 @@ export default function LegalLineageModule() {
                         {actsList.map((act) => {
                           const mainTreatment = act.acts?.[0];
                           const isLoading = searchLoading && selectedAct?.id === act.id;
-                          
+                         
                           return (
                             <tr
                               key={act.id}
@@ -492,7 +624,7 @@ export default function LegalLineageModule() {
                                 {mainTreatment && (
                                   <div className="flex items-center gap-2">
                                     <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
-                                      <div 
+                                      <div
                                         className="h-full bg-gradient-to-r from-primary to-cyan-800 rounded-full"
                                         style={{ width: `${mainTreatment.confidence * 100}%` }}
                                       />
@@ -533,7 +665,6 @@ export default function LegalLineageModule() {
                 )}
               </div>
             )}
-
             {/* Lineage Map View */}
             {view === 'map' && graphNodes.length > 0 && (
               <div className="bg-white/70 backdrop-blur-sm border border-slate-200 rounded-2xl p-6 shadow-sm">
@@ -551,23 +682,21 @@ export default function LegalLineageModule() {
                   )}
                 </div>
                 <ErrorBoundary>
-                  <LineageMap 
-                    nodes={graphNodes} 
-                    edges={graphEdges} 
-                    onSelectNode={handleNodeSelect} 
+                  <LineageMap
+                    nodes={graphNodes}
+                    edges={graphEdges}
+                    onSelectNode={handleNodeSelect}
                   />
                 </ErrorBoundary>
               </div>
             )}
           </div>
-
           {/* Sidebar */}
           <aside className="w-96 space-y-6">
             {/* Act Details */}
             <div className="bg-white/70 backdrop-blur-sm border border-slate-200 rounded-2xl overflow-hidden shadow-sm">
               <CaseDetailsPanel selected={selectedAct} />
             </div>
-
             {/* Quick Actions */}
             {actsList.length > 0 && (
               <div className="bg-white/70 backdrop-blur-sm border border-slate-200 rounded-2xl p-5 shadow-sm">
@@ -590,8 +719,8 @@ export default function LegalLineageModule() {
                       </div>
                     </div>
                   </button>
-                  
-                  <button 
+                 
+                  <button
                     onClick={() => {
                       toast.info('Share feature coming soon', {
                         position: 'top-right',
@@ -616,7 +745,6 @@ export default function LegalLineageModule() {
           </aside>
         </div>
       </div>
-
       {/* Custom CSS for animations */}
       <style>{`
         @keyframes pulse-subtle {

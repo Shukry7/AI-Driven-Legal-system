@@ -222,7 +222,7 @@ AI-Driven-Legal-system/
         │   │   └── Sidebar.tsx        # Navigation sidebar
         │   ├── clause/                # Clause detection feature (8 components)
         │   ├── translation/           # Translation feature (10 components)
-        │   ├── classification/        # Risk classification feature (4 components)
+        │   ├── classification/        # Risk classification feature (8 components)
         │   ├── legalLineage/          # Legal lineage map (7 components)
         │   └── ui/                    # 45+ shadcn/ui primitive components
         │
@@ -541,17 +541,19 @@ Returns the translated file as a binary download.
 
 ### Classification Endpoints
 
-| Method | Path                 | Description                                             |
-| ------ | -------------------- | ------------------------------------------------------- |
-| `GET`  | `/api/health`        | Model health check — reports load status and device     |
-| `POST` | `/api/classify/text` | Classify risk for raw JSON text input                   |
-| `POST` | `/api/classify/file` | Classify risk for an uploaded `.txt` file               |
-| `GET`  | `/api/`              | Built-in HTML test interface for the classification API |
+| Method | Path                                         | Description                                             |
+| ------ | -------------------------------------------- | ------------------------------------------------------- |
+| `GET`  | `/api/classification/health`                 | Model health check — reports load status and device     |
+| `POST` | `/api/classification/classify/text`          | Classify risk for raw JSON text input                   |
+| `POST` | `/api/classification/classify/file`          | Classify risk for an uploaded PDF or `.txt` file        |
+| `GET`  | `/api/classification/list-uploaded-pdfs`     | List all PDF files in the uploads directory             |
+| `POST` | `/api/classification/classify/uploaded-file` | Classify a PDF file already in the uploads directory    |
+| `GET`  | `/api/classification/`                       | Built-in HTML test interface for the classification API |
 
 ### Lineage Endpoints
 
 | Method | Path                                             | Description                                               |
-| ------ | --------------------                             | -------------------------------------------------------   |
+| ------ | ------------------------------------------------ | --------------------------------------------------------- |
 | `GET`  | `/api/health`                                    | Model health check — reports load status and device       |
 | `POST` | `/api/lineage/analyze-lineage`                   | Input `.pdf` file for act extraction                      |
 | `POST` | `/api/lineage/upload-and-analyze`                | Import file from local storage and extract acts           |
@@ -559,6 +561,7 @@ Returns the translated file as a binary download.
 | `GET`  | `/api/lineage/list-uploads`                      | List all uploaded files stored temporarily                |
 | `GET`  | `/api/lineage/download-judgment/{filename}`      | Download selected act specified judgment in `.pdf` format |
 | `GET`  | `/api/lineage/download-judgment-text/{filename}` | Download selected act specified judgment in `.txt` format |
+| `POST` | `/api/lineage/search-acts-by-keyword`            | Search for specific related matching acts to process      |
 
 #### `POST /api/classify/text`
 
@@ -597,11 +600,45 @@ Returns the translated file as a binary download.
 
 **Request:** `multipart/form-data`
 
-| Field  | Type   | Description               |
-| ------ | ------ | ------------------------- |
-| `file` | `file` | UTF-8 encoded `.txt` file |
+| Field  | Type   | Description                      |
+| ------ | ------ | -------------------------------- |
+| `file` | `file` | PDF or UTF-8 encoded `.txt` file |
 
 Returns the same structure as `/api/classify/text`.
+
+#### `GET /api/classification/list-uploaded-pdfs`
+
+Lists all PDF files currently in the uploads directory with metadata.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "files": [
+    {
+      "filename": "judgment.pdf",
+      "size": 245678,
+      "modified": 1704067200.0,
+      "path": "judgment.pdf"
+    }
+  ]
+}
+```
+
+#### `POST /api/classification/classify/uploaded-file`
+
+Classifies a PDF file that's already in the uploads directory without re-uploading.
+
+**Request:** `multipart/form-data`
+
+| Field      | Type     | Description                               |
+| ---------- | -------- | ----------------------------------------- |
+| `filename` | `string` | Name of the PDF file in uploads directory |
+
+**Response:**
+
+Returns the same structure as `/api/classify/text`, with the document text from the selected file.
 
 ---
 
@@ -620,7 +657,7 @@ Provides a multi-step workflow for uploading, analysing, reviewing, and finalisi
 | `ClauseSuggestions.tsx`    | Review, accept, or reject AI-generated clause suggestions     |
 | `ManualInputPanel.tsx`     | Paste raw text instead of uploading a PDF                     |
 | `ClauseContext.tsx`        | React Context — global state for the clause analysis session  |
-| `LegalLineageModule.tsx`        | React Context — global state for the clause analysis session  |
+| `LegalLineageModule.tsx`   | React Context — global state for the clause analysis session  |
 | `mock-clauses-data.ts`     | Typed mock data for development and testing                   |
 
 **State managed via `ClauseContext`:**
@@ -653,14 +690,25 @@ Asynchronous document translation with real-time progress and glossary lookup.
 
 ### 3. Classification Module (`src/components/classification/`)
 
-Paste or upload text to receive AI-powered legal risk classification.
+Paste or upload text to receive AI-powered legal risk classification. Supports processing files from the uploads directory with real-time progress indicators.
 
-| Component                          | Role                                          |
-| ---------------------------------- | --------------------------------------------- |
-| `ClassificationEntry.tsx`          | Input selector (text vs. file upload)         |
-| `ClassificationDocumentUpload.tsx` | `.txt` file upload handler                    |
-| `ClassificationWorkspace.tsx`      | Results view with risk badges and key factors |
-| `ClassificationModule.tsx`         | Top-level module container and orchestrator   |
+| Component                          | Role                                                                         |
+| ---------------------------------- | ---------------------------------------------------------------------------- |
+| `ClassificationEntry.tsx`          | Input selector with "Upload & Classify" and "Process Uploaded Files" buttons |
+| `ClassificationDocumentUpload.tsx` | `.txt` and PDF file upload handler                                           |
+| `ClassificationWorkspace.tsx`      | Results view with risk badges, key factors, and 4-step progress indicator    |
+| `ClassificationModule.tsx`         | Top-level module container and orchestrator                                  |
+| `ClassificationModelInsights.tsx`  | Model performance metrics and training configuration details                 |
+| `UploadedFilesDialog.tsx`          | Dialog to browse and select PDF files from uploads directory                 |
+| `ClassificationSummary.tsx`        | Final summary with export options                                            |
+| `ClassificationContext.tsx`        | React Context for managing classification state                              |
+
+**Processing Steps (shown in workspace):**
+
+1. **Loading File** — Reading document from server
+2. **Text Extraction** — Extracting text content
+3. **Clause Segmentation** — Identifying individual clauses
+4. **Risk Analysis** — Analyzing legal risk factors
 
 ---
 
@@ -684,12 +732,12 @@ Visualises the citation network and precedent relationships between cases.
 
 Paste or upload text to receive AI-powered legal risk classification.
 
-| Component                          | Role                                          |
-| ---------------------------------- | --------------------------------------------- |
-| `CaseDetailsPanel.tsx`             | Show case act related information             |
-| `LegalLineageModule.tsx`           | file upload handler                           |
-| `LineageMap.tsx`                   | Map with acts and relationships view          |
-| `ImportDialog.tsx`                 | Import files via upload                       |
+| Component                | Role                                 |
+| ------------------------ | ------------------------------------ |
+| `CaseDetailsPanel.tsx`   | Show case act related information    |
+| `LegalLineageModule.tsx` | file upload handler                  |
+| `LineageMap.tsx`         | Map with acts and relationships view |
+| `ImportDialog.tsx`       | Import files via upload              |
 
 ---
 

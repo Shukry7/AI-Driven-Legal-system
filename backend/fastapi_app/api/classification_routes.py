@@ -812,3 +812,111 @@ async def export_classification(result_id: str, format: str):
     except Exception as e:
         logger.error(f"Error exporting classification: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# Define uploads directory
+UPLOADS_DIR = Path(backend_path) / "uploads"
+UPLOADS_DIR.mkdir(exist_ok=True)
+
+
+@router.get("/list-uploaded-pdfs")
+async def list_uploaded_pdfs():
+    """
+    List all PDF files in the uploads directory.
+    
+    Returns:
+        List of PDF files with metadata (filename, size, modified timestamp).
+    """
+    try:
+        UPLOADS_DIR.mkdir(exist_ok=True)
+        
+        pdf_files = []
+        for pdf_path in UPLOADS_DIR.glob("*.pdf"):
+            try:
+                stat = pdf_path.stat()
+                pdf_files.append({
+                    "filename": pdf_path.name,
+                    "size": stat.st_size,
+                    "modified": stat.st_mtime,
+                    "path": str(pdf_path.name)
+                })
+            except Exception as e:
+                logger.warning(f"Error reading {pdf_path}: {e}")
+                continue
+        
+        # Sort by modified time descending (newest first)
+        pdf_files.sort(key=lambda x: x["modified"], reverse=True)
+        
+        return JSONResponse(content={
+            "success": True,
+            "files": pdf_files
+        })
+    
+    except Exception as e:
+        logger.error(f"Error listing uploaded PDFs: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/classify/uploaded-file")
+async def classify_uploaded_file(filename: str = Form(...)):
+    """
+    Classify a PDF file that's already in the uploads directory.
+    
+    Args:
+        filename: Name of the PDF file in uploads directory
+    
+    Returns:
+        Classification result with clauses and risk analysis
+    """
+    try:
+        # Verify file exists and is within uploads directory
+        file_path = UPLOADS_DIR / filename
+        
+        if not file_path.exists():
+            raise HTTPException(status_code=404, detail=f"File not found: {filename}")
+        
+        if not file_path.suffix.lower() == '.pdf':
+            raise HTTPException(status_code=400, detail="Only PDF files are supported")
+        
+        # Read PDF file
+        with open(file_path, 'rb') as f:
+            pdf_data = f.read()
+        
+        # Extract text from PDF
+        logger.info(f"Extracting text from uploaded file: {filename}")
+        ok, raw_text = pdf_bytes_to_text(pdf_data)
+        
+        if not ok:
+            raise HTTPException(
+                status_code=500,
+                detail=f"PDF extraction failed: {raw_text}"
+            )
+        
+        # Strip formatting markers (same as file upload does)
+        text = re.sub(r"<<F:[^>]+>>", "", raw_text)
+        text = re.sub(r"<</F>>", "", text)
+        text = re.sub(r"<<BOLD>>|<</BOLD>>", "", text)
+        
+        logger.info(f"Successfully extracted {len(text)} characters from PDF")
+        
+        if not text or not text.strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Could not extract text from PDF. The document might be empty or image-based."
+            )
+        
+        # Classify the text
+        logger.info(f"Classifying uploaded file: {filename}")
+        result = classifier.analyze_text(text)
+        
+        # Add filename and document text to result
+        result["filename"] = filename
+        result["document_text"] = text
+        
+        return JSONResponse(content=result)
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error classifying uploaded file: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
