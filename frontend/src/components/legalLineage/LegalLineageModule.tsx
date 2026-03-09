@@ -493,7 +493,7 @@ export default function LegalLineageModule() {
                                   <div className="flex items-center gap-2">
                                     <div className="w-16 h-1.5 bg-slate-200 rounded-full overflow-hidden">
                                       <div 
-                                        className="h-full bg-gradient-to-r from-primary to-cyan-800"
+                                        className="h-full bg-gradient-to-r from-primary to-cyan-800 rounded-full"
                                         style={{ width: `${mainTreatment.confidence * 100}%` }}
                                       />
                                     </div>
@@ -543,10 +543,6 @@ export default function LegalLineageModule() {
                       <Layers className="w-5 h-5 text-indigo-500" />
                       Act Lineage: {selectedAct?.title}
                     </h3>
-                    <div className="flex items-center gap-2 text-sm text-slate-500">
-                      <Eye className="w-4 h-4" />
-                      <span>{graphNodes.length - 1} similar acts found</span>
-                    </div>
                   </div>
                   {searchResults.length > 0 && (
                     <p className="text-xs text-slate-500 mt-1">
