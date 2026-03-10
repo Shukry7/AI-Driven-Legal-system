@@ -596,9 +596,41 @@ class LegalRiskClassifier:
                 else:
                     final_clauses.append(clause)
         
-        logger.info(f"Hybrid segmentation: {len(ml_clauses)} ML clauses → {len(filled_clauses)} after filling gaps → {len(final_clauses)} after merging")
-        
-        return final_clauses if final_clauses else [{"text": text, "start": 0, "end": len(text)}]
+        # Step 7: Split long clauses on numbered sub-questions / lettered sub-clauses
+        # e.g. "(i) Did ...", "(ii) Did ...", "(a) ...", "(b) ..."
+        # This prevents very long clauses from exceeding Legal-BERT's 512-token limit
+        # and gives each legal question its own risk score.
+        split_clauses = []
+        # Matches (i), (ii), (iii), (iv), (a), (b), (c), (1), (2) at clause boundaries
+        _sub_pat = re.compile(r'(?<!\w)(\([ivxlcdmIVXLCDM]{1,4}\)|\([a-z]\)|\(\d+\))\s+(?=[A-Z"\'(])')
+        for clause in final_clauses:
+            clause_text = clause["text"]
+            # Only attempt split if long enough to justify it (>300 chars ≈ ~80 words)
+            if len(clause_text) <= 300:
+                split_clauses.append(clause)
+                continue
+            matches = list(_sub_pat.finditer(clause_text))
+            if len(matches) < 2:
+                # Fewer than 2 sub-parts — keep as-is
+                split_clauses.append(clause)
+                continue
+            # Split at each sub-question marker
+            boundaries = [m.start() for m in matches] + [len(clause_text)]
+            prev = 0
+            for boundary in boundaries[1:]:
+                segment = clause_text[prev:boundary].strip()
+                if segment:
+                    abs_start = clause["start"] + clause_text.index(segment, prev)
+                    split_clauses.append({
+                        "text": segment,
+                        "start": abs_start,
+                        "end": abs_start + len(segment),
+                    })
+                prev = boundary
+
+        logger.info(f"Hybrid segmentation: {len(ml_clauses)} ML clauses → {len(filled_clauses)} after filling gaps → {len(final_clauses)} after merging → {len(split_clauses)} after sub-clause split")
+
+        return split_clauses if split_clauses else [{"text": text, "start": 0, "end": len(text)}]
     
     def _extract_clauses_from_bio(self, tokens: List[str], labels: List[str]) -> List[str]:
         """
