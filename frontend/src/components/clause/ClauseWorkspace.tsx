@@ -2,7 +2,6 @@ import { useState, useEffect } from 'react';
 import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp, Home, Database, CheckCheck, HelpCircle, Play } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Progress } from '@/components/ui/progress';
 import { Badge } from '@/components/ui/badge';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Textarea } from '@/components/ui/textarea';
@@ -1868,21 +1867,8 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
           )}
           {analysisComplete && results && (
             <>
-              <Button
-                variant="outline"
-                onClick={handleDownloadDocument}
-              >
-                <Download className="w-4 h-4 mr-2" />
-                Download Report
-              </Button>
-              <Button
-                variant="outline"
-                className="border-green-600 text-green-600 hover:bg-green-50"
-                onClick={() => setViewMode(viewMode === 'review' ? 'comparison' : 'review')}
-              >
-                <Eye className="w-4 h-4 mr-2" />
-                {viewMode === 'review' ? 'Show Comparison' : 'Back to Review'}
-              </Button>
+             
+             
               <Button 
                 className="bg-blue-600 hover:bg-blue-700"
                 onClick={() => setShowCompleteDialog(true)}
@@ -1922,7 +1908,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                   <div className="w-12 h-12 rounded-lg bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center mx-auto mb-2">
                     <Brain className="w-6 h-6 text-blue-600" />
                   </div>
-                  <p className="text-xs font-medium">AI Suggestions</p>
+                  <p className="text-xs font-medium">AI Predictions</p>
                 </div>
                 <div className="text-center">
                   <div className="w-12 h-12 rounded-lg bg-violet-100 dark:bg-violet-900/30 flex items-center justify-center mx-auto mb-2">
@@ -1946,7 +1932,6 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
             <p className="text-sm text-muted-foreground mt-1">Please wait while the AI processes your document...</p>
           </CardHeader>
           <CardContent className="space-y-4">
-            <Progress value={progress} className="w-full" />
             <div className="flex gap-3 py-2 flex-nowrap">
               {processSteps.map((step) => (
                 <div
