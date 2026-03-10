@@ -14,8 +14,11 @@ import {
   CheckCircle,
   AlertCircle,
   GitGraph,
+  LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useAuth } from "@/context/AuthContext";
+import { useNavigate } from "react-router-dom";
 
 interface SidebarProps {
   activeModule: string;
@@ -24,6 +27,13 @@ interface SidebarProps {
 
 export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
   const [aiToolsExpanded, setAiToolsExpanded] = useState(true);
+  const { logout } = useAuth();
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    logout();
+    navigate("/login", { replace: true });
+  };
 
   return (
     <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen fixed left-0 top-0">
@@ -114,7 +124,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
           onClick={() => onModuleChange("settings")}
         />
         <div className="mt-4 flex items-center gap-3 px-3">
-          <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-sm font-medium">
+          <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-sm font-medium shrink-0">
             AK
           </div>
           <div className="flex-1 min-w-0">
@@ -123,7 +133,13 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
               Senior Associate
             </p>
           </div>
-          <Bell className="w-4 h-4 text-sidebar-foreground/50" />
+          <button
+            onClick={handleLogout}
+            title="Logout"
+            className="text-sidebar-foreground/50 hover:text-destructive transition-colors"
+          >
+            <LogOut className="w-4 h-4" />
+          </button>
         </div>
       </div>
     </aside>

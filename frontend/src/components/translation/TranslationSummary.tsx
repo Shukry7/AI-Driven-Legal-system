@@ -2,7 +2,6 @@ import {
   CheckCircle2,
   Download,
   FileText,
-  Link2,
   BarChart3,
   Clock,
   Languages,
@@ -281,21 +280,6 @@ export function TranslationSummary({
                   </p>
                 </div>
               </Button>
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">Case Integration</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <Button className="w-full gap-2">
-                <Link2 className="w-4 h-4" />
-                Attach to Case File
-              </Button>
-              <p className="text-xs text-muted-foreground mt-2 text-center">
-                Link this translation to a case file
-              </p>
             </CardContent>
           </Card>
         </div>
