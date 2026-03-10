@@ -2012,7 +2012,6 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
                     <span className="text-sm font-semibold text-muted-foreground">Completion</span>
                     <span className="text-sm font-bold text-accent">{results.statistics.completion_percentage.toFixed(1)}%</span>
                   </div>
-                  <Progress value={results.statistics.completion_percentage} className="h-2" />
                 </div>
               )}
 
@@ -2101,7 +2100,7 @@ ${c.status === 'accepted' ? `Corrected Text: ${c.userInputValue || c.predictedTe
             </Button>
             <Button 
               onClick={onCancel}
-              className="w-full justify-start"
+              className="w-full justify-start  bg-yellow-400 hover:bg-yellow-600"
               variant="outline"
               size="lg"
             >
