@@ -4,11 +4,13 @@ import { Scale, Eye, EyeOff, Loader2 } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { Button } from "@/components/ui/button";
 
-export default function LoginPage() {
-  const { login } = useAuth();
+export default function RegisterPage() {
+  const { register } = useAuth();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
+  const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
@@ -16,12 +18,18 @@ export default function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
+
+    if (password !== confirmPassword) {
+      setError("Passwords do not match.");
+      return;
+    }
+
     setLoading(true);
     try {
-      await login(email, password);
+      await register(email, username, password);
       navigate("/", { replace: true });
     } catch (err: any) {
-      setError(err.message || "Invalid email or password.");
+      setError(err.message || "Registration failed.");
     } finally {
       setLoading(false);
     }
@@ -39,7 +47,7 @@ export default function LoginPage() {
             LegalAI
           </h1>
           <p className="text-muted-foreground mt-1 text-sm">
-            Sign in to your workspace
+            Create your account
           </p>
         </div>
 
@@ -62,6 +70,22 @@ export default function LoginPage() {
               />
             </div>
 
+            {/* Username */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="username">
+                Username
+              </label>
+              <input
+                id="username"
+                type="text"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="johndoe"
+                required
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition"
+              />
+            </div>
+
             {/* Password */}
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground" htmlFor="password">
@@ -73,7 +97,7 @@ export default function LoginPage() {
                   type={showPassword ? "text" : "password"}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
+                  placeholder="Min 8 chars, upper, lower, digit, symbol"
                   required
                   className="w-full h-10 px-3 pr-10 rounded-md border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition"
                 />
@@ -92,6 +116,22 @@ export default function LoginPage() {
               </div>
             </div>
 
+            {/* Confirm Password */}
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="confirm-password">
+                Confirm Password
+              </label>
+              <input
+                id="confirm-password"
+                type={showPassword ? "text" : "password"}
+                value={confirmPassword}
+                onChange={(e) => setConfirmPassword(e.target.value)}
+                placeholder="Re-enter your password"
+                required
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition"
+              />
+            </div>
+
             {/* Error */}
             {error && (
               <p className="text-sm text-destructive">{error}</p>
@@ -99,17 +139,17 @@ export default function LoginPage() {
 
             <Button type="submit" className="w-full h-10" disabled={loading}>
               {loading ? <Loader2 className="w-4 h-4 animate-spin mr-2" /> : null}
-              Sign In
+              Create Account
             </Button>
           </form>
 
           <p className="text-center text-sm text-muted-foreground">
-            Don't have an account?{" "}
+            Already have an account?{" "}
             <Link
-              to="/register"
+              to="/login"
               className="text-primary font-medium hover:underline"
             >
-              Sign Up
+              Sign In
             </Link>
           </p>
         </div>

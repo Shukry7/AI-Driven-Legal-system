@@ -1,6 +1,21 @@
 // API helpers for clause document upload and analysis
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+/**
+ * Return the current access token from memory (set by AuthContext).
+ * Used by fetch wrappers to attach Authorization headers.
+ */
+let _getAccessToken: (() => string | null) | null = null;
+
+export function setTokenAccessor(fn: () => string | null) {
+  _getAccessToken = fn;
+}
+
+export function authHeaders(): Record<string, string> {
+  const token = _getAccessToken?.();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
 type UploadResult = {
   success: boolean;
   preview?: string;

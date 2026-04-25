@@ -27,7 +27,7 @@ interface SidebarProps {
 
 export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
   const [aiToolsExpanded, setAiToolsExpanded] = useState(true);
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = () => {
@@ -125,12 +125,12 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
         />
         <div className="mt-4 flex items-center gap-3 px-3">
           <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-sm font-medium shrink-0">
-            AK
+            {user?.username?.slice(0, 2).toUpperCase() || "U"}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">Amal Kumara</p>
+            <p className="text-sm font-medium truncate">{user?.username || "User"}</p>
             <p className="text-xs text-sidebar-foreground/60 truncate">
-              Senior Associate
+              {user?.role || "user"}
             </p>
           </div>
           <button

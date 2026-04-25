@@ -76,5 +76,8 @@ tqdm>=4.65.0
 # Background task scheduler
 #apscheduler>=3.10.0
 
-
 traitlets>=5.14.0
+
+# Authentication
+pydantic[email]>=2.5.0
+slowapi>=0.1.9

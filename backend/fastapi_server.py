@@ -18,6 +18,7 @@ from fastapi_app.api.clause_routes import router as clause_router
 from fastapi_app.api.pdf_routes import router as pdf_router
 from fastapi_app.api.lineage_routes import router as lineage_router
 from fastapi_app.api.translation_routes import router as translation_router, preload_models as preload_translation_models
+from fastapi_app.api.auth_routes import router as auth_router
 
 # Configure logging
 logging.basicConfig(
@@ -45,6 +46,7 @@ app.add_middleware(
 )
 
 # Include routers
+app.include_router(auth_router, prefix="/api", tags=["authentication"])
 app.include_router(classification_router, prefix="/api", tags=["classification"])
 app.include_router(clause_router, prefix="/api", tags=["clause_detection"])
 app.include_router(pdf_router, tags=["pdf_processing"])
