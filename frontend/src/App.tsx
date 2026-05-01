@@ -5,7 +5,8 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
-import LoginPage from "./pages/Login";
+import LoginPage from "./pages/login/index";
+import RegisterPage from "./pages/register/index";
 import ClauseEntryPage from "./pages/clause/Entry";
 import ClauseUploadPage from "./pages/clause/Upload";
 import ClauseWorkspacePage from "./pages/clause/Workspace";
@@ -19,7 +20,8 @@ import { AuthProvider, useAuth } from "./context/AuthContext";
 const queryClient = new QueryClient();
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isLoading } = useAuth();
+  if (isLoading) return null;
   return isAuthenticated ? <>{children}</> : <Navigate to="/login" replace />;
 }
 
@@ -34,6 +36,7 @@ const App = () => (
             <BrowserRouter>
               <Routes>
                 <Route path="/login" element={<LoginPage />} />
+                <Route path="/register" element={<RegisterPage />} />
                 <Route
                   path="/"
                   element={

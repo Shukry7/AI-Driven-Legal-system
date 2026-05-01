@@ -27,13 +27,25 @@ interface SidebarProps {
 
 export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
   const [aiToolsExpanded, setAiToolsExpanded] = useState(true);
-  const { logout } = useAuth();
+  const { logout, user } = useAuth();
   const navigate = useNavigate();
 
-  const handleLogout = () => {
-    logout();
+  const handleLogout = async () => {
+    await logout();
     navigate("/login", { replace: true });
   };
+
+  const displayName =
+    (user?.user_metadata?.full_name as string | undefined) ||
+    user?.email ||
+    "User";
+  const initials = displayName
+    .split(" ")
+    .filter(Boolean)
+    .map((part) => part[0])
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
   return (
     <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen fixed left-0 top-0">
@@ -125,12 +137,12 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
         />
         <div className="mt-4 flex items-center gap-3 px-3">
           <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-sm font-medium shrink-0">
-            AK
+            {initials}
           </div>
           <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">Amal Kumara</p>
+            <p className="text-sm font-medium truncate">{displayName}</p>
             <p className="text-xs text-sidebar-foreground/60 truncate">
-              Senior Associate
+              Authenticated User
             </p>
           </div>
           <button
