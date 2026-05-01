@@ -17,6 +17,7 @@ import {
   LogOut,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { Progress } from "@/components/ui/progress";
 import { useAuth } from "@/context/AuthContext";
 import { useNavigate } from "react-router-dom";
 
@@ -27,7 +28,14 @@ interface SidebarProps {
 
 export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
   const [aiToolsExpanded, setAiToolsExpanded] = useState(true);
-  const { logout, user } = useAuth();
+  const {
+    logout,
+    user,
+    tokensRemaining,
+    monthlyLimit,
+    tokensUsed,
+    plan,
+  } = useAuth();
   const navigate = useNavigate();
 
   const handleLogout = async () => {
@@ -46,6 +54,11 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
     .slice(0, 2)
     .join("")
     .toUpperCase();
+
+  const isUnlimited = monthlyLimit === Number.POSITIVE_INFINITY;
+  const progressValue = isUnlimited
+    ? 100
+    : Math.min((tokensUsed / Math.max(monthlyLimit, 1)) * 100, 100);
 
   return (
     <aside className="w-64 bg-sidebar text-sidebar-foreground flex flex-col h-screen fixed left-0 top-0">
@@ -129,6 +142,22 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
 
       {/* Bottom Section */}
       <div className="p-4 border-t border-sidebar-border">
+        <div className="mb-4 rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3">
+          <div className="flex items-center justify-between text-xs text-sidebar-foreground/70">
+            <span className="uppercase tracking-wide">{plan} plan</span>
+            <span>
+              {isUnlimited ? "Unlimited" : `${tokensRemaining} tokens left`}
+            </span>
+          </div>
+          <div className="mt-2">
+            <Progress value={progressValue} className="h-2" />
+          </div>
+          <div className="mt-2 text-xs text-sidebar-foreground/60">
+            {isUnlimited
+              ? "No monthly limit"
+              : `${tokensUsed}/${monthlyLimit} used this month`}
+          </div>
+        </div>
         <NavItem
           icon={Settings}
           label="Settings"

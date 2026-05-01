@@ -8,6 +8,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText, History, BarChart3 } from "lucide-react";
 import { useClassification } from "./ClassificationContext";
 import type { ClassificationResult } from "@/config/api";
+import { useAuth } from "@/context/AuthContext";
+import { TOKEN_COSTS } from "@/lib/tokenPolicy";
+import { toast } from "sonner";
 
 type View = "entry" | "upload" | "workspace" | "summary";
 
@@ -26,6 +29,7 @@ export function ClassificationModule() {
   const [uploadedFilename, setUploadedFilename] = useState<string>("");
   const [activeTab, setActiveTab] = useState("classify");
   const { loadClassification, recentClassifications } = useClassification();
+  const { consumeTokens } = useAuth();
 
   const handleStartNew = () => setCurrentView("upload");
 
@@ -57,6 +61,13 @@ export function ClassificationModule() {
 
   const handleClassificationComplete = (result: ClassificationResult) => {
     setClassificationResult(result);
+    void consumeTokens(TOKEN_COSTS.classification, "classification").then(
+      (tokenResult) => {
+        if (!tokenResult.ok) {
+          toast.error(tokenResult.error || "Unable to apply token usage");
+        }
+      },
+    );
   };
 
   const handleViewSummary = () => setCurrentView("summary");

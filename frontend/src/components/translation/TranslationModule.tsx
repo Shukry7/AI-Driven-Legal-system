@@ -10,6 +10,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { FileText, GitCompare, BookOpen, BarChart3 } from "lucide-react";
 import { useTranslation } from "./TranslationContext";
 import type { TranslationJobResult } from "@/config/api";
+import { useAuth } from "@/context/AuthContext";
+import { TOKEN_COSTS } from "@/lib/tokenPolicy";
+import { toast } from "sonner";
 
 type View = "entry" | "upload" | "workspace" | "summary";
 
@@ -33,6 +36,7 @@ export function TranslationModule() {
     useState<TranslationJobResult | null>(null);
   const [activeTab, setActiveTab] = useState("translate");
   const { viewingJobId, setViewingJobId, getResult, resumeJob, jobs } = useTranslation();
+  const { consumeTokens } = useAuth();
 
   // When the floating widget triggers viewing a job (completed or in-progress)
   useEffect(() => {
@@ -147,6 +151,13 @@ export function TranslationModule() {
 
   const handleTranslationComplete = (result: TranslationJobResult) => {
     setTranslationResult(result);
+    void consumeTokens(TOKEN_COSTS.translation, "translation").then(
+      (tokenResult) => {
+        if (!tokenResult.ok) {
+          toast.error(tokenResult.error || "Unable to apply token usage");
+        }
+      },
+    );
   };
 
   const handleComplete = () => setCurrentView("summary");

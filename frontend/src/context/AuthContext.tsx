@@ -1,12 +1,22 @@
 import { createContext, useContext, useEffect, useMemo, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
+import { PLAN_LIMITS, type PlanTier } from "@/lib/tokenPolicy";
 
 interface AuthContextType {
   session: Session | null;
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  plan: PlanTier;
+  monthlyLimit: number;
+  tokensUsed: number;
+  tokensRemaining: number;
+  canConsumeTokens: (amount: number) => boolean;
+  consumeTokens: (
+    amount: number,
+    reason?: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   login: (email: string, password: string) => Promise<{ error?: string }>;
   register: (
     email: string,
@@ -21,6 +31,55 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [session, setSession] = useState<Session | null>(null);
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [plan, setPlan] = useState<PlanTier>("free");
+  const [monthlyLimit, setMonthlyLimit] = useState<number>(PLAN_LIMITS.free);
+  const [tokensUsed, setTokensUsed] = useState(0);
+  const [tokensRemaining, setTokensRemaining] = useState<number>(PLAN_LIMITS.free);
+
+  const applySnapshot = (snapshot?: {
+    tier_code?: string | null;
+    monthly_limit?: number | null;
+    tokens_used?: number | null;
+    tokens_remaining?: number | null;
+    is_unlimited?: boolean | null;
+  } | null) => {
+    if (!snapshot) {
+      setPlan("free");
+      setMonthlyLimit(PLAN_LIMITS.free);
+      setTokensUsed(0);
+      setTokensRemaining(PLAN_LIMITS.free);
+      return;
+    }
+
+    const nextPlan = (snapshot.tier_code as PlanTier | undefined) ?? "free";
+    const unlimited = Boolean(snapshot.is_unlimited);
+    const limit = unlimited
+      ? Number.POSITIVE_INFINITY
+      : Number(snapshot.monthly_limit ?? PLAN_LIMITS[nextPlan]);
+    const used = Number(snapshot.tokens_used ?? 0);
+    const remaining = unlimited
+      ? Number.POSITIVE_INFINITY
+      : Number(snapshot.tokens_remaining ?? Math.max(limit - used, 0));
+
+    setPlan(nextPlan);
+    setMonthlyLimit(limit);
+    setTokensUsed(used);
+    setTokensRemaining(remaining);
+  };
+
+  const refreshTokenSnapshot = async (userId?: string) => {
+    if (!userId) return;
+    const { data, error } = await supabase.rpc("get_token_snapshot", {
+      p_user_id: userId,
+    });
+    if (error) {
+      // eslint-disable-next-line no-console
+      console.error("Token snapshot error", error);
+      return;
+    }
+    const snapshot = Array.isArray(data) ? data[0] : data;
+    applySnapshot(snapshot ?? null);
+  };
 
   useEffect(() => {
     let isMounted = true;
@@ -49,6 +108,17 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  useEffect(() => {
+    if (!user) {
+      setPlan("free");
+      setTokensUsed(0);
+      setMonthlyLimit(PLAN_LIMITS.free);
+      setTokensRemaining(PLAN_LIMITS.free);
+      return;
+    }
+    refreshTokenSnapshot(user.id);
+  }, [user]);
+
   const login = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -75,17 +145,52 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
+  const canConsumeTokens = (amount: number) => {
+    if (monthlyLimit === Number.POSITIVE_INFINITY) return true;
+    return tokensRemaining >= amount;
+  };
+
+  const consumeTokens = async (amount: number, reason?: string) => {
+    if (!user) {
+      return { ok: false, error: "Authentication required" };
+    }
+
+    const { data, error } = await supabase.rpc("consume_tokens", {
+      p_user_id: user.id,
+      p_feature: reason ?? "usage",
+      p_amount: amount,
+    });
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const snapshot = Array.isArray(data) ? data[0] : data;
+    if (!snapshot?.ok) {
+      return { ok: false, error: "Insufficient tokens" };
+    }
+
+    applySnapshot(snapshot ?? null);
+    return { ok: true };
+  };
+
   const value = useMemo(
     () => ({
       session,
       user,
       isAuthenticated: Boolean(user),
       isLoading,
+      plan,
+      monthlyLimit,
+      tokensUsed,
+      tokensRemaining,
+      canConsumeTokens,
+      consumeTokens,
       login,
       register,
       logout,
     }),
-    [session, user, isLoading],
+    [session, user, isLoading, plan, monthlyLimit, tokensUsed, tokensRemaining],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

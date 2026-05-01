@@ -3,6 +3,9 @@ import { Upload, FileText } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { useAuth } from '@/context/AuthContext';
+import { TOKEN_COSTS } from '@/lib/tokenPolicy';
+import { toast } from 'sonner';
 
 import api from '../../config/api';
 
@@ -13,6 +16,7 @@ interface DocumentUploadProps {
 }
 
 export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
+  const { canConsumeTokens, consumeTokens } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -46,6 +50,10 @@ export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProp
 
   const handleProceed = () => {
     if (!selectedFile) return;
+    if (!canConsumeTokens(TOKEN_COSTS.clauseDetection)) {
+      toast.error('Not enough tokens for clause detection');
+      return;
+    }
     setError(null);
     setLoading(true);
     setProgress(0);
@@ -55,6 +63,13 @@ export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProp
       .then((res) => {
         setLoading(false);
         setProgress(null);
+        void consumeTokens(TOKEN_COSTS.clauseDetection, 'clause_detection').then(
+          (tokenResult) => {
+            if (!tokenResult.ok) {
+              toast.error(tokenResult.error || 'Unable to apply token usage');
+            }
+          },
+        );
         // Pass the upload response (preview / full_text_path) to the next step
         onProceed({ file: selectedFile!, analysis: res });
       })

@@ -39,6 +39,8 @@ import { uploadPdf, getTranslationUploads, extractFromSaved } from "@/config/api
 import type { UploadedFile } from "@/config/api";
 import { toast } from "sonner";
 import type { UploadData } from "./TranslationModule";
+import { useAuth } from "@/context/AuthContext";
+import { TOKEN_COSTS } from "@/lib/tokenPolicy";
 
 interface DocumentUploadProps {
   onProceed: (data: UploadData) => void;
@@ -112,6 +114,7 @@ function isValidFile(f: File): boolean {
 }
 
 export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
+  const { canConsumeTokens } = useAuth();
   const [inputMode, setInputMode] = useState<"document" | "text" | "uploaded">("document");
 
   // Document mode state
@@ -258,6 +261,10 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
 
   const handleProceedDoc = () => {
     if (!file || !canProceedDoc) return;
+    if (!canConsumeTokens(TOKEN_COSTS.translation)) {
+      toast.error("Not enough tokens for translation");
+      return;
+    }
     onProceed({
       file,
       sourceLanguage: "en",
@@ -269,6 +276,10 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
 
   const handleProceedSaved = () => {
     if (!selectedSavedFile || !targetLanguage || !fullExtractedText) return;
+    if (!canConsumeTokens(TOKEN_COSTS.translation)) {
+      toast.error("Not enough tokens for translation");
+      return;
+    }
     onProceed({
       sourceLanguage: "en",
       targetLanguage,
@@ -279,6 +290,10 @@ export function DocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
 
   const handleProceedText = () => {
     if (!canProceedText) return;
+    if (!canConsumeTokens(TOKEN_COSTS.translation)) {
+      toast.error("Not enough tokens for translation");
+      return;
+    }
     onProceed({
       text: rawText.trim(),
       sourceLanguage: "en",

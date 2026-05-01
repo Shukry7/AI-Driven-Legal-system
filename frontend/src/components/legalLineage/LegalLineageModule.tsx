@@ -15,7 +15,7 @@ import {
   listUploadedFiles,
   searchActsByKeyword
 } from '@/config/api';
-import type { CaseNode, ActTreatment } from '@/config/api';
+import type { CaseNode, ActTreatment, CitationEdge } from '@/config/api';
 import {
   FileText,
   Layers,
@@ -40,11 +40,17 @@ import {
   X
 } from 'lucide-react';
 import { Button } from '../ui/button';
+import { useAuth } from '@/context/AuthContext';
+import { TOKEN_COSTS } from '@/lib/tokenPolicy';
+const getErrorMessage = (error: unknown) =>
+  error instanceof Error ? error.message : 'An unexpected error occurred';
+
 export default function LegalLineageModule() {
+  const { canConsumeTokens, consumeTokens } = useAuth();
   const [selectedAct, setSelectedAct] = useState<CaseNode | null>(null);
   const [actsList, setActsList] = useState<CaseNode[]>([]);
   const [graphNodes, setGraphNodes] = useState<CaseNode[]>([]);
-  const [graphEdges, setGraphEdges] = useState<any[]>([]);
+  const [graphEdges, setGraphEdges] = useState<CitationEdge[]>([]);
   const [processing, setProcessing] = useState(false);
   const [searchLoading, setSearchLoading] = useState(false);
   const [view, setView] = useState<'table' | 'map' | 'translations' | 'clauses'>('table');
@@ -56,7 +62,7 @@ export default function LegalLineageModule() {
   const [searchSuggestions, setSearchSuggestions] = useState<string[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [searching, setSearching] = useState(false);
-  const searchTimeoutRef = useRef<NodeJS.Timeout>();
+  const searchTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
  
   // Dialog states
   const [showFileSelection, setShowFileSelection] = useState(false);
@@ -98,6 +104,10 @@ export default function LegalLineageModule() {
   };
   // Function to process selected PDF
   async function handleProcessPDF(filename: string) {
+    if (!canConsumeTokens(TOKEN_COSTS.legalLineage)) {
+      toast.error('Not enough tokens for legal lineage');
+      return;
+    }
     setProcessing(true);
     setView('table');
    
@@ -120,12 +130,19 @@ export default function LegalLineageModule() {
         description: `Found ${result.nodes.length} acts in ${result.filename}`,
         icon: <CheckCircle2 className="text-green-500 h-4 w-4" />,
       });
-    } catch (error: any) {
+      void consumeTokens(TOKEN_COSTS.legalLineage, 'legal_lineage').then(
+        (tokenResult) => {
+          if (!tokenResult.ok) {
+            toast.error(tokenResult.error || 'Unable to apply token usage');
+          }
+        },
+      );
+    } catch (error: unknown) {
       console.error('Error processing PDF:', error);
       toast.error('Failed to process PDF', {
         position: 'top-right',
         id: toastId,
-        description: error.message || 'An unexpected error occurred',
+        description: getErrorMessage(error),
         icon: <XCircle className="text-red-500 h-4 w-4" />,
       });
     } finally {
@@ -134,6 +151,10 @@ export default function LegalLineageModule() {
   }
   // Function to handle file upload
   async function handleFileUpload(file: File) {
+    if (!canConsumeTokens(TOKEN_COSTS.legalLineage)) {
+      toast.error('Not enough tokens for legal lineage');
+      return;
+    }
     setUploadedFile(file);
     setProcessing(true);
     setView('table');
@@ -158,12 +179,19 @@ export default function LegalLineageModule() {
         description: `Found ${result.nodes.length} acts in ${result.filename}`,
         icon: <CheckCircle2 className="text-green-500 h-4 w-4" />,
       });
-    } catch (error: any) {
+      void consumeTokens(TOKEN_COSTS.legalLineage, 'legal_lineage').then(
+        (tokenResult) => {
+          if (!tokenResult.ok) {
+            toast.error(tokenResult.error || 'Unable to apply token usage');
+          }
+        },
+      );
+    } catch (error: unknown) {
       console.error('Error uploading file:', error);
       toast.error('Failed to upload and analyze file', {
         position: 'top-right',
         id: toastId,
-        description: error.message || 'An unexpected error occurred',
+        description: getErrorMessage(error),
         icon: <XCircle className="text-red-500 h-4 w-4" />,
       });
     } finally {
@@ -224,7 +252,7 @@ export default function LegalLineageModule() {
           icon: <Info className="h-4 w-4" />,
         });
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error searching for exact act:', error);
      
       // Fallback to single node view if search fails
@@ -235,7 +263,7 @@ export default function LegalLineageModule() {
       toast.error('Failed to search for similar acts', {
         position: 'top-right',
         id: toastId,
-        description: error.message || 'Displaying single act view',
+        description: getErrorMessage(error),
         icon: <XCircle className="text-red-500 h-4 w-4" />,
       });
     } finally {
@@ -260,10 +288,10 @@ export default function LegalLineageModule() {
         position: 'top-right',
         description: 'Your download will start shortly',
       });
-    } catch (error: any) {
+    } catch (error: unknown) {
       toast.error('Failed to export graph', {
         position: 'top-right',
-        description: error.message || 'An unexpected error occurred',
+        description: getErrorMessage(error),
       });
     }
   }
@@ -313,7 +341,7 @@ export default function LegalLineageModule() {
       source: 'current',
       acts: [{
         act: actName,
-        treatment: 'APPLIED' as any,
+        treatment: 'APPLIED' as ActTreatment['treatment'],
         confidence: 1.0
       }]
     };
@@ -513,10 +541,10 @@ export default function LegalLineageModule() {
                 {[
                   { key: 'table', icon: Scale, label: 'Acts' },
                   { key: 'map', icon: Layers, label: 'Lineage Map' },
-                ].map(({ key, icon: Icon, label }) => (
+                ].map(({ key, icon: Icon, label }: { key: 'table' | 'map'; icon: typeof Scale; label: string }) => (
                   <Button
                     key={key}
-                    onClick={() => setView(key as any)}
+                    onClick={() => setView(key)}
                     className={`flex items-center gap-2 px-4 py-2.5 rounded-lg transition-all duration-300 ${
                       view === key
                         ? ''

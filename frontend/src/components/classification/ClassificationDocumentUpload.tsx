@@ -27,6 +27,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { TOKEN_COSTS } from "@/lib/tokenPolicy";
 
 interface DocumentUploadProps {
   onProceed: (data: {
@@ -49,6 +51,7 @@ export function ClassificationDocumentUpload({
   onProceed,
   onCancel,
 }: DocumentUploadProps) {
+  const { canConsumeTokens } = useAuth();
   const [inputMode, setInputMode] = useState<"document" | "text">("document");
 
   // Document mode state
@@ -89,6 +92,10 @@ export function ClassificationDocumentUpload({
 
   const handleProceedDoc = () => {
     if (!file || !canProceedDoc) return;
+    if (!canConsumeTokens(TOKEN_COSTS.classification)) {
+      toast.error("Not enough tokens for classification");
+      return;
+    }
     onProceed({
       file,
       mode: "document",
@@ -97,6 +104,10 @@ export function ClassificationDocumentUpload({
 
   const handleProceedText = () => {
     if (!canProceedText) return;
+    if (!canConsumeTokens(TOKEN_COSTS.classification)) {
+      toast.error("Not enough tokens for classification");
+      return;
+    }
     onProceed({
       text: rawText.trim(),
       mode: "text",
