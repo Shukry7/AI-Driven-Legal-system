@@ -45,7 +45,7 @@ class HybridClauseDetectionService:
     ML_LOW_CONFIDENCE_THRESHOLD = 0.40  # ML uncertain
     
     def __init__(self, 
-                 ml_checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
+                 ml_checkpoint_path: str = 'clause_detection_model',
                  enable_ml: bool = True):
         """
         Initialize hybrid detection service.
@@ -59,8 +59,8 @@ class HybridClauseDetectionService:
         
         if self.enable_ml:
             try:
-                logger.info(f"🤖 Initializing ML model from: {ml_checkpoint_path}")
-                self.ml_service = MLClauseDetectionService(checkpoint_path=ml_checkpoint_path)
+                logger.info(f"🤖 Initializing ML model from Hub subfolder: {ml_checkpoint_path}")
+                self.ml_service = MLClauseDetectionService(model_subfolder=ml_checkpoint_path)
                 if self.ml_service.model is not None:
                     logger.info("✅ ML model loaded successfully")
                 else:

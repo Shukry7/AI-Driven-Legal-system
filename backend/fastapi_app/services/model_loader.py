@@ -2,20 +2,24 @@
 Model loader service for Legal-BERT models.
 Loads and caches the clause segmentation and risk classification models.
 """
-import os
 import logging
-from pathlib import Path
 from transformers import (
     BertForTokenClassification,
     BertForSequenceClassification,
     AutoModelForSequenceClassification,
-    BertTokenizer,
     AutoTokenizer
 )
 import torch
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+HF_MODELS_REPO = "Dedsec-24/Legal-assistance-models"
+HF_MODEL_SUBFOLDERS = {
+    "segmentation": "legalbert_clause_segmentation_model",
+    "classification": "legalbert_risk_classification_model",
+    "lineage": "act_treatment_classifier",
+}
 
 class ModelLoader:
     """Singleton class to load and manage ML models."""
@@ -32,21 +36,7 @@ class ModelLoader:
         if not self._models_loaded:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
             logger.info(f"Using device: {self.device}")
-            
-            # Get model paths - go up to backend/, then into app/ml_models/
-            base_path = Path(__file__).parent.parent.parent / "app" / "ml_models"
-            self.segmentation_path = base_path / "legalbert_clause_segmentation_model"
-            self.classification_path = base_path / "legalbert_risk_classification_model"
-            self.lineage_path = base_path / "act_treatment_classifier"
-            
-            # Load models
-            self.load_models()
-            ModelLoader._models_loaded = True
-    
-    def load_models(self):
-        """Load both segmentation and classification models."""
-        try:
-            # Initialize models as None
+
             self.segmentation_model = None
             self.segmentation_tokenizer = None
             self.segmentation_labels = None
@@ -56,71 +46,56 @@ class ModelLoader:
             self.lineage_model = None
             self.lineage_tokenizer = None
             self.lineage_labels = None
-            
-            # Try to load segmentation model from local path
-            logger.info("Checking for clause segmentation model...")
-            if self.segmentation_path.exists():
-                logger.info(f"Loading segmentation model from {self.segmentation_path}")
-                self.segmentation_tokenizer = AutoTokenizer.from_pretrained(
-                    str(self.segmentation_path)
-                )
-                self.segmentation_model = BertForTokenClassification.from_pretrained(
-                    str(self.segmentation_path)
-                ).to(self.device)
-                self.segmentation_model.eval()
-                self.segmentation_labels = self.segmentation_model.config.id2label
-                logger.info("✓ Clause segmentation model loaded successfully")
-            else:
-                logger.warning(f"Segmentation model not found at {self.segmentation_path}")
-                logger.warning("Segmentation features will be unavailable")
-            
-            # Try to load classification model from local path
-            logger.info("Checking for risk classification model...")
-            if self.classification_path.exists():
-                logger.info(f"Loading classification model from {self.classification_path}")
-                self.classification_tokenizer = AutoTokenizer.from_pretrained(
-                    str(self.classification_path)
-                )
-                self.classification_model = BertForSequenceClassification.from_pretrained(
-                    str(self.classification_path)
-                ).to(self.device)
-                self.classification_model.eval()
-                self.classification_labels = self.classification_model.config.id2label
-                logger.info("✓ Risk classification model loaded successfully")
-            else:
-                logger.warning(f"Classification model not found at {self.classification_path}")
-                logger.warning("Classification features will be unavailable")
 
-            logger.info("Checking for act treatment lineage model...")
-            if self.lineage_path.exists():
-                logger.info(f"Loading lineage model from {self.lineage_path}")
-                self.lineage_tokenizer = AutoTokenizer.from_pretrained(
-                    str(self.lineage_path)
-                )
-                self.lineage_model = AutoModelForSequenceClassification.from_pretrained(
-                    str(self.lineage_path)
-                ).to(self.device)
-                self.lineage_model.eval()
-                self.lineage_labels = self.lineage_model.config.id2label
-                logger.info("✓ Act treatment lineage model loaded successfully")
-                logger.info(f"  Available treatment labels: {list(self.lineage_labels.values())}")
-            else:
-                logger.warning(f"Lineage model not found at {self.lineage_path}")
-                logger.warning("Lineage features will be unavailable")
+            ModelLoader._models_loaded = True
+
+    def _load_tokenizer(self, subfolder: str):
+        return AutoTokenizer.from_pretrained(
+            HF_MODELS_REPO,
+            subfolder=subfolder,
+            trust_remote_code=True,
+        )
+
+    def _load_segmentation_bundle(self):
+        self.segmentation_tokenizer = self._load_tokenizer(HF_MODEL_SUBFOLDERS["segmentation"])
+        self.segmentation_model = BertForTokenClassification.from_pretrained(
+            HF_MODELS_REPO,
+            subfolder=HF_MODEL_SUBFOLDERS["segmentation"],
+            trust_remote_code=True,
+        ).to(self.device)
+        self.segmentation_model.eval()
+        self.segmentation_labels = self.segmentation_model.config.id2label
+
+    def _load_classification_bundle(self):
+        self.classification_tokenizer = self._load_tokenizer(HF_MODEL_SUBFOLDERS["classification"])
+        self.classification_model = BertForSequenceClassification.from_pretrained(
+            HF_MODELS_REPO,
+            subfolder=HF_MODEL_SUBFOLDERS["classification"],
+            trust_remote_code=True,
+        ).to(self.device)
+        self.classification_model.eval()
+        self.classification_labels = self.classification_model.config.id2label
+
+    def _load_lineage_bundle(self):
+        self.lineage_tokenizer = self._load_tokenizer(HF_MODEL_SUBFOLDERS["lineage"])
+        self.lineage_model = AutoModelForSequenceClassification.from_pretrained(
+            HF_MODELS_REPO,
+            subfolder=HF_MODEL_SUBFOLDERS["lineage"],
+            trust_remote_code=True,
+        ).to(self.device)
+        self.lineage_model.eval()
+        self.lineage_labels = self.lineage_model.config.id2label
+    
+    def load_models(self):
+        """Load all Hugging Face-backed models on demand."""
+        try:
+            self._load_segmentation_bundle()
+            self._load_classification_bundle()
+            self._load_lineage_bundle()
+
+            models_loaded = ["Segmentation", "Classification", "Lineage"]
             
-            # Log final status
-            models_loaded = []
-            if self.segmentation_model:
-                models_loaded.append("Segmentation")
-            if self.classification_model:
-                models_loaded.append("Classification")
-            if self.lineage_model:
-                models_loaded.append("Lineage")
-            
-            if models_loaded:
-                logger.info(f"Models loaded: {', '.join(models_loaded)}")
-            else:
-                logger.warning("No ML models loaded - API will run without ML features")
+            logger.info(f"Models loaded: {', '.join(models_loaded)}")
             
         except Exception as e:
             logger.error(f"Error loading models: {str(e)}")
@@ -130,19 +105,19 @@ class ModelLoader:
     def get_segmentation_model(self):
         """Get the clause segmentation model and tokenizer."""
         if self.segmentation_model is None:
-            raise RuntimeError("Segmentation model not loaded. Please place model files in app/ml_models/")
+            self._load_segmentation_bundle()
         return self.segmentation_model, self.segmentation_tokenizer
     
     def get_classification_model(self):
         """Get the risk classification model and tokenizer."""
         if self.classification_model is None:
-            raise RuntimeError("Classification model not loaded. Please place model files in app/ml_models/")
+            self._load_classification_bundle()
         return self.classification_model, self.classification_tokenizer
     
     def get_lineage_model(self):
         """Get the act treatment lineage model and tokenizer."""
         if self.lineage_model is None:
-            raise RuntimeError("Lineage model not loaded. Please place model files in app/ml_models/act_treatment_classifier")
+            self._load_lineage_bundle()
         return self.lineage_model, self.lineage_tokenizer
     
     def has_segmentation_model(self):

@@ -17,27 +17,25 @@ class LegalRiskClassifier:
     
     def __init__(self):
         self.device = model_loader.get_device()
-        
-        # Check model availability
-        self.has_segmentation = model_loader.has_segmentation_model()
-        self.has_classification = model_loader.has_classification_model()
-        
-        # Load models if available
-        if self.has_segmentation:
+        self.has_segmentation = False
+        self.has_classification = False
+        self.segmentation_model = None
+        self.segmentation_tokenizer = None
+        self.classification_model = None
+        self.classification_tokenizer = None
+        self.labels = {"segmentation": None, "classification": None, "lineage": None}
+
+    def _ensure_segmentation_model(self):
+        if self.segmentation_model is None or self.segmentation_tokenizer is None:
             self.segmentation_model, self.segmentation_tokenizer = model_loader.get_segmentation_model()
-        else:
-            self.segmentation_model = None
-            self.segmentation_tokenizer = None
-            logger.warning("Segmentation model not available")
-        
-        if self.has_classification:
+            self.labels = model_loader.get_labels()
+            self.has_segmentation = True
+
+    def _ensure_classification_model(self):
+        if self.classification_model is None or self.classification_tokenizer is None:
             self.classification_model, self.classification_tokenizer = model_loader.get_classification_model()
-        else:
-            self.classification_model = None
-            self.classification_tokenizer = None
-            logger.warning("Classification model not available")
-        
-        self.labels = model_loader.get_labels()
+            self.labels = model_loader.get_labels()
+            self.has_classification = True
     
     def _split_into_sentences(self, text: str) -> List[Dict]:
         """
@@ -244,8 +242,7 @@ class LegalRiskClassifier:
         Returns:
             List of dicts: [{"text": str, "start": int, "end": int}, ...]
         """
-        if not self.has_segmentation:
-            raise RuntimeError("Segmentation model not available. Please place model files in app/ml_models/legalbert_clause_segmentation_model/")
+        self._ensure_segmentation_model()
         
         sentence_infos = self._split_into_sentences(text)
         
@@ -697,8 +694,7 @@ class LegalRiskClassifier:
         Returns:
             Tuple of (risk_level, confidence, all_probabilities)
         """
-        if not self.has_classification:
-            raise RuntimeError("Classification model not available. Please place model files in app/ml_models/legalbert_risk_classification_model/")
+        self._ensure_classification_model()
         
         inputs = self.classification_tokenizer(
             clause,
