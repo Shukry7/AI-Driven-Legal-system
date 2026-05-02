@@ -42,7 +42,20 @@ ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent        # repo ro
 HF_MODELS_REPO = "Dedsec-24/Legal-assistance-models"
 SINHALA_MODEL_SUBDIR = "sinhala_legal_final_model"
 TAMIL_MODEL_SUBDIR = "tamil_legal_final_model"
-GLOSSARY_PATH    = ROOT_DIR / "legal_glossary.csv"
+BACKEND_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def _resolve_glossary_path() -> Path:
+    """Prefer the backend-packaged glossary, then fall back to the repo root."""
+    backend_path = BACKEND_DATA_DIR / "legal_glossary.csv"
+    if backend_path.exists():
+        return backend_path
+
+    repo_path = ROOT_DIR / "legal_glossary.csv"
+    return repo_path
+
+
+GLOSSARY_PATH    = _resolve_glossary_path()
 JOBS_DIR         = Path(__file__).resolve().parent.parent.parent / "translation_jobs"
 JOBS_DIR.mkdir(exist_ok=True)
 

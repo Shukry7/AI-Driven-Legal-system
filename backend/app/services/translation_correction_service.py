@@ -23,7 +23,20 @@ from app.services.sinhala_unicode_normalizer import (
 logger = logging.getLogger(__name__)
 
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent
-GLOSSARY_PATH = ROOT_DIR / "legal_glossary.csv"
+BACKEND_DATA_DIR = Path(__file__).resolve().parent.parent / "data"
+
+
+def _resolve_glossary_path() -> Path:
+    """Prefer the backend-packaged glossary, then fall back to the repo root."""
+    backend_path = BACKEND_DATA_DIR / "legal_glossary.csv"
+    if backend_path.exists():
+        return backend_path
+
+    repo_path = ROOT_DIR / "legal_glossary.csv"
+    return repo_path
+
+
+GLOSSARY_PATH = _resolve_glossary_path()
 
 # Cache for glossary data
 _glossary_map: Optional[Dict[str, Dict[str, str]]] = None

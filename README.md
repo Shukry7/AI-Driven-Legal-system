@@ -1,7 +1,4 @@
 # ⚖️ AI-Driven Legal Document Analysis Platform
-
-Push to `main` and GitHub Actions automatically syncs the `backend/` folder to the Hugging Face Space `Dedsec-24/legal-assistance-api`.
-
 > **An AI-powered legal document analysis platform for civil cases in Sri Lanka** — featuring automated clause detection, multilingual translation, legal risk classification, and visual case lineage tracking.
 
 ---
