@@ -13,9 +13,18 @@ import os
 from typing import Dict, List
 from pathlib import Path
 from transformers import AutoModel, AutoTokenizer
+from huggingface_hub import hf_hub_download
 import logging
 
+try:
+    from safetensors.torch import load_file as load_safetensors_file
+except Exception:  # pragma: no cover - optional fallback
+    load_safetensors_file = None
+
 logger = logging.getLogger(__name__)
+
+HF_MODELS_REPO = "Dedsec-24/Legal-assistance-models"
+HF_CLAUSE_DETECTION_SUBDIR = "clause_detection_model"
 
 
 # ============================================================================
@@ -89,34 +98,57 @@ class OptimizedLegalBERTDetector(nn.Module):
 class MLClauseDetectionService:
     """Enhanced clause detection service using trained ML model."""
     
-    def __init__(self, checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
+    def __init__(self, model_subfolder: str = HF_CLAUSE_DETECTION_SUBDIR,
                  model_name: str = "nlpaueb/legal-bert-base-uncased"):
         """Initialize the ML-based clause detection service."""
-        # Resolve path relative to backend directory
-        if not os.path.isabs(checkpoint_path):
-            backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
-            checkpoint_path = os.path.join(backend_dir, checkpoint_path)
-        
-        self.checkpoint_path = checkpoint_path
+        self.model_repo = HF_MODELS_REPO
+        self.model_subfolder = model_subfolder
         self.model_name = model_name
         self.device = 'cuda' if torch.cuda.is_available() else 'cpu'
         self.model = None
         self.tokenizer = None
         self.config = None
         self.load_checkpoint()
+
+    def _download_checkpoint(self):
+        candidates = [
+            "clause_detection_model.pt",
+            "best_model_v4_optimized.pt",
+            "model.safetensors",
+            "pytorch_model.bin",
+        ]
+        last_error = None
+        for filename in candidates:
+            try:
+                return hf_hub_download(
+                    repo_id=self.model_repo,
+                    filename=filename,
+                    subfolder=self.model_subfolder,
+                )
+            except Exception as exc:
+                last_error = exc
+        raise FileNotFoundError(
+            f"No clause detection checkpoint found in {self.model_repo}/{self.model_subfolder}"
+        ) from last_error
     
     def load_checkpoint(self):
         """Load the model checkpoint."""
-        if not os.path.exists(self.checkpoint_path):
-            logger.warning(f"Checkpoint not found at: {self.checkpoint_path}")
-            return False
-        
         try:
-            logger.info(f"Loading checkpoint from: {self.checkpoint_path}")
-            checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
+            checkpoint_path = self._download_checkpoint()
+            logger.info(f"Loading checkpoint from Hub cache: {checkpoint_path}")
+
+            if checkpoint_path.endswith(".safetensors"):
+                if load_safetensors_file is None:
+                    raise RuntimeError("safetensors is required to load the clause detection checkpoint")
+                checkpoint = load_safetensors_file(checkpoint_path)
+            else:
+                checkpoint = torch.load(checkpoint_path, map_location=self.device, weights_only=False)
             
             # Extract config
-            self.config = checkpoint.get('config', {'DROPOUT': 0.3, 'NUM_DROPOUT_SAMPLES': 5})
+            if isinstance(checkpoint, dict):
+                self.config = checkpoint.get('config', {'DROPOUT': 0.3, 'NUM_DROPOUT_SAMPLES': 5})
+            else:
+                self.config = {'DROPOUT': 0.3, 'NUM_DROPOUT_SAMPLES': 5}
             
             # Build model
             logger.info(f"Building model with config: {self.config}")
@@ -139,9 +171,16 @@ class MLClauseDetectionService:
             self.model.eval()
             
             # Load tokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.model_repo,
+                    subfolder=self.model_subfolder,
+                    trust_remote_code=True,
+                )
+            except Exception:
+                self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             
-            logger.info(f"Model loaded successfully on {self.device} (model_name={self.model_name})")
+            logger.info(f"Model loaded successfully on {self.device} (repo={self.model_repo}, subfolder={self.model_subfolder})")
             return True
             
         except Exception as e:
@@ -293,10 +332,16 @@ class MLClauseDetectionService:
                     )
                 },
                 'text_length': result['text_length'],
-                'word_count': len(text.split()),
-                'ml_predictions': result
-            }
-        else:
+                    model_state_dict = None
+                    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+                        model_state_dict = checkpoint['model_state_dict']
+                    elif isinstance(checkpoint, dict):
+                        model_state_dict = checkpoint
+
+                    if model_state_dict is None:
+                        raise KeyError("model_state_dict not found in checkpoint")
+
+                    self.model.load_state_dict(model_state_dict)
             return {
                 'success': False,
                 'error': result.get('error'),
@@ -310,7 +355,7 @@ class MLClauseDetectionService:
 
 def analyze_document_with_model(
     text: str,
-    checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
+    model_subfolder: str = HF_CLAUSE_DETECTION_SUBDIR,
     max_length: int = 512
 ) -> Dict:
     """
@@ -318,19 +363,19 @@ def analyze_document_with_model(
     
     Args:
         text: Document text to analyze
-        checkpoint_path: Path to the trained checkpoint
+        model_subfolder: Hub subfolder containing the trained checkpoint
         max_length: Maximum sequence length
         
     Returns:
         Dict: Complete analysis results
     """
-    service = MLClauseDetectionService(checkpoint_path)
+    service = MLClauseDetectionService(model_subfolder=model_subfolder)
     return service.analyze(text, max_length=max_length)
 
 
 def analyze_file_with_model(
     file_path: str,
-    checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
+    model_subfolder: str = HF_CLAUSE_DETECTION_SUBDIR,
     max_length: int = 512
 ) -> Dict:
     """
@@ -350,7 +395,7 @@ def analyze_file_with_model(
     with open(file_path, 'r', encoding='utf-8') as f:
         text = f.read()
     
-    return analyze_document_with_model(text, checkpoint_path, max_length)
+    return analyze_document_with_model(text, model_subfolder, max_length)
 
 
 # ============================================================================

@@ -54,6 +54,7 @@ from pathlib import Path
 from collections import Counter
 import numpy as np
 import math
+from huggingface_hub import hf_hub_download
 
 # ============================================================================
 # CONFIGURATION
@@ -631,8 +632,25 @@ def main():
     print("=" * 80)
     
     # Load best model
-    checkpoint = torch.load(CONFIG.SAVE_PATH)
-    model.load_state_dict(checkpoint['model_state_dict'])
+    checkpoint_path = None
+    for filename in ("clause_detection_model.pt", "best_model_v4_optimized.pt", "model.safetensors"):
+        try:
+            checkpoint_path = hf_hub_download(
+                repo_id="Dedsec-24/Legal-assistance-models",
+                filename=filename,
+                subfolder="clause_detection_model",
+            )
+            break
+        except Exception:
+            continue
+    if checkpoint_path is None:
+        raise RuntimeError("No clause detection checkpoint found in the Hugging Face model repo")
+
+    checkpoint = torch.load(checkpoint_path, weights_only=False)
+    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+    else:
+        model.load_state_dict(checkpoint)
     
     val_loss, val_acc, val_f1, clause_preds = evaluate(
         model, test_loader, criterion, device, weight_tensor, checkpoint['epoch']

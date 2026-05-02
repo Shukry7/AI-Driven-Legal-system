@@ -39,9 +39,9 @@ logger = logging.getLogger(__name__)
 # Paths
 # ---------------------------------------------------------------------------
 ROOT_DIR = Path(__file__).resolve().parent.parent.parent.parent        # repo root
-ML_MODELS_DIR = Path(__file__).resolve().parent.parent / "ml_models"   # backend/app/ml_models
-SINHALA_MODEL_DIR = ML_MODELS_DIR / "sinhala_legal_final_model"
-TAMIL_MODEL_DIR  = ML_MODELS_DIR / "tamil_legal_final_model"
+HF_MODELS_REPO = "Dedsec-24/Legal-assistance-models"
+SINHALA_MODEL_SUBDIR = "sinhala_legal_final_model"
+TAMIL_MODEL_SUBDIR = "tamil_legal_final_model"
 GLOSSARY_PATH    = ROOT_DIR / "legal_glossary.csv"
 JOBS_DIR         = Path(__file__).resolve().parent.parent.parent / "translation_jobs"
 JOBS_DIR.mkdir(exist_ok=True)
@@ -99,29 +99,28 @@ def load_models(block: bool = True) -> Dict[str, Any]:
         device = _get_device()
         loaded: Dict[str, Any] = {"device": str(device)}
 
-        for idx, (key, model_dir, tgt_lang) in enumerate([
-            ("en_si", SINHALA_MODEL_DIR, "si_LK"),
-            ("en_ta", TAMIL_MODEL_DIR,  "ta_IN"),
+        for idx, (key, model_subdir, tgt_lang) in enumerate([
+            ("en_si", SINHALA_MODEL_SUBDIR, "si_LK"),
+            ("en_ta", TAMIL_MODEL_SUBDIR,  "ta_IN"),
         ]):
-            if model_dir.exists():
-                logger.info("Loading mBART model from %s …", model_dir)
-                # Load tokenizer from base mbart50 model to avoid config issues
-                try:
-                    tok = MBart50TokenizerFast.from_pretrained("facebook/mbart-large-50", src_lang="en_XX")
-                    logger.info("✓ Loaded base mbart-50 tokenizer")
-                except Exception as e:
-                    logger.warning("Failed to load base tokenizer, trying local: %s", e)
-                    tok = MBart50TokenizerFast.from_pretrained(str(model_dir), src_lang="en_XX")
-                # Load both models to GPU if CUDA available
-                target_device = device
-                mdl = MBartForConditionalGeneration.from_pretrained(
-                    str(model_dir), low_cpu_mem_usage=True
-                ).to(target_device)
-                mdl.eval()
-                loaded[key] = {"model": mdl, "tokenizer": tok, "tgt_lang": tgt_lang, "on_device": str(target_device)}
-                logger.info("✓  Loaded %s model on %s", key, target_device)
-            else:
-                logger.warning("Model dir not found: %s", model_dir)
+            logger.info("Loading mBART model from Hub repo %s/%s …", HF_MODELS_REPO, model_subdir)
+            tok = MBart50TokenizerFast.from_pretrained(
+                HF_MODELS_REPO,
+                subfolder=model_subdir,
+                src_lang="en_XX",
+                trust_remote_code=True,
+            )
+
+            target_device = device
+            mdl = MBartForConditionalGeneration.from_pretrained(
+                HF_MODELS_REPO,
+                subfolder=model_subdir,
+                low_cpu_mem_usage=True,
+                trust_remote_code=True,
+            ).to(target_device)
+            mdl.eval()
+            loaded[key] = {"model": mdl, "tokenizer": tok, "tgt_lang": tgt_lang, "on_device": str(target_device)}
+            logger.info("✓  Loaded %s model on %s", key, target_device)
 
         _models = loaded
     return _models

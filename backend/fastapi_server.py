@@ -98,12 +98,8 @@ async def startup_event():
     logger.info(f"{'✓' if llm_configured else '⚠'} OpenAI API key: {'configured' if llm_configured else 'NOT SET (will use fallback templates)'}")
     
     try:
-        # Models are loaded when importing classifier
         from fastapi_app.services.classifier import classifier
-        if classifier.has_segmentation and classifier.has_classification:
-            logger.info("✓ ML Classification models loaded")
-        else:
-            logger.warning("⚠ ML models not available (optional)")
+        logger.info("✓ ML classification pipeline configured for lazy loading")
         logger.info(f"✓ Device: {classifier.device}")
     except Exception as e:
         logger.warning(f"⚠ Classification models unavailable: {str(e)}")
