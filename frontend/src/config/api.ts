@@ -1,6 +1,17 @@
 // API helpers for clause document upload and analysis
 const API_BASE = import.meta.env.VITE_API_BASE_URL || "";
 
+function joinApiBase(base: string, path: string): string {
+  const cleanBase = base.replace(/\/+$/, "");
+  const cleanPath = path.replace(/^\/+/, "");
+  if (!cleanBase) return `/${cleanPath}`;
+  return `${cleanBase}/${cleanPath}`;
+}
+
+export function buildApiUrl(path: string): string {
+  return joinApiBase(API_BASE, path);
+}
+
 type UploadResult = {
   success: boolean;
   preview?: string;
@@ -117,8 +128,8 @@ export async function getRecentUploads(): Promise<
   }));
 }
 
-// Legal Risk Classification API (FastAPI on port 8000)
-const CLASSIFICATION_API_BASE = "http://localhost:8000/api";
+// Legal Risk Classification API
+const CLASSIFICATION_API_BASE = buildApiUrl("api");
 
 export interface ClauseResult {
   id: number;
@@ -213,6 +224,72 @@ export async function listUploadedPdfs(): Promise<{
   }
 
   return res.json();
+}
+
+export async function getRecentClassifications(): Promise<
+  Array<{
+    id: string;
+    filename: string;
+    timestamp: string;
+    totalClauses: number;
+    riskSummary: {
+      high: number;
+      medium: number;
+      low: number;
+    };
+    result?: ClassificationResult;
+  }>
+> {
+  const res = await fetch(`${CLASSIFICATION_API_BASE}/recent`);
+  if (!res.ok) return [];
+  const json = await res.json().catch(() => ({ classifications: [] }));
+  return json.classifications || [];
+}
+
+export async function saveClassificationResult(
+  filename: string,
+  result: ClassificationResult,
+): Promise<{ success: boolean }> {
+  const res = await fetch(`${CLASSIFICATION_API_BASE}/save`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ filename, result }),
+  });
+
+  const json = await res.json().catch(() => ({ success: false }));
+  if (!res.ok) {
+    throw new Error(json.detail || "Failed to save classification");
+  }
+  return json;
+}
+
+export async function getClassificationResult(
+  id: string,
+): Promise<ClassificationResult | null> {
+  const res = await fetch(`${CLASSIFICATION_API_BASE}/result/${id}`);
+  if (!res.ok) return null;
+  const json = await res.json().catch(() => ({ result: null }));
+  return json.result || null;
+}
+
+export async function deleteClassificationResult(id: string): Promise<void> {
+  const res = await fetch(`${CLASSIFICATION_API_BASE}/delete/${id}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) {
+    throw new Error("Failed to delete classification");
+  }
+}
+
+export async function exportClassificationResult(
+  id: string,
+  format: "pdf" | "json" | "txt",
+): Promise<Blob> {
+  const res = await fetch(`${CLASSIFICATION_API_BASE}/export/${id}/${format}`);
+  if (!res.ok) {
+    throw new Error("Export failed");
+  }
+  return res.blob();
 }
 
 export async function classifyUploadedFile(
@@ -976,13 +1053,16 @@ export async function listUploadedFiles(): Promise<string[]> {
 
 export async function searchActsByKeyword(keyword: string): Promise<string[]> {
   try {
-    const response = await fetch(`${API_BASE}/api/lineage/search-acts-by-keyword`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
+    const response = await fetch(
+      `${API_BASE}/api/lineage/search-acts-by-keyword`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ keyword }),
       },
-      body: JSON.stringify({ keyword }),
-    });
+    );
 
     if (!response.ok) {
       throw new Error(`Failed to search acts: ${response.statusText}`);
@@ -991,7 +1071,7 @@ export async function searchActsByKeyword(keyword: string): Promise<string[]> {
     const data = await response.json();
     return data.results || [];
   } catch (error) {
-    console.error('Error searching acts by keyword:', error);
+    console.error("Error searching acts by keyword:", error);
     return [];
   }
 }
@@ -1102,7 +1182,7 @@ export default {
 // Translation API  (backend: /api/translate/*)
 // ═══════════════════════════════════════════════════════════════════════════
 
-const T_BASE = `${API_BASE}/api/translate`;
+const T_BASE = buildApiUrl("api/translate");
 
 // ── Types ────────────────────────────────────────────────────────────────
 
@@ -1342,9 +1422,7 @@ export interface UploadedFile {
 }
 
 /** Extract text from a file already saved in the backend uploads folder. */
-export async function extractFromSaved(
-  filename: string,
-): Promise<{
+export async function extractFromSaved(filename: string): Promise<{
   success: boolean;
   full_text?: string;
   preview?: string;

@@ -9,7 +9,15 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { classifyFile, classifyText } from "@/config/api";
+import {
+  classifyFile,
+  classifyText,
+  deleteClassificationResult,
+  exportClassificationResult,
+  getClassificationResult,
+  getRecentClassifications,
+  saveClassificationResult,
+} from "@/config/api";
 import type { ClassificationResult, ClauseResult } from "@/config/api";
 
 // ── Types ────────────────────────────────────────────────────────────────
@@ -74,11 +82,8 @@ export function ClassificationProvider({
   const refreshRecent = useCallback(async () => {
     setLoadingRecent(true);
     try {
-      const response = await fetch("http://localhost:8000/api/recent");
-      const data = await response.json();
-      if (data.success) {
-        setRecentClassifications(data.classifications || []);
-      }
+      const classifications = await getRecentClassifications();
+      setRecentClassifications(classifications);
     } catch (error) {
       console.error("Failed to load recent classifications:", error);
     } finally {
@@ -89,18 +94,8 @@ export function ClassificationProvider({
   const saveClassification = useCallback(
     async (filename: string, result: ClassificationResult) => {
       try {
-        const response = await fetch("http://localhost:8000/api/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            filename,
-            result,
-          }),
-        });
-        const data = await response.json();
-        if (data.success) {
-          await refreshRecent();
-        }
+        await saveClassificationResult(filename, result);
+        await refreshRecent();
       } catch (error) {
         console.error("Failed to save classification:", error);
         throw error;
@@ -112,9 +107,7 @@ export function ClassificationProvider({
   const loadClassification = useCallback(
     async (id: string): Promise<ClassificationResult | null> => {
       try {
-        const response = await fetch(`http://localhost:8000/api/result/${id}`);
-        const data = await response.json();
-        return data.result || null;
+        return await getClassificationResult(id);
       } catch (error) {
         console.error("Failed to load classification:", error);
         return null;
@@ -126,12 +119,8 @@ export function ClassificationProvider({
   const deleteClassification = useCallback(
     async (id: string) => {
       try {
-        const response = await fetch(`http://localhost:8000/api/delete/${id}`, {
-          method: "DELETE",
-        });
-        if (response.ok) {
-          await refreshRecent();
-        }
+        await deleteClassificationResult(id);
+        await refreshRecent();
       } catch (error) {
         console.error("Failed to delete classification:", error);
         throw error;
@@ -143,12 +132,7 @@ export function ClassificationProvider({
   const exportClassification = useCallback(
     async (id: string, format: "pdf" | "json" | "txt") => {
       try {
-        const response = await fetch(
-          `http://localhost:8000/api/export/${id}/${format}`,
-        );
-        if (!response.ok) throw new Error("Export failed");
-
-        const blob = await response.blob();
+        const blob = await exportClassificationResult(id, format);
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;

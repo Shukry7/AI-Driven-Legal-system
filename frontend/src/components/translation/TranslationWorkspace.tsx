@@ -38,6 +38,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { buildApiUrl } from "@/config/api";
 import { cn } from "@/lib/utils";
 import { normalizeSinhalaUnicode } from "@/lib/sinhalaUnicode";
 import {
@@ -90,7 +91,8 @@ export function TranslationWorkspace({
   onComplete,
   onTranslationComplete,
 }: TranslationWorkspaceProps) {
-  const { startDocumentJob, startTextJob, jobs, cancelJob, resumeJob } = useTranslation();
+  const { startDocumentJob, startTextJob, jobs, cancelJob, resumeJob } =
+    useTranslation();
 
   const [result, setResult] = useState<TranslationJobResult | null>(
     existingResult,
@@ -101,7 +103,12 @@ export function TranslationWorkspace({
 
   // Scroll both panes to the selected section whenever it changes
   useEffect(() => {
-    const prefixes = ["src-sec-", "trans-sec-", "prog-src-sec-", "prog-trans-sec-"];
+    const prefixes = [
+      "src-sec-",
+      "trans-sec-",
+      "prog-src-sec-",
+      "prog-trans-sec-",
+    ];
     prefixes.forEach((prefix) => {
       const el = document.getElementById(`${prefix}${selectedSection}`);
       el?.scrollIntoView({ behavior: "smooth", block: "nearest" });
@@ -119,7 +126,7 @@ export function TranslationWorkspace({
       setResult(existingResult);
       return;
     }
-    
+
     // If resuming an in-progress job, adopt it into the context for polling, then track it
     if (uploadData.resumingJobId) {
       resumeJob(uploadData.resumingJobId).then(() => {
@@ -127,7 +134,7 @@ export function TranslationWorkspace({
       });
       return;
     }
-    
+
     if (hasStarted.current) return;
     hasStarted.current = true;
     (async () => {
@@ -184,7 +191,8 @@ export function TranslationWorkspace({
           created_at: new Date(tracked.startedAt).toISOString(),
           source_sections: tracked.sourceSections || [],
           translated_sections: partialSections,
-          raw_source_text: tracked.sourceSections?.map(s => s.content).join("\n\n") || "",
+          raw_source_text:
+            tracked.sourceSections?.map((s) => s.content).join("\n\n") || "",
           raw_translated_text: partialSections
             .map((s) => s.translated_content)
             .join("\n\n"),
@@ -241,7 +249,8 @@ export function TranslationWorkspace({
 
   // Progressive sections while translating
   // Fall back to uploadData.sourceSections for resumed jobs
-  const progressiveSourceSections = activeJob?.sourceSections || uploadData.sourceSections || [];
+  const progressiveSourceSections =
+    activeJob?.sourceSections || uploadData.sourceSections || [];
   const progressiveTranslatedSections = activeJob?.partialSections || [];
 
   // ── Export ─────────────────────────────────────────────────────────────
@@ -272,7 +281,9 @@ export function TranslationWorkspace({
     if (!char) return false;
     const code = char.charCodeAt(0);
     // Sinhala range (U+0D80–U+0DFF) OR Zero-Width Joiner/Non-Joiner (used in conjuncts)
-    return (code >= 0x0d80 && code <= 0x0dff) || code === 0x200d || code === 0x200c;
+    return (
+      (code >= 0x0d80 && code <= 0x0dff) || code === 0x200d || code === 0x200c
+    );
   };
 
   // Helper: Check if character is a Tamil script character (U+0B80–U+0BFF)
@@ -281,17 +292,19 @@ export function TranslationWorkspace({
     if (!char) return false;
     const code = char.charCodeAt(0);
     // Tamil range (U+0B80–U+0BFF) OR Zero-Width Joiner/Non-Joiner
-    return (code >= 0x0b80 && code <= 0x0bff) || code === 0x200d || code === 0x200c;
+    return (
+      (code >= 0x0b80 && code <= 0x0bff) || code === 0x200d || code === 0x200c
+    );
   };
 
   // Helper: Check if character is part of a word in the given language
   const isWordChar = (char: string, lang: "en" | "si" | "ta") => {
     if (!char) return false;
     const code = char.charCodeAt(0);
-    
+
     // Common combining marks and joiners that are part of words
     if (code === 0x200d || code === 0x200c) return true; // ZWJ, ZWNJ
-    
+
     if (lang === "en") {
       return /[a-zA-Z]/.test(char);
     } else if (lang === "si") {
@@ -338,7 +351,7 @@ export function TranslationWorkspace({
 
     // Find all match positions (non-overlapping, longest-first)
     const matches: { start: number; end: number; term: GlossaryTerm }[] = [];
-    
+
     // For case-insensitive matching (primarily for English)
     const textLower = normalizedText.toLowerCase();
 
@@ -357,12 +370,14 @@ export function TranslationWorkspace({
 
         const end = idx + termNormalized.length;
         const charBefore = idx > 0 ? normalizedText[idx - 1] : "";
-        const charAfter = end < normalizedText.length ? normalizedText[end] : "";
+        const charAfter =
+          end < normalizedText.length ? normalizedText[end] : "";
 
         let isValidBoundary = true;
 
         // Check word boundaries - term must be surrounded by non-word characters for that language
-        const isWordBoundaryBefore = !charBefore || !isWordChar(charBefore, lang);
+        const isWordBoundaryBefore =
+          !charBefore || !isWordChar(charBefore, lang);
         const isWordBoundaryAfter = !charAfter || !isWordChar(charAfter, lang);
         isValidBoundary = isWordBoundaryBefore && isWordBoundaryAfter;
 
@@ -693,9 +708,17 @@ export function TranslationWorkspace({
                                     {Math.round(sec.confidence * 100)}%
                                   </Badge>
                                 </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
-                                  Model confidence for this section — average token probability during beam search.
-                                  {sec.confidence >= 0.85 ? " High quality output expected." : sec.confidence >= 0.6 ? " Review recommended for critical text." : " Low confidence — manual review advised."}
+                                <TooltipContent
+                                  side="top"
+                                  className="max-w-60 text-xs leading-relaxed"
+                                >
+                                  Model confidence for this section — average
+                                  token probability during beam search.
+                                  {sec.confidence >= 0.85
+                                    ? " High quality output expected."
+                                    : sec.confidence >= 0.6
+                                      ? " Review recommended for critical text."
+                                      : " Low confidence — manual review advised."}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
@@ -713,7 +736,9 @@ export function TranslationWorkspace({
                     <div className="p-4">
                       <p className="text-sm whitespace-pre-wrap">
                         {result.target_language === "si"
-                          ? normalizeSinhalaUnicode(result.raw_translated_text || "")
+                          ? normalizeSinhalaUnicode(
+                              result.raw_translated_text || "",
+                            )
                           : result.raw_translated_text}
                       </p>
                     </div>
@@ -829,9 +854,17 @@ export function TranslationWorkspace({
                                     {Math.round(translated.confidence * 100)}%
                                   </Badge>
                                 </TooltipTrigger>
-                                <TooltipContent side="top" className="max-w-60 text-xs leading-relaxed">
-                                  Model confidence for this section — average token probability during beam search.
-                                  {translated.confidence >= 0.85 ? " High quality output expected." : translated.confidence >= 0.6 ? " Review recommended for critical text." : " Low confidence — manual review advised."}
+                                <TooltipContent
+                                  side="top"
+                                  className="max-w-60 text-xs leading-relaxed"
+                                >
+                                  Model confidence for this section — average
+                                  token probability during beam search.
+                                  {translated.confidence >= 0.85
+                                    ? " High quality output expected."
+                                    : translated.confidence >= 0.6
+                                      ? " Review recommended for critical text."
+                                      : " Low confidence — manual review advised."}
                                 </TooltipContent>
                               </Tooltip>
                             </TooltipProvider>
@@ -885,7 +918,9 @@ export function TranslationWorkspace({
                               const fd = new FormData();
                               fd.append("section_index", String(idx));
                               await fetch(
-                                `${import.meta.env.VITE_API_BASE_URL || ""}/api/translate/skip-section/${activeJobId}`,
+                                buildApiUrl(
+                                  `api/translate/skip-section/${activeJobId}`,
+                                ),
                                 { method: "POST", body: fd },
                               );
                               toast.info(`Section ${idx + 1} will be skipped`);
@@ -956,7 +991,10 @@ function StatCard({
     <TooltipProvider delayDuration={200}>
       <Tooltip>
         <TooltipTrigger asChild>{content}</TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-72 text-xs leading-relaxed">
+        <TooltipContent
+          side="bottom"
+          className="max-w-72 text-xs leading-relaxed"
+        >
           {tooltip}
         </TooltipContent>
       </Tooltip>
