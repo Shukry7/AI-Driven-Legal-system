@@ -108,6 +108,7 @@ def load_models(block: bool = True) -> Dict[str, Any]:
                 HF_MODELS_REPO,
                 subfolder=model_subdir,
                 src_lang="en_XX",
+                extra_special_tokens={},
                 trust_remote_code=True,
             )
 

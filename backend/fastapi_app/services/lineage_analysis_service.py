@@ -14,7 +14,15 @@ PROCESSED_DATA_FILE = Path(__file__).parent.parent.parent / "processed_acts_data
 logger = logging.getLogger(__name__)
 
 def is_model_loaded() -> bool:
-    """Check if the lineage model is loaded."""
+    """Check if the lineage model is loaded, triggering lazy load if needed."""
+    if model_loader.has_lineage_model():
+        return True
+
+    try:
+        model_loader.get_lineage_model()
+    except Exception as e:
+        logger.warning(f"Failed to load lineage model on demand: {e}")
+
     return model_loader.has_lineage_model()
 
 def predict_treatment(context: str) -> Tuple[Optional[str], Optional[float]]:

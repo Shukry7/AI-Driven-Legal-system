@@ -332,16 +332,7 @@ class MLClauseDetectionService:
                     )
                 },
                 'text_length': result['text_length'],
-                    model_state_dict = None
-                    if isinstance(checkpoint, dict) and 'model_state_dict' in checkpoint:
-                        model_state_dict = checkpoint['model_state_dict']
-                    elif isinstance(checkpoint, dict):
-                        model_state_dict = checkpoint
-
-                    if model_state_dict is None:
-                        raise KeyError("model_state_dict not found in checkpoint")
-
-                    self.model.load_state_dict(model_state_dict)
+                }
             return {
                 'success': False,
                 'error': result.get('error'),
