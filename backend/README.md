@@ -1,3 +1,12 @@
+---
+title: AI Legal Assistance API
+emoji: ⚖️
+colorFrom: indigo
+colorTo: blue
+sdk: docker
+app_port: 7860
+---
+
 # Legal Document Analysis Backend
 
 Backend service for Supreme Court judgment analysis with clause detection, ML integration, and LLM-based suggestions.
