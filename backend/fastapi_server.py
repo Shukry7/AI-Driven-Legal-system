@@ -40,25 +40,34 @@ def _parse_cors_origins(value: str) -> list[str]:
     return origins or ["*"]
 
 
+def _parse_cors_headers(value: str) -> list[str]:
+    headers = [header.strip() for header in value.split(",") if header.strip()]
+    return headers or ["*"]
+
+
 # Configure CORS
 cors_origins = _parse_cors_origins(
     os.getenv(
         "CORS_ALLOW_ORIGINS",
-        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173,https://legal-ai-frontend-page.vercel.app",
     )
 )
 cors_allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
+cors_allow_headers = _parse_cors_headers(
+    os.getenv("CORS_ALLOW_HEADERS", "*")
+)
 
 app.add_middleware(
     CORSMiddleware,
     allow_origins=cors_origins,
     allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
-    allow_headers=["*"],
+    allow_headers=cors_allow_headers,
 )
 
 logger.info("✓ CORS origins: %s", ", ".join(cors_origins))
 logger.info("✓ CORS credentials enabled: %s", cors_allow_credentials)
+logger.info("✓ CORS headers: %s", ", ".join(cors_allow_headers))
 
 # Include routers
 app.include_router(classification_router, prefix="/api", tags=["classification"])
