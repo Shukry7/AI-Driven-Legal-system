@@ -141,10 +141,10 @@ begin
   end if;
 
   v_tier_id := public.ensure_membership(p_user_id);
-  select code, monthly_tokens, is_unlimited
+  select mt.code, mt.monthly_tokens, mt.is_unlimited
     into v_code, v_limit, v_unlimited
-  from public.membership_tiers
-  where id = v_tier_id;
+  from public.membership_tiers mt
+  where mt.id = v_tier_id;
 
   v_month_key := public.current_month_key();
   select tokens_used into v_used
@@ -159,17 +159,21 @@ begin
   monthly_limit := v_limit;
   tokens_used := v_used;
   is_unlimited := v_unlimited;
+
   if v_unlimited then
     tokens_remaining := null;
   else
     tokens_remaining := greatest(v_limit - v_used, 0);
   end if;
+
   return next;
 end;
 $$;
 
-create or replace function public.consume_tokens(
-  p_user_id uuid default auth.uid(),
+-- FIXED: wrapper + internal function so no non-default params follow defaults
+-- Internal function (no defaults)
+create or replace function public.consume_tokens_internal(
+  p_user_id uuid,
   p_feature text,
   p_amount integer
 )
@@ -195,15 +199,16 @@ begin
   if p_user_id is null then
     raise exception 'Authentication required';
   end if;
+
   if p_amount is null or p_amount <= 0 then
     raise exception 'Invalid token amount';
   end if;
 
   v_tier_id := public.ensure_membership(p_user_id);
-  select code, monthly_tokens, is_unlimited
+  select mt.code, mt.monthly_tokens, mt.is_unlimited
     into v_code, v_limit, v_unlimited
-  from public.membership_tiers
-  where id = v_tier_id;
+  from public.membership_tiers mt
+  where mt.id = v_tier_id;
 
   v_month_key := public.current_month_key();
 
@@ -241,13 +246,34 @@ begin
   tokens_used := v_used;
   monthly_limit := v_limit;
   is_unlimited := v_unlimited;
+
   if v_unlimited then
     tokens_remaining := null;
   else
     tokens_remaining := greatest(v_limit - v_used, 0);
   end if;
+
   return next;
 end;
+$$;
+
+-- Wrapper function (keeps the convenient auth.uid() default behavior)
+create or replace function public.consume_tokens(
+  p_feature text,
+  p_amount integer
+)
+returns table (
+  ok boolean,
+  tokens_used integer,
+  tokens_remaining integer,
+  monthly_limit integer,
+  is_unlimited boolean
+)
+language sql
+stable
+security definer
+as $$
+  select * from public.consume_tokens_internal(auth.uid(), p_feature, p_amount);
 $$;
 
 create or replace function public.handle_new_user()

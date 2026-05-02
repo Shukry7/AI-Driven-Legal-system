@@ -1,4 +1,4 @@
-import { createContext, useContext, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { Session, User } from "@supabase/supabase-js";
 import { supabase } from "@/lib/supabaseClient";
 import { PLAN_LIMITS, type PlanTier } from "@/lib/tokenPolicy";
@@ -67,19 +67,18 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setTokensRemaining(remaining);
   };
 
-  const refreshTokenSnapshot = async (userId?: string) => {
+  const refreshTokenSnapshot = useCallback(async (userId?: string) => {
     if (!userId) return;
     const { data, error } = await supabase.rpc("get_token_snapshot", {
       p_user_id: userId,
     });
     if (error) {
-      // eslint-disable-next-line no-console
       console.error("Token snapshot error", error);
       return;
     }
     const snapshot = Array.isArray(data) ? data[0] : data;
     applySnapshot(snapshot ?? null);
-  };
+  }, []);
 
   useEffect(() => {
     let isMounted = true;
@@ -117,7 +116,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     refreshTokenSnapshot(user.id);
-  }, [user]);
+  }, [refreshTokenSnapshot, user]);
 
   const login = async (email: string, password: string) => {
     const { error } = await supabase.auth.signInWithPassword({
@@ -145,18 +144,20 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await supabase.auth.signOut();
   };
 
-  const canConsumeTokens = (amount: number) => {
-    if (monthlyLimit === Number.POSITIVE_INFINITY) return true;
-    return tokensRemaining >= amount;
-  };
+  const canConsumeTokens = useCallback(
+    (amount: number) => {
+      if (monthlyLimit === Number.POSITIVE_INFINITY) return true;
+      return tokensRemaining >= amount;
+    },
+    [monthlyLimit, tokensRemaining],
+  );
 
-  const consumeTokens = async (amount: number, reason?: string) => {
+  const consumeTokens = useCallback(async (amount: number, reason?: string) => {
     if (!user) {
       return { ok: false, error: "Authentication required" };
     }
 
     const { data, error } = await supabase.rpc("consume_tokens", {
-      p_user_id: user.id,
       p_feature: reason ?? "usage",
       p_amount: amount,
     });
@@ -171,8 +172,9 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
 
     applySnapshot(snapshot ?? null);
+    await refreshTokenSnapshot(user.id);
     return { ok: true };
-  };
+  }, [refreshTokenSnapshot, user]);
 
   const value = useMemo(
     () => ({
@@ -190,12 +192,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       register,
       logout,
     }),
-    [session, user, isLoading, plan, monthlyLimit, tokensUsed, tokensRemaining],
+    [
+      session,
+      user,
+      isLoading,
+      plan,
+      monthlyLimit,
+      tokensUsed,
+      tokensRemaining,
+      canConsumeTokens,
+      consumeTokens,
+    ],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
 
+// eslint-disable-next-line react-refresh/only-export-components
 export function useAuth() {
   const ctx = useContext(AuthContext);
   if (!ctx) throw new Error("useAuth must be used within AuthProvider");

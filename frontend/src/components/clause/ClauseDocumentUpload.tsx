@@ -16,7 +16,7 @@ interface DocumentUploadProps {
 }
 
 export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProps) {
-  const { canConsumeTokens, consumeTokens } = useAuth();
+  const { canConsumeTokens } = useAuth();
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
   const [isDragging, setIsDragging] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -63,13 +63,6 @@ export function ClauseDocumentUpload({ onProceed, onCancel }: DocumentUploadProp
       .then((res) => {
         setLoading(false);
         setProgress(null);
-        void consumeTokens(TOKEN_COSTS.clauseDetection, 'clause_detection').then(
-          (tokenResult) => {
-            if (!tokenResult.ok) {
-              toast.error(tokenResult.error || 'Unable to apply token usage');
-            }
-          },
-        );
         // Pass the upload response (preview / full_text_path) to the next step
         onProceed({ file: selectedFile!, analysis: res });
       })

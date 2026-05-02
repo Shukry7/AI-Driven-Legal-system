@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Loader2, CheckCircle, AlertCircle, FileText, ZoomIn, ZoomOut, Download, AlertTriangle, Eye, XCircle, Edit3, Check, X, Lightbulb, Info, List, Sparkles, Brain, RefreshCw, ChevronDown, ChevronUp, Home, Database, CheckCheck, HelpCircle, Play } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
@@ -13,6 +13,9 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { supremeCourtMissingClauses } from './mock-clauses-data';
 import api from '@/config/api';
 import { predictClauses, getPredictionConfig, acceptSuggestion, saveTextFile, saveToDatabase, type PredictionResult, type PredictionSuggestion, type PredictionConfig } from '@/config/api';
+import { useAuth } from '@/context/AuthContext';
+import { TOKEN_COSTS } from '@/lib/tokenPolicy';
+import { toast } from 'sonner';
 
 interface ClauseWorkspaceProps {
   file: File;
@@ -83,6 +86,8 @@ interface ProcessStep {
 }
 
 export function ClauseWorkspace({ file, onComplete, onCancel, originalDocument }: ClauseWorkspaceProps) {
+  const { consumeTokens } = useAuth();
+  const hasChargedRef = useRef(false);
   const [showCompleteDialog, setShowCompleteDialog] = useState(false);
   const [isSavedToDb, setIsSavedToDb] = useState(false);
 
@@ -326,6 +331,7 @@ Judge: [MISSING: Third Judge Signature - Signature required]
   // Analysis will run only when the user explicitly starts it via the UI
 
   const startAnalysis = async () => {
+    hasChargedRef.current = false;
     setAnalyzing(true);
     setAnalysisComplete(false);
     setProgress(5);
@@ -484,6 +490,19 @@ Judge: [MISSING: Third Judge Signature - Signature required]
       handleGetAISuggestions(false);
     }
   }, [analysisComplete, predictions, savedTextFilename]);
+
+  // ─── Deduct tokens once per successful analysis ──────────────────────────
+  useEffect(() => {
+    if (!analysisComplete || !results || hasChargedRef.current) return;
+    hasChargedRef.current = true;
+    void consumeTokens(TOKEN_COSTS.clauseDetection, 'clause_detection').then(
+      (tokenResult) => {
+        if (!tokenResult.ok) {
+          toast.error(tokenResult.error || 'Unable to apply token usage');
+        }
+      },
+    );
+  }, [analysisComplete, results, consumeTokens]);
 
   // ─── AI Prediction Handlers ──────────────────────────────────────────────
   const handleGetAISuggestions = async (forceRefresh: boolean = false) => {
