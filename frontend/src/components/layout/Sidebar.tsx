@@ -77,20 +77,8 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="p-4">
-        <div className="flex items-center gap-2 bg-sidebar-accent rounded px-3 py-2">
-          <Search className="w-4 h-4 text-sidebar-foreground/50" />
-          <input
-            type="text"
-            placeholder="Search cases..."
-            className="bg-transparent text-sm w-full outline-none placeholder:text-sidebar-foreground/40"
-          />
-        </div>
-      </div>
-
       {/* Navigation */}
-      <nav className="flex-1 px-3 py-3 overflow-y-auto">
+      <nav className="flex-1 min-h-0 px-3 py-3 overflow-y-auto">
         <div className="space-y-1">
           <NavItem
             icon={LayoutDashboard}
@@ -106,43 +94,48 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
           />
 
           <NavItem
-                icon={CheckCircle}
-                label="Document Analysis"
-                active={activeModule === "clause"}
-                onClick={() => onModuleChange("clause")}
-                highlight
-              />
+            icon={CheckCircle}
+            label="Document Analysis"
+            active={activeModule === "clause"}
+            onClick={() => onModuleChange("clause")}
+            highlight
+          />
 
-              <NavItem
-                icon={Languages}
-                label="Multilingual Translation"
-                active={activeModule === "translation"}
-                onClick={() => onModuleChange("translation")}
-                highlight
-              />
-              
-              <NavItem
-                icon={AlertCircle}
-                label="Risk Classification"
-                active={activeModule === "classification"}
-                onClick={() => onModuleChange("classification")}
-                highlight
-              />
-             
-              <NavItem 
-                icon={GitGraph} 
-                label="Legal Lineage"
-                active={activeModule === 'legalLineage'}
-                onClick={() => onModuleChange('legalLineage')}
-                highlight
-              />
-         
+          <NavItem
+            icon={Languages}
+            label="Multilingual Translation"
+            active={activeModule === "translation"}
+            onClick={() => onModuleChange("translation")}
+            highlight
+          />
+
+          <NavItem
+            icon={AlertCircle}
+            label="Risk Classification"
+            active={activeModule === "classification"}
+            onClick={() => onModuleChange("classification")}
+            highlight
+          />
+
+          <NavItem
+            icon={GitGraph}
+            label="Legal Lineage"
+            active={activeModule === "legalLineage"}
+            onClick={() => onModuleChange("legalLineage")}
+            highlight
+          />
         </div>
       </nav>
 
       {/* Bottom Section */}
-      <div className="p-4 border-t border-sidebar-border">
-        <div className="mb-4 rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3">
+      <div className="px-3 py-4 border-t border-sidebar-border space-y-3">
+        <NavItem
+          icon={Settings}
+          label="Settings"
+          active={activeModule === "settings"}
+          onClick={() => onModuleChange("settings")}
+        />
+        <div className="rounded-lg border border-sidebar-border bg-sidebar-accent/40 p-3">
           <div className="flex items-center justify-between text-xs text-sidebar-foreground/70">
             <span className="uppercase tracking-wide">{plan} plan</span>
             <span>
@@ -158,13 +151,7 @@ export function Sidebar({ activeModule, onModuleChange }: SidebarProps) {
               : `${tokensUsed}/${monthlyLimit} used this month`}
           </div>
         </div>
-        <NavItem
-          icon={Settings}
-          label="Settings"
-          active={activeModule === "settings"}
-          onClick={() => onModuleChange("settings")}
-        />
-        <div className="mt-4 flex items-center gap-3 px-3">
+        <div className="flex items-center gap-3 px-1">
           <div className="w-8 h-8 rounded-full bg-sidebar-accent flex items-center justify-center text-sm font-medium shrink-0">
             {initials}
           </div>
