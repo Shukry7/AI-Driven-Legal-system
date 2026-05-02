@@ -35,14 +35,30 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
+def _parse_cors_origins(value: str) -> list[str]:
+    origins = [origin.strip() for origin in value.split(",") if origin.strip()]
+    return origins or ["*"]
+
+
 # Configure CORS
+cors_origins = _parse_cors_origins(
+    os.getenv(
+        "CORS_ALLOW_ORIGINS",
+        "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
+    )
+)
+cors_allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "false").lower() == "true"
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify your frontend origin
-    allow_credentials=True,
+    allow_origins=cors_origins,
+    allow_credentials=cors_allow_credentials,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+logger.info("✓ CORS origins: %s", ", ".join(cors_origins))
+logger.info("✓ CORS credentials enabled: %s", cors_allow_credentials)
 
 # Include routers
 app.include_router(classification_router, prefix="/api", tags=["classification"])
