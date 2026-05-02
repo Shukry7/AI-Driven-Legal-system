@@ -89,16 +89,9 @@ class OptimizedLegalBERTDetector(nn.Module):
 class MLClauseDetectionService:
     """Enhanced clause detection service using trained ML model."""
     
-    def __init__(self, checkpoint_path: str = 'app/ml_models/clause_deduction_model_v2',
+    def __init__(self, checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
                  model_name: str = "nlpaueb/legal-bert-base-uncased"):
-        """Initialize the ML-based clause detection service.
-        
-        Args:
-            checkpoint_path: Path to model directory (v2 folder format) containing
-                config.json, model.safetensors, tokenizer files, and custom_head.pt.
-                Also supports legacy .pt checkpoint files for backward compatibility.
-            model_name: HuggingFace model name (used only as fallback for legacy .pt loading).
-        """
+        """Initialize the ML-based clause detection service."""
         # Resolve path relative to backend directory
         if not os.path.isabs(checkpoint_path):
             backend_dir = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
@@ -113,81 +106,13 @@ class MLClauseDetectionService:
         self.load_checkpoint()
     
     def load_checkpoint(self):
-        """Load the model from v2 folder format or legacy .pt checkpoint."""
+        """Load the model checkpoint."""
         if not os.path.exists(self.checkpoint_path):
-            logger.warning(f"Model path not found at: {self.checkpoint_path}")
+            logger.warning(f"Checkpoint not found at: {self.checkpoint_path}")
             return False
         
-        # Determine if this is a v2 folder or a legacy .pt file
-        if os.path.isdir(self.checkpoint_path):
-            return self._load_v2_model()
-        else:
-            return self._load_legacy_checkpoint()
-    
-    def _load_v2_model(self):
-        """Load model from v2 folder format (safetensors + custom_head.pt)."""
         try:
-            model_dir = self.checkpoint_path
-            custom_head_path = os.path.join(model_dir, 'custom_head.pt')
-            
-            logger.info(f"Loading v2 model from directory: {model_dir}")
-            
-            # Load the fine-tuned BERT base from the directory (config.json + model.safetensors)
-            logger.info("Loading fine-tuned BERT backbone from safetensors...")
-            bert_model = AutoModel.from_pretrained(model_dir)
-            
-            # Load tokenizer from the same directory
-            logger.info("Loading tokenizer from model directory...")
-            self.tokenizer = AutoTokenizer.from_pretrained(model_dir)
-            
-            # Build the full model architecture
-            self.model = OptimizedLegalBERTDetector(
-                num_clauses=28,
-                dropout=0.3,
-                num_dropout_samples=5,
-                model_name=model_dir  # Pass the directory so it loads the local BERT
-            ).to(self.device)
-            
-            # Replace the BERT backbone with the one we loaded (in case of any mismatch)
-            self.model.bert = bert_model.to(self.device)
-            
-            # Load the custom classification head weights
-            if os.path.exists(custom_head_path):
-                logger.info(f"Loading custom classification head from: {custom_head_path}")
-                head_state_dict = torch.load(custom_head_path, map_location=self.device)
-                
-                # Load pre_classifier and classifier weights from custom_head.pt
-                head_keys = head_state_dict.keys()
-                logger.debug(f"Custom head keys: {list(head_keys)}")
-                
-                # The custom_head.pt may contain keys prefixed with 'pre_classifier.' and 'classifier.'
-                # or it may be the full model state dict with only head keys
-                model_state = self.model.state_dict()
-                updated_keys = []
-                for key, value in head_state_dict.items():
-                    if key in model_state:
-                        model_state[key] = value
-                        updated_keys.append(key)
-                    else:
-                        logger.warning(f"Unexpected key in custom_head.pt: {key}")
-                
-                self.model.load_state_dict(model_state)
-                logger.info(f"Loaded {len(updated_keys)} custom head weight tensors")
-            else:
-                logger.warning(f"custom_head.pt not found at: {custom_head_path}, using randomly initialized head")
-            
-            self.model.eval()
-            logger.info(f"✅ V2 model loaded successfully on {self.device}")
-            return True
-            
-        except Exception as e:
-            logger.error(f"Failed to load v2 model: {e}", exc_info=True)
-            return False
-    
-    def _load_legacy_checkpoint(self):
-        """Load model from legacy .pt checkpoint file (backward compatibility)."""
-        try:
-            logger.info(f"Loading legacy checkpoint from: {self.checkpoint_path}")
+            logger.info(f"Loading checkpoint from: {self.checkpoint_path}")
             checkpoint = torch.load(self.checkpoint_path, map_location=self.device)
             
             # Extract config
@@ -216,11 +141,11 @@ class MLClauseDetectionService:
             # Load tokenizer
             self.tokenizer = AutoTokenizer.from_pretrained(self.model_name)
             
-            logger.info(f"Legacy model loaded successfully on {self.device} (model_name={self.model_name})")
+            logger.info(f"Model loaded successfully on {self.device} (model_name={self.model_name})")
             return True
             
         except Exception as e:
-            logger.error(f"Failed to load legacy checkpoint: {e}", exc_info=True)
+            logger.error(f"Failed to load checkpoint: {e}", exc_info=True)
             return False
     
     def predict(self, text: str, max_length: int = 512) -> Dict:
@@ -385,7 +310,7 @@ class MLClauseDetectionService:
 
 def analyze_document_with_model(
     text: str,
-    checkpoint_path: str = 'app/ml_models/clause_deduction_model_v2',
+    checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
     max_length: int = 512
 ) -> Dict:
     """
@@ -405,7 +330,7 @@ def analyze_document_with_model(
 
 def analyze_file_with_model(
     file_path: str,
-    checkpoint_path: str = 'app/ml_models/clause_deduction_model_v2',
+    checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
     max_length: int = 512
 ) -> Dict:
     """

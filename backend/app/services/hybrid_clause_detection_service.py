@@ -45,7 +45,7 @@ class HybridClauseDetectionService:
     ML_LOW_CONFIDENCE_THRESHOLD = 0.40  # ML uncertain
     
     def __init__(self, 
-                 ml_checkpoint_path: str = 'app/ml_models/clause_deduction_model_v2',
+                 ml_checkpoint_path: str = 'app/ml_models/clause_detection_model.pt',
                  enable_ml: bool = True):
         """
         Initialize hybrid detection service.

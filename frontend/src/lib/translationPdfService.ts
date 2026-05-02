@@ -4,7 +4,6 @@
  * Simple PDF generation using browser print dialog.
  * Opens translated content in a new window and triggers print/save as PDF.
  */
-//hi
 
 import { normalizeSinhalaUnicode } from "./sinhalaUnicode";
 import type { TranslationJobResult } from "@/config/api";
