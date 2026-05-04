@@ -7,6 +7,9 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import LoginPage from "./pages/login/index";
 import RegisterPage from "./pages/register/index";
+import ProfilePage from "./pages/profile/index";
+import SettingsPage from "./pages/settings/index";
+import MembershipPage from "./pages/membership/index";
 import ClauseEntryPage from "./pages/clause/Entry";
 import ClauseUploadPage from "./pages/clause/Upload";
 import ClauseWorkspacePage from "./pages/clause/Workspace";
@@ -84,6 +87,30 @@ const App = () => (
                   element={
                     <ProtectedRoute>
                       <CasesPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/profile"
+                  element={
+                    <ProtectedRoute>
+                      <ProfilePage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/settings"
+                  element={
+                    <ProtectedRoute>
+                      <SettingsPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/membership"
+                  element={
+                    <ProtectedRoute>
+                      <MembershipPage />
                     </ProtectedRoute>
                   }
                 />

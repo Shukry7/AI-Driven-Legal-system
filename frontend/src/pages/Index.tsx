@@ -6,9 +6,11 @@ import { ClassificationProvider } from "@/components/classification/Classificati
 import { useNavigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import LegalLineageModule from "@/components/legalLineage/LegalLineageModule";
+import { cn } from "@/lib/utils";
 
 export default function Index() {
   const [activeModule, setActiveModule] = useState("translation");
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const navigate = useNavigate();
 
   const handleModuleChange = (module: string) => {
@@ -22,9 +24,14 @@ export default function Index() {
       <Sidebar
         activeModule={activeModule}
         onModuleChange={handleModuleChange}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
       />
 
-      <main className="ml-64 min-h-screen">
+      <main className={cn(
+        "min-h-screen transition-all duration-300",
+        sidebarCollapsed ? "ml-20" : "ml-64"
+      )}>
         <div className="p-8">
           {activeModule === "translation" && <TranslationModule />}
           {activeModule === "classification" && (
