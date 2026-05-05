@@ -59,7 +59,7 @@ const features = [
     name: "Multilingual Translation",
     icon: Languages,
     description: "Translate legal documents across multiple languages",
-    free: true,
+    free: false,
     pro: true,
     premium: true,
   },
@@ -67,7 +67,7 @@ const features = [
     name: "Risk Classification",
     icon: AlertTriangle,
     description: "Automated risk assessment and classification",
-    free: true,
+    free: false,
     pro: true,
     premium: true,
   },
@@ -326,7 +326,7 @@ export default function MembershipPage() {
             <div className="grid gap-5 md:grid-cols-3 max-w-4xl mx-auto">
                 {/* Free Plan */}
                 <Card 
-                className={`relative overflow-hidden transition-all duration-300 w-64 ${
+                className={`relative overflow-hidden rounded-2xl transition-all duration-300 w-64 ${
                     plan === "free" 
                     ? "border-primary shadow-md" 
                     : "hover:shadow-lg hover:-translate-y-1"
@@ -376,7 +376,7 @@ export default function MembershipPage() {
 
                 {/* Pro Plan */}
                 <Card 
-                className={`relative overflow-hidden transition-all duration-300 w-64 ${
+                className={`relative overflow-hidden rounded-2xl transition-all duration-300 w-64 ${
                     plan === "pro" 
                     ? "border-primary shadow-md" 
                     : "hover:shadow-lg hover:-translate-y-1"
@@ -446,7 +446,7 @@ export default function MembershipPage() {
 
                 {/* Premium Plan */}
                 <Card 
-                className={`relative overflow-hidden transition-all duration-300 w-64 ${
+                className={`relative overflow-hidden rounded-2xl transition-all duration-300 w-64 ${
                     plan === "premium" 
                     ? "border-primary shadow-md" 
                     : "hover:shadow-lg hover:-translate-y-1"
@@ -548,7 +548,7 @@ export default function MembershipPage() {
                     return (
                       <Card
                         key={tier.id}
-                        className="relative overflow-hidden transition-all duration-300 w-64 mx-auto border border-indigo-500/30 bg-indigo-500/5 shadow-sm hover:shadow-lg hover:-translate-y-1"
+                        className="relative overflow-hidden rounded-2xl transition-all duration-300 w-64 mx-auto border border-indigo-500/30 bg-indigo-500/5 shadow-sm hover:shadow-lg hover:-translate-y-1"
                         onMouseEnter={() => setHoveredPlan(tier.code)}
                         onMouseLeave={() => setHoveredPlan(null)}
                       >

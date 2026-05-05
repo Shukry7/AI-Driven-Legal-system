@@ -87,11 +87,20 @@ const scrollbarStyles = `
 interface SidebarProps {
   activeModule: string;
   onModuleChange: (module: string) => void;
+  lockedModules?: string[];
+  onLockedModule?: (module: string) => void;
   collapsed?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
 }
 
-export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCollapsedChange }: SidebarProps) {
+export function Sidebar({
+  activeModule,
+  onModuleChange,
+  lockedModules = [],
+  onLockedModule,
+  collapsed = false,
+  onCollapsedChange,
+}: SidebarProps) {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [hoverUserCard, setHoverUserCard] = useState(false);
   const [aiToolsExpanded, setAiToolsExpanded] = useState(true);
@@ -231,7 +240,12 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
                     icon={Languages}
                     label="Multilingual Translation"
                     active={activeModule === "translation"}
-                    onClick={() => onModuleChange("translation")}
+                    locked={lockedModules.includes("translation")}
+                    onClick={() =>
+                      lockedModules.includes("translation")
+                        ? onLockedModule?.("translation")
+                        : onModuleChange("translation")
+                    }
                     highlight
                     collapsed={collapsed}
                   />
@@ -239,7 +253,12 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
                     icon={AlertCircle}
                     label="Risk Classification"
                     active={activeModule === "classification"}
-                    onClick={() => onModuleChange("classification")}
+                    locked={lockedModules.includes("classification")}
+                    onClick={() =>
+                      lockedModules.includes("classification")
+                        ? onLockedModule?.("classification")
+                        : onModuleChange("classification")
+                    }
                     highlight
                     collapsed={collapsed}
                   />
@@ -479,6 +498,7 @@ interface NavItemProps {
   label: string;
   active?: boolean;
   highlight?: boolean;
+  locked?: boolean;
   onClick?: () => void;
   collapsed?: boolean;
 }
@@ -488,19 +508,22 @@ function NavItem({
   label,
   active,
   highlight,
+  locked,
   onClick,
   collapsed = false,
 }: NavItemProps) {
   return (
     <button
       onClick={onClick}
+      aria-disabled={locked}
       className={cn(
         "group relative flex items-center w-full rounded-lg text-sm transition-all duration-200",
         collapsed ? "justify-center px-2 py-2.5" : "gap-3 px-3 py-2.5",
         active
           ? "bg-sidebar-primary text-sidebar-primary-foreground shadow-lg"
           : "text-sidebar-foreground/80 hover:bg-sidebar-accent hover:text-sidebar-foreground",
-        highlight && !active && "text-sidebar-primary font-medium"
+        highlight && !active && "text-sidebar-primary font-medium",
+        locked && !active && "opacity-50 cursor-not-allowed"
       )}
       title={collapsed ? label : undefined}
     >
