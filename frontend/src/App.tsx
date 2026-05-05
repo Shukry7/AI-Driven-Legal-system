@@ -11,6 +11,7 @@ import ProfilePage from "./pages/profile/index";
 import SettingsPage from "./pages/settings/index";
 import MembershipPage from "./pages/membership/index";
 import AdminPage from "./pages/admin/index";
+import RegistrationRequestsPage from "./pages/admin/requests";
 import ClauseEntryPage from "./pages/clause/Entry";
 import ClauseUploadPage from "./pages/clause/Upload";
 import ClauseWorkspacePage from "./pages/clause/Workspace";
@@ -120,6 +121,14 @@ const App = () => (
                   element={
                     <ProtectedRoute>
                       <AdminPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/admin/requests"
+                  element={
+                    <ProtectedRoute>
+                      <RegistrationRequestsPage />
                     </ProtectedRoute>
                   }
                 />

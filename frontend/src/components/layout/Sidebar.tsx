@@ -188,6 +188,15 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
                 collapsed={collapsed}
               />
             )}
+            {isAdmin && (
+              <NavItem
+                icon={Bell}
+                label="Requests"
+                active={activeModule === "requests"}
+                onClick={() => navigate("/admin/requests")}
+                collapsed={collapsed}
+              />
+            )}
 
             {/* AI Tools Section with Collapsible */}
             <div className="pt-2">
@@ -272,7 +281,7 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
           </div>
 
           {/* Token Usage Card - Hide when collapsed */}
-          {!collapsed && (
+          {!collapsed && !isAdmin && (
             <div className="rounded-lg border border-sidebar-border bg-gradient-to-br from-sidebar-accent/40 to-sidebar-accent/20 p-3 transition-all duration-300 hover:shadow-lg hover:border-sidebar-primary/30">
               <div className="flex items-center justify-between text-xs">
                 <span className="uppercase tracking-wide font-semibold text-sidebar-primary">

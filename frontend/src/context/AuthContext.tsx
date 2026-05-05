@@ -9,6 +9,7 @@ interface AuthContextType {
   isAuthenticated: boolean;
   isLoading: boolean;
   isAdmin: boolean;
+  isApproved: boolean;
   plan: PlanTier;
   monthlyLimit: number;
   tokensUsed: number;
@@ -23,6 +24,12 @@ interface AuthContextType {
   register: (
     email: string,
     password: string,
+    details: {
+      phone: string;
+      profession: string;
+      professionOther?: string;
+      professionalIdNumber?: string;
+    },
   ) => Promise<{ error?: string; needsEmailConfirmation?: boolean }>;
   logout: () => Promise<void>;
 }
@@ -38,6 +45,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [tokensUsed, setTokensUsed] = useState(0);
   const [tokensRemaining, setTokensRemaining] = useState<number>(PLAN_LIMITS.free);
   const [isAdmin, setIsAdmin] = useState(false);
+  const [isApproved, setIsApproved] = useState(true);
 
   const applySnapshot = (snapshot?: {
     tier_code?: string | null;
@@ -117,6 +125,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setMonthlyLimit(PLAN_LIMITS.free);
       setTokensRemaining(PLAN_LIMITS.free);
       setIsAdmin(false);
+      setIsApproved(true);
       return;
     }
     refreshTokenSnapshot(user.id);
@@ -124,32 +133,86 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       try {
         const { data } = await supabase
           .from("profiles")
-          .select("is_admin")
+          .select("is_admin, approval_status")
           .eq("id", user.id)
           .single();
         setIsAdmin(Boolean(data?.is_admin));
+        const approved = data?.approval_status === "approved";
+        setIsApproved(approved);
+        if (!approved) {
+          await supabase.auth.signOut();
+        }
       } catch {
         setIsAdmin(false);
+        setIsApproved(true);
       }
     })();
   }, [refreshTokenSnapshot, user]);
 
   const login = async (email: string, password: string) => {
-    const { error } = await supabase.auth.signInWithPassword({
+    const { data, error } = await supabase.auth.signInWithPassword({
       email,
       password,
     });
-    return { error: error?.message };
+    if (error) return { error: error.message };
+
+    const userId = data.user?.id;
+    if (!userId) return { error: "Unable to verify account" };
+
+    const { data: profile, error: profileError } = await supabase
+      .from("profiles")
+      .select("approval_status, approval_reason")
+      .eq("id", userId)
+      .single();
+
+    if (profileError) {
+      await supabase.auth.signOut();
+      return { error: "Unable to verify approval status" };
+    }
+
+    if (profile?.approval_status !== "approved") {
+      await supabase.auth.signOut();
+      if (profile?.approval_status === "rejected") {
+        return {
+          error: profile.approval_reason
+            ? `Registration rejected: ${profile.approval_reason}`
+            : "Registration rejected. Please contact support.",
+        };
+      }
+      return { error: "Your registration is pending approval. Please wait." };
+    }
+
+    return {};
   };
 
-  const register = async (email: string, password: string) => {
+  const register = async (
+    email: string,
+    password: string,
+    details: {
+      phone: string;
+      profession: string;
+      professionOther?: string;
+      professionalIdNumber?: string;
+    },
+  ) => {
     const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: {
         emailRedirectTo: window.location.origin,
+        data: {
+          phone: details.phone,
+          profession: details.profession,
+          profession_other: details.professionOther ?? "",
+          professional_id_number: details.professionalIdNumber ?? "",
+          approval_status: "pending",
+        },
       },
     });
+
+    if (data.session) {
+      await supabase.auth.signOut();
+    }
     return {
       error: error?.message,
       needsEmailConfirmation: Boolean(data.user && !data.session),
@@ -201,9 +264,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     () => ({
       session,
       user,
-      isAuthenticated: Boolean(user),
+      isAuthenticated: Boolean(user) && isApproved,
       isLoading,
       isAdmin,
+      isApproved,
       plan,
       monthlyLimit,
       tokensUsed,
@@ -220,6 +284,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       user,
       isLoading,
       isAdmin,
+      isApproved,
       plan,
       monthlyLimit,
       tokensUsed,

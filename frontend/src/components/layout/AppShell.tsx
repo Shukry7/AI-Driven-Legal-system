@@ -17,6 +17,7 @@ export function AppShell({ activeModule, children }: AppShellProps) {
     else if (module === "settings") navigate("/settings");
     else if (module === "membership") navigate("/membership");
     else if (module === "admin") navigate("/admin");
+    else if (module === "requests") navigate("/admin/requests");
     else navigate("/");
   };
 

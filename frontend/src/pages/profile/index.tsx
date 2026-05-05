@@ -4,6 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { supabase } from "@/lib/supabaseClient";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { AppShell } from "@/components/layout/AppShell";
@@ -16,14 +17,17 @@ interface ProfileRecord {
   full_name: string | null;
   username: string | null;
   avatar_url: string | null;
+  phone?: string | null;
+  approval_status?: string | null;
 }
 
 export default function ProfilePage() {
-  const { user, plan, tokensRemaining, tokensUsed, monthlyLimit } = useAuth();
+  const { user, plan, tokensRemaining, tokensUsed, monthlyLimit, isApproved } = useAuth();
   const navigate = useNavigate();
   const [profile, setProfile] = useState<ProfileRecord | null>(null);
   const [fullName, setFullName] = useState("");
   const [username, setUsername] = useState("");
+  const [phone, setPhone] = useState("");
   const [avatarUrl, setAvatarUrl] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -34,7 +38,7 @@ export default function ProfilePage() {
     const loadProfile = async () => {
       const { data, error } = await supabase
         .from("profiles")
-        .select("id, email, full_name, username, avatar_url")
+        .select("id, email, full_name, username, avatar_url, phone, approval_status")
         .eq("id", user.id)
         .single();
 
@@ -46,6 +50,7 @@ export default function ProfilePage() {
       setProfile(data);
       setFullName(data.full_name ?? "");
       setUsername(data.username ?? "");
+      setPhone(data.phone ?? "");
       setAvatarUrl(data.avatar_url ?? null);
     };
 
@@ -97,6 +102,7 @@ export default function ProfilePage() {
       email: user.email ?? null,
       full_name: fullName.trim(),
       username: username.trim() || null,
+      phone: phone.trim(),
       avatar_url: avatarUrl,
       updated_at: new Date().toISOString(),
     };
@@ -136,6 +142,13 @@ export default function ProfilePage() {
           <p className="text-muted-foreground">
             Manage your account details and personalize your avatar
           </p>
+          <div>
+            {isApproved ? (
+              <Badge className="bg-emerald-500/15 text-emerald-600">Approved</Badge>
+            ) : (
+              <Badge variant="secondary">Pending approval</Badge>
+            )}
+          </div>
         </div>
 
         <Card className="overflow-hidden border shadow-lg transition-all duration-300 hover:shadow-xl">
@@ -257,6 +270,19 @@ export default function ProfilePage() {
                   className="transition-all duration-200 focus:ring-2 focus:ring-primary/20 hover:border-primary/50"
                 />
               </div>
+            </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="phone" className="text-sm font-semibold flex items-center gap-2">
+                Phone
+              </Label>
+              <Input
+                id="phone"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1 555 0123"
+                className="transition-all duration-200 focus:ring-2 focus:ring-primary/20 hover:border-primary/50"
+              />
             </div>
 
             {/* Email Field - Full Width */}

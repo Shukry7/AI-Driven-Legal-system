@@ -10,6 +10,10 @@ export default function RegisterPage() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [profession, setProfession] = useState("");
+  const [professionOther, setProfessionOther] = useState("");
+  const [professionalIdNumber, setProfessionalIdNumber] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
@@ -25,8 +29,23 @@ export default function RegisterPage() {
       return;
     }
 
+    if (!profession) {
+      setError("Please select your profession.");
+      return;
+    }
+
+    if (profession === "other" && !professionOther.trim()) {
+      setError("Please enter your profession.");
+      return;
+    }
+
     setIsSubmitting(true);
-    const result = await register(email, password);
+    const result = await register(email, password, {
+      phone,
+      profession,
+      professionOther: profession === "other" ? professionOther.trim() : undefined,
+      professionalIdNumber: professionalIdNumber.trim() || undefined,
+    });
     setIsSubmitting(false);
 
     if (result.error) {
@@ -35,10 +54,13 @@ export default function RegisterPage() {
     }
 
     if (result.needsEmailConfirmation) {
-      setSuccess("Check your email to confirm your account.");
+      setSuccess(
+        "Registration submitted for approval. Check your email to confirm your account.",
+      );
     } else {
-      navigate("/", { replace: true });
+      setSuccess("Registration submitted for approval. You will be notified once approved.");
     }
+    navigate("/login", { replace: true });
   };
 
   return (
@@ -58,6 +80,73 @@ export default function RegisterPage() {
 
         <div className="bg-card border border-border rounded-xl p-8 shadow-sm space-y-6">
           <form onSubmit={handleSubmit} className="space-y-5">
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="phone">
+                Phone
+              </label>
+              <input
+                id="phone"
+                type="tel"
+                value={phone}
+                onChange={(e) => setPhone(e.target.value)}
+                placeholder="+1 555 0123"
+                required
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition"
+              />
+            </div>
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="profession">
+                Profession
+              </label>
+              <select
+                id="profession"
+                value={profession}
+                onChange={(e) => setProfession(e.target.value)}
+                required
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground focus:outline-none focus:ring-2 focus:ring-ring transition"
+              >
+                <option value="" disabled>
+                  Select your profession
+                </option>
+                <option value="lawyer">Lawyer</option>
+                <option value="legal_practitioner">Legal practitioner</option>
+                <option value="law_student">Law student</option>
+                <option value="other">Other</option>
+              </select>
+            </div>
+
+            {profession === "other" && (
+              <div className="space-y-1.5">
+                <label className="text-sm font-medium text-foreground" htmlFor="professionOther">
+                  Profession (other)
+                </label>
+                <input
+                  id="professionOther"
+                  type="text"
+                  value={professionOther}
+                  onChange={(e) => setProfessionOther(e.target.value)}
+                  placeholder="Enter your profession"
+                  required
+                  className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition"
+                />
+              </div>
+            )}
+
+            <div className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground" htmlFor="professionalIdNumber">
+                Professional identification number (optional)
+              </label>
+              <input
+                id="professionalIdNumber"
+                type="text"
+                value={professionalIdNumber}
+                onChange={(e) => setProfessionalIdNumber(e.target.value)}
+                placeholder="Enter your ID number"
+                className="w-full h-10 px-3 rounded-md border border-input bg-background text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring transition"
+              />
+            </div>
+
             <div className="space-y-1.5">
               <label className="text-sm font-medium text-foreground" htmlFor="email">
                 Email

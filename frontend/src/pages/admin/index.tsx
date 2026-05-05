@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { AppShell } from "@/components/layout/AppShell";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { supabase } from "@/lib/supabaseClient";
 import { useAuth } from "@/context/AuthContext";
@@ -21,6 +22,8 @@ interface UserProfileRow {
   full_name: string | null;
   username: string | null;
   is_admin: boolean;
+  phone?: string | null;
+  approval_status?: string | null;
   created_at?: string | null;
 }
 
@@ -38,7 +41,9 @@ export default function AdminPage() {
   const loadAdminData = async () => {
     const [tierRes, profileRes, membershipRes] = await Promise.all([
       supabase.from("membership_tiers").select("id, code, name, monthly_tokens, is_unlimited"),
-      supabase.from("profiles").select("id, email, full_name, username, is_admin, created_at"),
+      supabase
+        .from("profiles")
+        .select("id, email, full_name, username, is_admin, phone, approval_status, created_at"),
       supabase.from("user_memberships").select("user_id, tier_id"),
     ]);
 
@@ -110,8 +115,10 @@ export default function AdminPage() {
                   <tr className="border-b text-muted-foreground">
                     <th className="text-left py-2 pr-4 font-medium">User</th>
                     <th className="text-left py-2 pr-4 font-medium">Email</th>
+                    <th className="text-left py-2 pr-4 font-medium">Phone</th>
                     <th className="text-left py-2 pr-4 font-medium">Joined</th>
                     <th className="text-left py-2 pr-4 font-medium">Subscription</th>
+                    <th className="text-left py-2 pr-4 font-medium">Approval</th>
                     <th className="text-left py-2 font-medium">Promote package</th>
                   </tr>
                 </thead>
@@ -132,11 +139,23 @@ export default function AdminPage() {
                         <td className="py-3 pr-4 text-muted-foreground">
                           {profile.email ?? "-"}
                         </td>
+                        <td className="py-3 pr-4 text-muted-foreground">
+                          {profile.phone ?? "-"}
+                        </td>
                         <td className="py-3 pr-4 text-muted-foreground">{joined}</td>
                         <td className="py-3 pr-4">
                           <span className="text-xs font-medium">
                             {tier?.name ?? "Free"}
                           </span>
+                        </td>
+                        <td className="py-3 pr-4">
+                          {profile.approval_status === "approved" ? (
+                            <Badge className="bg-emerald-500/15 text-emerald-600">Approved</Badge>
+                          ) : profile.approval_status === "rejected" ? (
+                            <Badge variant="destructive">Rejected</Badge>
+                          ) : (
+                            <Badge variant="secondary">Pending</Badge>
+                          )}
                         </td>
                         <td className="py-3">
                           <Select
