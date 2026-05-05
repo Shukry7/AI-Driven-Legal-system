@@ -8,10 +8,12 @@ interface AuthContextType {
   user: User | null;
   isAuthenticated: boolean;
   isLoading: boolean;
+  isAdmin: boolean;
   plan: PlanTier;
   monthlyLimit: number;
   tokensUsed: number;
   tokensRemaining: number;
+  refreshTokens: () => Promise<void>;
   canConsumeTokens: (amount: number) => boolean;
   consumeTokens: (
     amount: number,
@@ -35,6 +37,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [monthlyLimit, setMonthlyLimit] = useState<number>(PLAN_LIMITS.free);
   const [tokensUsed, setTokensUsed] = useState(0);
   const [tokensRemaining, setTokensRemaining] = useState<number>(PLAN_LIMITS.free);
+  const [isAdmin, setIsAdmin] = useState(false);
 
   const applySnapshot = (snapshot?: {
     tier_code?: string | null;
@@ -113,9 +116,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setTokensUsed(0);
       setMonthlyLimit(PLAN_LIMITS.free);
       setTokensRemaining(PLAN_LIMITS.free);
+      setIsAdmin(false);
       return;
     }
     refreshTokenSnapshot(user.id);
+    (async () => {
+      try {
+        const { data } = await supabase
+          .from("profiles")
+          .select("is_admin")
+          .eq("id", user.id)
+          .single();
+        setIsAdmin(Boolean(data?.is_admin));
+      } catch {
+        setIsAdmin(false);
+      }
+    })();
   }, [refreshTokenSnapshot, user]);
 
   const login = async (email: string, password: string) => {
@@ -176,16 +192,23 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     return { ok: true };
   }, [refreshTokenSnapshot, user]);
 
+  const refreshTokens = useCallback(async () => {
+    if (!user) return;
+    await refreshTokenSnapshot(user.id);
+  }, [refreshTokenSnapshot, user]);
+
   const value = useMemo(
     () => ({
       session,
       user,
       isAuthenticated: Boolean(user),
       isLoading,
+      isAdmin,
       plan,
       monthlyLimit,
       tokensUsed,
       tokensRemaining,
+      refreshTokens,
       canConsumeTokens,
       consumeTokens,
       login,
@@ -196,10 +219,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       session,
       user,
       isLoading,
+      isAdmin,
       plan,
       monthlyLimit,
       tokensUsed,
       tokensRemaining,
+      refreshTokens,
       canConsumeTokens,
       consumeTokens,
     ],

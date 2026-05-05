@@ -42,6 +42,47 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
+import { UserCog } from "lucide-react";
+
+// Custom scrollbar styles
+const scrollbarStyles = `
+  .custom-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+    height: 4px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+    border-radius: 4px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+  }
+  
+  .custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35);
+  }
+  
+  /* Hide scrollbar when not hovering for cleaner look */
+  .custom-scrollbar:not(:hover)::-webkit-scrollbar-thumb {
+    background: transparent;
+  }
+  
+  .custom-scrollbar:hover::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.2);
+  }
+  
+  .custom-scrollbar:hover::-webkit-scrollbar-thumb:hover {
+    background: rgba(255, 255, 255, 0.35);
+  }
+`;
 
 interface SidebarProps {
   activeModule: string;
@@ -53,6 +94,7 @@ interface SidebarProps {
 export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCollapsedChange }: SidebarProps) {
   const [showLogoutDialog, setShowLogoutDialog] = useState(false);
   const [hoverUserCard, setHoverUserCard] = useState(false);
+  const [aiToolsExpanded, setAiToolsExpanded] = useState(true);
   const {
     logout,
     user,
@@ -60,6 +102,7 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
     monthlyLimit,
     tokensUsed,
     plan,
+    isAdmin,
   } = useAuth();
   const navigate = useNavigate();
 
@@ -92,6 +135,9 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
 
   return (
     <>
+      {/* Inject scrollbar styles */}
+      <style>{scrollbarStyles}</style>
+      
       <aside 
         className={cn(
           "bg-sidebar text-sidebar-foreground flex flex-col h-screen fixed left-0 top-0 shadow-2xl transition-all duration-300 z-50",
@@ -116,8 +162,8 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
           </div>
         </div>
 
-        {/* Navigation Section */}
-        <nav className="flex-1 min-h-0 px-3 py-4 overflow-y-auto">
+        {/* Navigation Section with Custom Scrollbar */}
+        <nav className="flex-1 min-h-0 px-3 py-4 overflow-y-auto custom-scrollbar">
           <div className="space-y-1">
             <NavItem
               icon={LayoutDashboard}
@@ -133,45 +179,71 @@ export function Sidebar({ activeModule, onModuleChange, collapsed = false, onCol
               onClick={() => onModuleChange("cases")}
               collapsed={collapsed}
             />
+            {isAdmin && (
+              <NavItem
+                icon={UserCog}
+                label="User Management"
+                active={activeModule === "admin"}
+                onClick={() => navigate("/admin")}
+                collapsed={collapsed}
+              />
+            )}
 
+            {/* AI Tools Section with Collapsible */}
             <div className="pt-2">
-              {!collapsed && (
-                <div className="text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider px-3 pb-2">
-                  AI Tools
+              {!collapsed ? (
+                <button
+                  onClick={() => setAiToolsExpanded(!aiToolsExpanded)}
+                  className="flex items-center justify-between w-full text-xs font-semibold text-sidebar-foreground/50 uppercase tracking-wider px-3 py-2 hover:text-sidebar-foreground/80 transition-colors duration-200"
+                >
+                  <span>AI Tools</span>
+                  <ChevronDown className={cn(
+                    "w-3 h-3 transition-transform duration-200",
+                    aiToolsExpanded ? "rotate-0" : "-rotate-90"
+                  )} />
+                </button>
+              ) : (
+                <div className="text-center mb-2">
+                  <div className="h-px bg-sidebar-border/50 my-2" />
                 </div>
               )}
-              <NavItem
-                icon={CheckCircle}
-                label="Document Analysis"
-                active={activeModule === "clause"}
-                onClick={() => onModuleChange("clause")}
-                highlight
-                collapsed={collapsed}
-              />
-              <NavItem
-                icon={Languages}
-                label="Multilingual Translation"
-                active={activeModule === "translation"}
-                onClick={() => onModuleChange("translation")}
-                highlight
-                collapsed={collapsed}
-              />
-              <NavItem
-                icon={AlertCircle}
-                label="Risk Classification"
-                active={activeModule === "classification"}
-                onClick={() => onModuleChange("classification")}
-                highlight
-                collapsed={collapsed}
-              />
-              <NavItem
-                icon={GitGraph}
-                label="Legal Lineage"
-                active={activeModule === "legalLineage"}
-                onClick={() => onModuleChange("legalLineage")}
-                highlight
-                collapsed={collapsed}
-              />
+              
+              {(aiToolsExpanded || collapsed) && (
+                <div className="space-y-1">
+                  <NavItem
+                    icon={CheckCircle}
+                    label="Document Analysis"
+                    active={activeModule === "clause"}
+                    onClick={() => onModuleChange("clause")}
+                    highlight
+                    collapsed={collapsed}
+                  />
+                  <NavItem
+                    icon={Languages}
+                    label="Multilingual Translation"
+                    active={activeModule === "translation"}
+                    onClick={() => onModuleChange("translation")}
+                    highlight
+                    collapsed={collapsed}
+                  />
+                  <NavItem
+                    icon={AlertCircle}
+                    label="Risk Classification"
+                    active={activeModule === "classification"}
+                    onClick={() => onModuleChange("classification")}
+                    highlight
+                    collapsed={collapsed}
+                  />
+                  <NavItem
+                    icon={GitGraph}
+                    label="Legal Lineage"
+                    active={activeModule === "legalLineage"}
+                    onClick={() => onModuleChange("legalLineage")}
+                    highlight
+                    collapsed={collapsed}
+                  />
+                </div>
+              )}
             </div>
           </div>
         </nav>

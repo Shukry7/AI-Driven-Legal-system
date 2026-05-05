@@ -10,6 +10,7 @@ import RegisterPage from "./pages/register/index";
 import ProfilePage from "./pages/profile/index";
 import SettingsPage from "./pages/settings/index";
 import MembershipPage from "./pages/membership/index";
+import AdminPage from "./pages/admin/index";
 import ClauseEntryPage from "./pages/clause/Entry";
 import ClauseUploadPage from "./pages/clause/Upload";
 import ClauseWorkspacePage from "./pages/clause/Workspace";
@@ -111,6 +112,14 @@ const App = () => (
                   element={
                     <ProtectedRoute>
                       <MembershipPage />
+                    </ProtectedRoute>
+                  }
+                />
+                <Route
+                  path="/admin"
+                  element={
+                    <ProtectedRoute>
+                      <AdminPage />
                     </ProtectedRoute>
                   }
                 />
